@@ -1,0 +1,3 @@
+rioxarray
+pytest
+python>=3.12
