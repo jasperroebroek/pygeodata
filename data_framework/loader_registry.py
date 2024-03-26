@@ -1,22 +1,6 @@
-from typing import Protocol, Optional, Dict, Tuple, runtime_checkable
+from typing import Optional, Dict
 
-import xarray as xr
-from affine import Affine
-from rasterio import CRS
-
-
-@runtime_checkable
-class RasterLoader(Protocol):
-    def parse_crs_transform(self, crs: Optional[CRS] = None, transform: Optional[Affine] = None) -> Tuple[CRS, Affine]:
-        ...
-
-    def load(self, crs: Optional[CRS] = None, transform: Optional[Affine] = None) -> xr.DataArray:
-        ...
-
-    @classmethod
-    def load_stack(cls, loaders: list['RasterLoader'], crs: Optional[CRS] = None,
-                   transform: Optional[Affine] = None) -> xr.DataArray:
-        ...
+from data_framework.types import RasterLoader
 
 
 class LoaderRegistry:
