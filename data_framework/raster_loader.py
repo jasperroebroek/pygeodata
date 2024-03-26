@@ -20,7 +20,6 @@ class BaseRasterLoader(ABC):
     def get_class_name(self) -> str:
         return self.__class__.__name__.replace("Loader", "")
 
-
     def get_params(self) -> Optional[str]:
         parts = []
         for key in self.__dict__:

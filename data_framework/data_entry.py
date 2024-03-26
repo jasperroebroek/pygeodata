@@ -33,10 +33,16 @@ class RasterDataEntry:
     generate_func: Optional[Callable[['RasterDataEntry'], None]] = None
 
     def __post_init__(self):
-        if not self.is_generated():
-            self.generate()
-        self._fp = rio.open(self.get_path())
-        self._fp.close()
+        self._fp = None
+
+        if self.is_generated():
+            self._fp = rio.open(self.get_path())
+            self._fp.close()
+
+    def get_fp(self):
+        if self._fp is None:
+            raise FileNotFoundError(f'file not found for {self.get_path()}')
+        return self._fp
 
     def convert_path(self, crs: CRS, transform: Affine, shape: Shape) -> Path:
         """Function that converts a path of the data to the reprojected data.
@@ -53,7 +59,8 @@ class RasterDataEntry:
         return self.path
 
     def get_crs_transform_shape(self) -> Tuple[CRS, Affine, Shape]:
-        return self._fp.crs, self._fp.transform, self._fp.shape
+        fp = self.get_fp()
+        return fp.crs, fp.transform, fp.shape
 
     def parse_crs_transform_shape(self, crs: Optional[CRS] = None, transform: Optional[Affine] = None,
                                   shape: Optional[Shape] = None) -> Tuple[CRS, Affine, Shape]:
@@ -62,12 +69,13 @@ class RasterDataEntry:
             crs, transform, shape = self.get_crs_transform_shape()
 
         if transform is None or shape is None:
+            fp = self.get_fp()
             transform, width, height = calculate_default_transform(
-                self._fp.crs,
+                fp.crs,
                 crs,
-                self._fp.width,
-                self._fp.height,
-                *self._fp.bounds
+                fp.width,
+                fp.height,
+                *fp.bounds
             )
             shape = (height, width)
 
@@ -111,6 +119,10 @@ class RasterDataEntry:
 
         da = load_file(path, cache=False)
 
+        dim_name = da.rio._check_dimensions()
+        if dim_name == "band" and da[dim_name].size == 1:
+            da = da.sel(band=1).drop_vars('band')
+
         if isinstance(self.subset, (str, int)):
             da = da.sel(band=self.subset)
         elif isinstance(self.subset, dict):
@@ -125,19 +137,20 @@ class RasterDataEntry:
         if not self.is_generated():
             self.generate()
 
+        fp = self.get_fp()
         crs, transform, shape = self.parse_crs_transform_shape(crs, transform, shape)
 
         path = self.get_path()
         reprojected_path = self.get_reprojected_path(crs, transform, shape)
         reprojected_path.parent.mkdir(exist_ok=True, parents=True)
 
-        dtype = self.reprojection_kwargs.get('dtype', np.dtype(self._fp.dtypes[0]))
+        dtype = self.reprojection_kwargs.get('dtype', np.dtype(fp.dtypes[0]))
 
         if (
-                crs == self._fp.crs and
-                transform == self._fp.transform and
-                self._fp.count == 1 and
-                np.dtype(self._fp.dtypes[0]) == dtype
+                crs == fp.crs and
+                transform == fp.transform and
+                fp.count == 1 and
+                np.dtype(fp.dtypes[0]) == dtype
         ):
             os.symlink(path, reprojected_path)
             return

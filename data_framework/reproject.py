@@ -1,3 +1,5 @@
+import os
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -10,6 +12,7 @@ from rasterio.dtypes import dtype_rev
 from rasterio.enums import Resampling
 from rioxarray.raster_array import _NODATA_DTYPE_MAP
 
+from data_framework.paths import path_temp
 from data_framework.types import Shape
 
 
@@ -18,6 +21,8 @@ def reproject(da: xr.DataArray, path: Path, crs: CRS, transform: Affine, shape: 
     """da is reprojected and stored in path"""
     if path.exists():
         return
+
+    temp_path = path_temp / f"~{'_'.join(path.parts[1:])}"
 
     if da.ndim != 2:
         raise IndexError("Only 2D is supported")
@@ -52,7 +57,7 @@ def reproject(da: xr.DataArray, path: Path, crs: CRS, transform: Affine, shape: 
         'transform': transform,
     }
 
-    with rio.open(path, 'w', **profile) as dst:
+    with rio.open(temp_path, 'w', **profile) as dst:
         rasterio.warp.reproject(
             source=da.values,
             destination=rasterio.band(dst, 1),
@@ -65,3 +70,5 @@ def reproject(da: xr.DataArray, path: Path, crs: CRS, transform: Affine, shape: 
             resampling=resampling,
             **reprojection_kwargs,
         )
+
+    shutil.move(temp_path, path)
