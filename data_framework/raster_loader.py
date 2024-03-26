@@ -18,16 +18,20 @@ class BaseRasterLoader(ABC):
         pass
 
     def get_class_name(self) -> str:
+        return self.__class__.__name__.replace("Loader", "")
+
+
+    def get_params(self) -> Optional[str]:
         parts = []
         for key in self.__dict__:
             if key in ('stackable', 'name'):
                 continue
             parts.append(f"{key}={self.__dict__[key]}")
 
-        params_str = "_".join(parts)
-        if len(params_str) == 0:
-            return self.__class__.__name__.replace("Loader", "")
-        return self.__class__.__name__.replace("Loader", "") + "_" + params_str
+        if len(parts) == 0:
+            return
+
+        return "_".join(parts)
 
     @abstractmethod
     def parse_crs_transform_shape(self, crs: Optional[CRS] = None, transform: Optional[Affine] = None,
@@ -69,6 +73,7 @@ class RasterLoaderSingle(BaseRasterLoader):
     def get_data_entry(self) -> RasterDataEntry:
         de = self.data_entry
         de.caller_name = self.get_class_name()
+        de.params = self.get_params()
         return de
 
     def parse_crs_transform_shape(self, crs: Optional[CRS] = None, transform: Optional[Affine] = None,
@@ -96,6 +101,7 @@ class RasterLoaderMultiple(BaseRasterLoader):
         names: List[str] = []
         for entry in self.data_entries:
             entry.caller_name = self.get_class_name()
+            entry.params = self.get_params()
             des.append(entry)
             if entry.name in names:
                 raise ValueError(f"several entries with the same name: {entry.name}")

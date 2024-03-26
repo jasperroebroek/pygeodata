@@ -24,6 +24,7 @@ class RasterDataEntry:
     """class that holds the info to deal with any 2D raster data"""
     name: str
     caller_name: Optional[str] = None
+    params: Optional[str] = None
     subset: Optional[Union[str, int, dict]] = None
     path: Optional[Path] = None
     path_reprojected: Optional[Path] = None
@@ -40,11 +41,12 @@ class RasterDataEntry:
     def convert_path(self, crs: CRS, transform: Affine, shape: Shape) -> Path:
         """Function that converts a path of the data to the reprojected data.
         NOTE: This is not always guaranteed to work"""
+        p = (self.caller_name, self.params) if self.params is not None else (self.caller_name,)
         return Path(path_data_reprojected,
                     f"{crs.to_string().replace(':', '_')}",
                     transform_to_str(transform),
                     f"{shape[0]}-{shape[1]}",
-                    self.caller_name,
+                    *p,
                     f"{self.name}.tif")
 
     def get_path(self) -> Optional[Path]:
