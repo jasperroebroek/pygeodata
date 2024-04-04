@@ -1,22 +1,19 @@
 import gc
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Union, Callable, Tuple
 
-import numpy as np
 import rasterio as rio
 import xarray as xr
 from affine import Affine
-from rasterio import CRS
-from rasterio.enums import Resampling
-from rasterio.warp import calculate_default_transform
-
 from data_framework.paths import path_data_reprojected
 from data_framework.reproject import reproject
 from data_framework.types import Shape
 from data_framework.utils import transform_to_str
 from data_framework.xarray import load_flat_file, load_file
+from rasterio import CRS
+from rasterio.enums import Resampling
+from rasterio.warp import calculate_default_transform
 
 
 @dataclass
@@ -30,6 +27,7 @@ class RasterDataEntry:
     path_reprojected: Optional[Path] = None
     resampling: Resampling = Resampling.nearest
     reprojection_kwargs: dict = field(default_factory=dict)
+    crs: Optional[CRS] = None,
     generate_func: Optional[Callable[['RasterDataEntry'], None]] = None
 
     def __post_init__(self):
@@ -60,12 +58,16 @@ class RasterDataEntry:
 
     def get_crs_transform_shape(self) -> Tuple[CRS, Affine, Shape]:
         fp = self.get_fp()
-        return fp.crs, fp.transform, fp.shape
+        crs = fp.crs if fp.crs is not None else self.crs
+
+        if crs is None:
+            raise rio.RasterioIOError("Can't find CRS in file. It needs to be set on the DataEntry")
+
+        return crs, fp.transform, fp.shape
 
     def parse_crs_transform_shape(self, crs: Optional[CRS] = None, transform: Optional[Affine] = None,
                                   shape: Optional[Shape] = None) -> Tuple[CRS, Affine, Shape]:
         if crs is None:
-            print("using file CRS and transform")
             crs, transform, shape = self.get_crs_transform_shape()
 
         if transform is None or shape is None:
@@ -88,9 +90,9 @@ class RasterDataEntry:
         if self.path_reprojected is None:
             path = self.get_path()
             if path is None:
-                raise ValueError("Neither path nor path_reprojected specified")
+                raise ValueError(f"Neither path nor path_reprojected specified: {self}")
             if self.caller_name is None:
-                raise ValueError("No caller name specified")
+                raise ValueError(f"No caller name specified: {self}")
             return self.convert_path(crs, transform, shape)
 
         return self.path_reprojected
@@ -128,8 +130,10 @@ class RasterDataEntry:
         elif isinstance(self.subset, dict):
             da = da.sel(**self.subset)
 
-        reproject(da, output_path, crs=crs, transform=transform, shape=shape, resampling=self.resampling,
-                  **self.reprojection_kwargs)
+        src_crs, _, _ = self.get_crs_transform_shape()
+
+        reproject(da, output_path, src_crs=src_crs, dst_crs=crs, dst_transform=transform, dst_shape=shape,
+                  resampling=self.resampling, **self.reprojection_kwargs)
         da.close()
 
     def reproject(self, crs: Optional[CRS] = None, transform: Optional[Affine] = None,
@@ -137,29 +141,18 @@ class RasterDataEntry:
         if not self.is_generated():
             self.generate()
 
-        fp = self.get_fp()
         crs, transform, shape = self.parse_crs_transform_shape(crs, transform, shape)
 
-        path = self.get_path()
         reprojected_path = self.get_reprojected_path(crs, transform, shape)
         reprojected_path.parent.mkdir(exist_ok=True, parents=True)
-
-        dtype = self.reprojection_kwargs.get('dtype', np.dtype(fp.dtypes[0]))
-
-        if (
-                crs == fp.crs and
-                transform == fp.transform and
-                fp.count == 1 and
-                np.dtype(fp.dtypes[0]) == dtype
-        ):
-            os.symlink(path, reprojected_path)
-            return
 
         self._reproject(crs=crs, transform=transform, shape=shape)
         gc.collect()
 
     def load(self, crs: Optional[CRS] = None, transform: Optional[Affine] = None,
              shape: Optional[Shape] = None) -> xr.DataArray:
+        crs, transform, shape = self.parse_crs_transform_shape(crs, transform, shape)
+
         if not self.is_reprojected(crs, transform, shape):
             self.reproject(crs, transform, shape)
 

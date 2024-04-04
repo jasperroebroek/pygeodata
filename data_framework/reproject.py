@@ -1,4 +1,3 @@
-import os
 import shutil
 from pathlib import Path
 
@@ -16,7 +15,7 @@ from data_framework.paths import path_temp
 from data_framework.types import Shape
 
 
-def reproject(da: xr.DataArray, path: Path, crs: CRS, transform: Affine, shape: Shape,
+def reproject(da: xr.DataArray, path: Path, src_crs: CRS, dst_crs: CRS, dst_transform: Affine, dst_shape: Shape,
               resampling: Resampling = Resampling.nearest, **reprojection_kwargs) -> None:
     """da is reprojected and stored in path"""
     if path.exists():
@@ -46,15 +45,15 @@ def reproject(da: xr.DataArray, path: Path, crs: CRS, transform: Affine, shape: 
 
     profile = {
         'driver': 'GTiff',
-        'height': shape[0],
-        'width': shape[1],
+        'height': dst_shape[0],
+        'width': dst_shape[1],
         'dtype': dtype,
         'nodata': dst_nodata,
         'compress': compress,
         'zlevel': compress_level,
         'count': 1,
-        'crs': crs,
-        'transform': transform,
+        'crs': dst_crs,
+        'transform': dst_transform,
     }
 
     with rio.open(temp_path, 'w', **profile) as dst:
@@ -62,10 +61,10 @@ def reproject(da: xr.DataArray, path: Path, crs: CRS, transform: Affine, shape: 
             source=da.values,
             destination=rasterio.band(dst, 1),
             src_transform=da.rio.transform(recalc=True),
-            src_crs=da.rio.crs,
+            src_crs=src_crs,
             src_nodata=da.rio.nodata,
-            dst_transform=transform,
-            dst_crs=crs,
+            dst_transform=dst_transform,
+            dst_crs=dst_crs,
             dst_nodata=dst_nodata,
             resampling=resampling,
             **reprojection_kwargs,
