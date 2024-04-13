@@ -23,7 +23,7 @@ def _load_raster_stack(loaders: List[RasterLoader], crs: Optional[CRS] = None,
 
 
 def load_raster_data(loaders: Union[str, RasterLoader, Iterable[RasterLoader]],
-                     template: Optional[xr.DataArray] = None, crs: Optional[CRS] = None,
+                     template: Optional[xr.DataArray] = None, *, crs: Optional[CRS] = None,
                      transform: Optional[Affine] = None, shape: Optional[Shape] = None) -> RasterData:
     if template is not None:
         if template.rio.crs is None:
