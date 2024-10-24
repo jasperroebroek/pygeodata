@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Optional, Tuple, List
+from typing import Any, Dict, List, Optional
 
 import xarray as xr
 from affine import Affine
@@ -13,28 +13,35 @@ from data_framework.types import Shape
 class BaseRasterLoader(ABC):
     stackable: bool = False
 
-    @abstractmethod
-    def get_name(self) -> str:
-        pass
-
-    def get_class_name(self) -> str:
+    @property
+    def class_name(self) -> str:
         return self.__class__.__name__.replace("Loader", "")
 
-    def get_params(self) -> Optional[str]:
-        parts = []
+    def get_params(self) -> Dict[str, Any]:
+        params = {}
         for key in self.__dict__:
-            if key in ('stackable', 'name'):
+            if key in ('stackable', 'name', 'class_name'):
                 continue
-            parts.append(f"{key}={self.__dict__[key]}")
+            params.update({key: self.__dict__[key]})
+        return params
 
-        if len(parts) == 0:
+    def get_params_str(self) -> Optional[str]:
+        params = self.get_params()
+        if len(params) == 0:
             return
+
+        parts = []
+        for key in sorted(params.keys()):
+            parts.append(f"{key}={params[key]}")
 
         return "_".join(parts)
 
     @abstractmethod
-    def parse_crs_transform_shape(self, crs: Optional[CRS] = None, transform: Optional[Affine] = None,
-                                  shape: Optional[Shape] = None) -> Tuple[CRS, Affine, Shape]:
+    def is_processed(self, crs: CRS, transform: Affine, shape: Shape) -> None:
+        pass
+
+    @abstractmethod
+    def process(self, crs: CRS, transform: Affine, shape: Shape) -> None:
         pass
 
     @abstractmethod
@@ -43,21 +50,17 @@ class BaseRasterLoader(ABC):
         pass
 
     @classmethod
-    def load_stack(cls, loaders: list['RasterLoaderSingle'], crs: Optional[CRS] = None,
-                   transform: Optional[Affine] = None, shape: Optional[Shape] = None) -> xr.DataArray:
+    def load_stack(cls, loaders: list['RasterLoaderSingle'], crs: CRS, transform: Affine, shape: Shape) -> xr.DataArray:
         if not cls.stackable:
             raise StackError("Attempting to stack non-stackable rasters")
 
-        crs, transform, shape = loaders[0].parse_crs_transform_shape(crs, transform, shape)
-
-        bl = loaders[0]
         rasters = [loader.load(crs, transform, shape) for loader in loaders]
         da_combined = xr.merge(rasters).to_array(dim='variable')
 
         if da_combined.coords['variable'].size == 1:
             da_combined = da_combined.isel(variable=0).drop_vars('variable')
 
-        return da_combined.rename(bl.data_entry.name)
+        return da_combined.rename(loaders[0].data_entry.name)
 
 
 class RasterLoaderSingle(BaseRasterLoader):
@@ -66,21 +69,17 @@ class RasterLoaderSingle(BaseRasterLoader):
     def data_entry(self) -> RasterDataEntry:
         pass
 
-    def get_name(self) -> str:
-        return self.get_data_entry().name
-
     def get_data_entry(self) -> RasterDataEntry:
         de = self.data_entry
-        de.caller_name = self.get_class_name()
+        de.caller_name = self.class_name
         de.params = self.get_params()
         return de
 
-    def parse_crs_transform_shape(self, crs: Optional[CRS] = None, transform: Optional[Affine] = None,
-                                  shape: Optional[Shape] = None) -> Tuple[CRS, Affine, Shape]:
-        return self.get_data_entry().parse_crs_transform_shape(crs, transform, shape)
+    def is_processed(self, crs: CRS, transform: Affine, shape: Shape) -> bool:
+        return self.get_data_entry().is_processed(crs, transform, shape)
 
-    def is_generated(self) -> bool:
-        return self.get_data_entry().is_generated()
+    def process(self, crs: CRS, transform: Affine, shape: Shape) -> None:
+        self.get_data_entry().process(crs, transform, shape)
 
     def load(self, crs: Optional[CRS] = None, transform: Optional[Affine] = None,
              shape: Optional[Shape] = None) -> xr.DataArray:
@@ -88,8 +87,6 @@ class RasterLoaderSingle(BaseRasterLoader):
 
 
 class RasterLoaderMultiple(BaseRasterLoader):
-    name: str
-
     @property
     @abstractmethod
     def data_entries(self) -> List[RasterDataEntry]:
@@ -97,49 +94,52 @@ class RasterLoaderMultiple(BaseRasterLoader):
 
     def get_data_entries(self) -> List[RasterDataEntry]:
         des: List[RasterDataEntry] = []
-        names: List[str] = []
-        for entry in self.data_entries:
-            entry.caller_name = self.get_class_name()
-            entry.params = self.get_params()
-            des.append(entry)
-            if entry.name in names:
-                raise ValueError(f"several entries with the same name: {entry.name}")
-            names.append(entry.name)
+        names = []
+        for de in self.data_entries:
+            de.caller_name = self.class_name
+            de.params = self.get_params()
+            des.append(de)
+            if de.name in names:
+                raise ValueError(f"several entries with the same name: {de.name}")
+            names.append(de.name)
         return des
 
-    def get_name(self) -> str:
-        return self.name
+    @property
+    @abstractmethod
+    def data_entry_processed(self) -> RasterDataEntry:
+        pass
 
-    def parse_crs_transform_shape(self, crs: Optional[CRS] = None, transform: Optional[Affine] = None,
-                                  shape: Optional[Shape] = None) -> Tuple[CRS, Affine, Shape]:
-        crs_list = []
-        transform_list = []
-        shape_list = []
+    def get_data_entry_processed(self) -> RasterDataEntry:
+        de = self.data_entry_processed
+        de.caller_name = self.class_name
+        de.params = self.get_params()
+        return de
 
-        for de in self.get_data_entries():
-            ccrs, ctransform, cshape = de.parse_crs_transform_shape(crs, transform, shape)
-            crs_list.append(ccrs)
-            transform_list.append(ctransform)
-            shape_list.append(cshape)
-
-        for ccrs in crs_list:
-            if ccrs != crs_list[0]:
-                print(f"CRSs are not all the same {ccrs=} {crs_list[0]=}. Taking the first one")
-
-        for ctransform in transform_list:
-            if ctransform != transform_list[0]:
-                print(f"Transforms are not all the same {ctransform=} {transform_list[0]=}. Taking the first one")
-
-        for cshape in shape_list:
-            if cshape != shape_list[0]:
-                print(f"Shapes are not all the same {cshape=} {shape_list[0]=}. Taking the first one")
-
-        return crs_list[0], transform_list[0], shape_list[0]
-
-    def is_generated(self) -> bool:
-        return all((e.is_generated() for e in self.get_data_entries()))
+    def is_processed(self, crs: CRS, transform: Affine, shape: Shape) -> bool:
+        return self.get_data_entry_processed().is_processed(crs, transform, shape)
 
     @abstractmethod
+    def generate(self, crs: CRS, transform: Affine, shape: Shape) -> xr.DataArray:
+        pass
+
+    def process(self, crs: CRS, transform: Affine, shape: Shape) -> None:
+        if self.is_processed(crs, transform, shape):
+            return
+
+        for de in self.get_data_entries():
+            de.process(crs, transform, shape)
+
+        self.generate(crs, transform, shape)
+
     def load(self, crs: Optional[CRS] = None, transform: Optional[Affine] = None,
              shape: Optional[Shape] = None) -> xr.DataArray:
-        pass
+        crs, transform, shape = (
+            self
+            .get_data_entry_processed()
+            .parse_crs_transform_shape(crs, transform, shape)
+        )
+
+        if not self.is_processed(crs, transform, shape):
+            self.process(crs, transform, shape)
+
+        return self.get_data_entry_processed().load(crs=crs, transform=transform, shape=shape)

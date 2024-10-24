@@ -1,14 +1,19 @@
 from pathlib import Path
 from typing import Union
 
+import numpy as np
 import rioxarray as rxr
 import xarray as xr
-from rasterio.errors import NotGeoreferencedWarning, CRSError
+import rasterio as rio
+from rasterio.errors import CRSError, NotGeoreferencedWarning
 
 
 def load_file(f: Union[str, Path], cache: bool = True, **kwargs) -> Union[xr.DataArray, xr.Dataset]:
     try:
-        da = rxr.open_rasterio(f, masked=True, parse_coordinates=True, cache=cache, **kwargs)
+        with rio.open(f) as fp:
+            if np.issubdtype(fp.dtypes[0], np.floating):
+                kwargs.update(masked_and_scale=True)
+        da = rxr.open_rasterio(f, parse_coordinates=True, cache=cache, **kwargs)
     except NotGeoreferencedWarning:
         print(f)
         raise CRSError

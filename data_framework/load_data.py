@@ -1,12 +1,10 @@
-from typing import Union, Iterable, Optional, List
+from typing import Iterable, List, Optional, Union
 
-import xarray as xr
 from affine import Affine
 from rasterio import CRS
-from rasterio.errors import CRSError, TransformError
 
 from data_framework.loader_registry import LoaderRegistry
-from data_framework.types import Shape, RasterData, RasterLoader
+from data_framework.types import RasterData, RasterLoader, Shape
 
 
 def _load_raster_stack(loaders: List[RasterLoader], crs: Optional[CRS] = None,
@@ -22,19 +20,8 @@ def _load_raster_stack(loaders: List[RasterLoader], crs: Optional[CRS] = None,
     return base_loader.load_stack(loaders, crs, transform, shape)
 
 
-def load_raster_data(loaders: Union[str, RasterLoader, Iterable[RasterLoader]],
-                     template: Optional[xr.DataArray] = None, *, crs: Optional[CRS] = None,
+def load_raster_data(loaders: Union[str, RasterLoader, Iterable[RasterLoader]], *, crs: Optional[CRS] = None,
                      transform: Optional[Affine] = None, shape: Optional[Shape] = None) -> RasterData:
-    if template is not None:
-        if template.rio.crs is None:
-            raise CRSError("No CRS")
-        if template.rio.transform is None:
-            raise TransformError("No transform")
-
-        crs = template.rio.crs
-        transform = template.rio.transform(recalc=True)
-        shape = template.rio.shape
-
     if isinstance(loaders, (list, tuple)):
         return _load_raster_stack(loaders, crs, transform, shape)
 
