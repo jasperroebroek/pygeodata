@@ -113,16 +113,24 @@ class RasterDataEntry:
         if self.is_processed(crs, transform, shape):
             return
 
+        if not self.path_exists():
+            if self.generate_func is None:
+                raise NotImplementedError(
+                    f"Path not provided or not found and no function specified for generating the "
+                    f"data: {self.name}")
+
+            print(f"Generating {self.name}")
+            self.generate_func(self, crs, transform, shape)
+
+        # The generate func can, but does not have to create data aligning with the projection. If it does,
+        # the result is stored in the path_processed directory, and the self.is_processed call will be True.
+        # If instead it does not, the data will be stored at the self.path and reprojection is still requred
+        if self.is_processed(crs, transform, shape):
+            return
+
         if self.path_exists():
             self.reproject(crs, transform, shape)
             return
-
-        if self.generate_func is None:
-            raise NotImplementedError(f"Path not provided or not found and no function specified for generating the "
-                                      f"data: {self.name}")
-
-        print(f"Generating {self.name}")
-        self.generate_func(self, crs, transform, shape)
 
     def load(self, crs: Optional[CRS] = None, transform: Optional[Affine] = None,
              shape: Optional[Shape] = None) -> xr.DataArray:
