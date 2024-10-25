@@ -4,7 +4,7 @@ import xarray as xr
 from affine import Affine
 from rasterio import CRS
 
-type GenerateFunc = Callable[['RasterDataEntry', Optional[CRS], Optional[Affine], Optional[Shape]], None]
+type GenerateFunc = Callable[[Optional[CRS], Optional[Affine], Optional[Shape]], None]
 type RasterData = Union[xr.DataArray, xr.Dataset]
 type Shape = tuple[int, int]
 

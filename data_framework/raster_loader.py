@@ -139,7 +139,6 @@ class RasterLoaderMultiple(BaseRasterLoader):
             .parse_crs_transform_shape(crs, transform, shape)
         )
 
-        if not self.is_processed(crs, transform, shape):
-            self.process(crs, transform, shape)
+        self.process(crs, transform, shape)
 
         return self.get_data_entry_processed().load(crs=crs, transform=transform, shape=shape)

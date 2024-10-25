@@ -51,8 +51,8 @@ class RasterDataEntry:
             crs,
             transform,
             shape,
-            self.caller_name,
             self.name,
+            self.caller_name,
             **self.params
         )
 
@@ -120,7 +120,7 @@ class RasterDataEntry:
                     f"data: {self.name}")
 
             print(f"Generating {self.name}")
-            self.generate_func(self, crs, transform, shape)
+            self.generate_func(crs, transform, shape)
 
         # The generate func can, but does not have to create data aligning with the projection. If it does,
         # the result is stored in the path_processed directory, and the self.is_processed call will be True.
@@ -130,7 +130,6 @@ class RasterDataEntry:
 
         if self.path_exists():
             self.reproject(crs, transform, shape)
-            return
 
     def load(self, crs: Optional[CRS] = None, transform: Optional[Affine] = None,
              shape: Optional[Shape] = None) -> xr.DataArray:

@@ -17,7 +17,10 @@ from data_framework.types import Shape
 
 def reproject(da: xr.DataArray, path: Path, src_crs: CRS, dst_crs: CRS, dst_transform: Affine, dst_shape: Shape,
               resampling: Resampling = Resampling.nearest, **reprojection_kwargs) -> None:
-    """da is reprojected and stored in path"""
+    """2D data array (da) is reprojected and stored in path"""
+    if da.ndim != 2:
+        raise IndexError("Only 2D is supported")
+
     if path.exists():
         raise FileExistsError(f"{path} already exists")
 
