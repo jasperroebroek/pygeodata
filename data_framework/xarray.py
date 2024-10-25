@@ -12,7 +12,7 @@ def load_file(f: Union[str, Path], cache: bool = True, **kwargs) -> Union[xr.Dat
     try:
         with rio.open(f) as fp:
             if np.issubdtype(fp.dtypes[0], np.floating):
-                kwargs.update(masked_and_scale=True)
+                kwargs.update(mask_and_scale=True)
         da = rxr.open_rasterio(f, parse_coordinates=True, cache=cache, **kwargs)
     except NotGeoreferencedWarning:
         print(f)
