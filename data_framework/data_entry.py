@@ -47,7 +47,7 @@ class RasterDataEntry:
 
     def get_processed_path(self, crs: CRS, transform: Affine, shape: Shape) -> Path:
         """Function that converts a path of the data to the reprojected data."""
-        return generate_path(
+        path = generate_path(
             crs,
             transform,
             shape,
@@ -55,6 +55,8 @@ class RasterDataEntry:
             self.caller_name,
             **self.params
         )
+        path.parent.mkdir(exist_ok=True, parents=True)
+        return path
 
     def is_processed(self, crs: CRS, transform: Affine, shape: Shape) -> bool:
         p = self.get_processed_path(crs=crs, transform=transform, shape=shape)
@@ -89,7 +91,6 @@ class RasterDataEntry:
 
     def reproject(self, crs: CRS, transform: Affine, shape: Shape) -> None:
         output_path = self.get_processed_path(crs=crs, transform=transform, shape=shape)
-        output_path.parent.mkdir(exist_ok=True, parents=True)
 
         da = load_file(self.path, cache=False)
 
