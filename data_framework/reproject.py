@@ -32,15 +32,17 @@ def reproject(da: xr.DataArray, path: Path, src_crs: CRS, dst_crs: CRS, dst_tran
 
         print(f"Reprojecting: da -> {path}")
 
-        dtype = reprojection_kwargs.pop('dtype', da.dtype)
+        src_dtype = da.dtype
+        dst_dtype = reprojection_kwargs.pop('dtype', da.dtype)
 
         da_nodata = (
-            _NODATA_DTYPE_MAP.get(dtype_rev[np.dtype(dtype).name])
+            _NODATA_DTYPE_MAP.get(dtype_rev[np.dtype(src_dtype).name])
             if da.rio.nodata is None
             else da.rio.nodata
         )
 
-        dst_nodata = reprojection_kwargs.pop('nodata', da_nodata)
+        src_nodata = reprojection_kwargs.pop('src_nodata', da_nodata)
+        dst_nodata = reprojection_kwargs.pop('dst_nodata', da_nodata)
 
         compress = reprojection_kwargs.pop('compress', "DEFLATE")
         compress_level = reprojection_kwargs.pop('compress_level', 9 if compress == "DEFLATE" else None)
@@ -49,7 +51,7 @@ def reproject(da: xr.DataArray, path: Path, src_crs: CRS, dst_crs: CRS, dst_tran
             'driver': 'GTiff',
             'height': dst_shape[0],
             'width': dst_shape[1],
-            'dtype': dtype,
+            'dtype': dst_dtype,
             'nodata': dst_nodata,
             'compress': compress,
             'zlevel': compress_level,
@@ -62,11 +64,11 @@ def reproject(da: xr.DataArray, path: Path, src_crs: CRS, dst_crs: CRS, dst_tran
             rasterio.warp.reproject(
                 source=da.values,
                 destination=rasterio.band(dst, 1),
-                src_transform=da.rio.transform(recalc=True),
                 src_crs=src_crs,
-                src_nodata=da.rio.nodata,
-                dst_transform=dst_transform,
                 dst_crs=dst_crs,
+                src_transform=da.rio.transform(recalc=True),
+                dst_transform=dst_transform,
+                src_nodata=src_nodata,
                 dst_nodata=dst_nodata,
                 resampling=resampling,
                 **reprojection_kwargs,
