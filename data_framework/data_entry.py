@@ -120,7 +120,8 @@ class RasterDataEntry:
                     f"Path not provided or not found and no function specified for generating the "
                     f"data: {self.name}")
 
-            print(f"Generating {self.name}")
+            param_str = ", ".join([f"{param}:{self.params[param]}" for param in self.params])
+            print(f"Generating {self.name}: {param_str}", end=" ")
             self.generate_func(crs, transform, shape)
 
         # The generate func can, but does not have to create data aligning with the projection. If it does,
