@@ -2,10 +2,9 @@ from pathlib import Path
 from typing import Union
 
 import numpy as np
+import rasterio as rio
 import rioxarray as rxr
 import xarray as xr
-import rasterio as rio
-from rasterio.errors import CRSError, NotGeoreferencedWarning
 
 
 def load_file(f: Union[str, Path], cache: bool = True, **kwargs) -> Union[xr.DataArray, xr.Dataset]:
@@ -13,10 +12,12 @@ def load_file(f: Union[str, Path], cache: bool = True, **kwargs) -> Union[xr.Dat
         with rio.open(f) as fp:
             if np.issubdtype(fp.dtypes[0], np.floating):
                 kwargs.update(mask_and_scale=True)
+            window = rio.windows.Window(0, 0, 1, 1)
+            fp.read(1, window=window)
         da = rxr.open_rasterio(f, parse_coordinates=True, cache=cache, **kwargs)
-    except NotGeoreferencedWarning:
-        print(f)
-        raise CRSError
+    except Exception as e:
+        print(f'path={f}')
+        raise e
 
     return da
 

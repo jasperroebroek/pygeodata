@@ -2,14 +2,20 @@ from pathlib import Path
 from typing import Optional
 
 from affine import Affine
+from rasterio import CRS
+
 from data_framework.types import Shape
 from data_framework.utils import transform_to_str
-from rasterio import CRS
 
 
 class PathContext:
     _instance: Optional['PathContext'] = None
     _path_data_processed: Path = Path("data_processed")
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls, *args, **kwargs)
+        return cls._instance
 
     @property
     def path_data_processed(self) -> Path:

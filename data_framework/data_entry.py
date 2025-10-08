@@ -19,12 +19,13 @@ from data_framework.xarray import load_file, load_flat_file
 @dataclass
 class RasterDataEntry:
     """class that holds the info to deal with any 2D raster data"""
+
     name: str
     subset: Optional[Union[str, int, dict]] = None
     path: Optional[Path] = None
     resampling: Resampling = Resampling.nearest
     reprojection_kwargs: dict = field(default_factory=dict)
-    crs: Optional[CRS] = None,
+    crs: Optional[CRS] = None
     generate_func: Optional[GenerateFunc] = None
 
     def __post_init__(self):
@@ -47,14 +48,7 @@ class RasterDataEntry:
 
     def get_processed_path(self, crs: CRS, transform: Affine, shape: Shape) -> Path:
         """Function that converts a path of the data to the reprojected data."""
-        path = generate_path(
-            crs,
-            transform,
-            shape,
-            self.name,
-            self.caller_name,
-            **self.params
-        )
+        path = generate_path(crs, transform, shape, self.name, self.caller_name, **self.params)
         path.parent.mkdir(exist_ok=True, parents=True)
         return path
 
@@ -71,20 +65,15 @@ class RasterDataEntry:
 
         return crs, fp.transform, fp.shape
 
-    def parse_crs_transform_shape(self, crs: Optional[CRS] = None, transform: Optional[Affine] = None,
-                                  shape: Optional[Shape] = None) -> Tuple[CRS, Affine, Shape]:
+    def parse_crs_transform_shape(
+        self, crs: Optional[CRS] = None, transform: Optional[Affine] = None, shape: Optional[Shape] = None
+    ) -> Tuple[CRS, Affine, Shape]:
         if crs is None:
             crs, transform, shape = self.get_crs_transform_shape_from_file()
 
         if transform is None or shape is None:
             fp = self.get_fp()
-            transform, width, height = calculate_default_transform(
-                fp.crs,
-                crs,
-                fp.width,
-                fp.height,
-                *fp.bounds
-            )
+            transform, width, height = calculate_default_transform(fp.crs, crs, fp.width, fp.height, *fp.bounds)
             shape = (height, width)
 
         return crs, transform, shape
@@ -95,7 +84,7 @@ class RasterDataEntry:
         da = load_file(self.path, cache=False)
 
         dim_name = da.rio._check_dimensions()
-        if dim_name == "band" and da[dim_name].size == 1:
+        if dim_name == 'band' and da[dim_name].size == 1:
             da = da.sel(band=1).drop_vars('band')
 
         if isinstance(self.subset, (str, int)):
@@ -105,8 +94,16 @@ class RasterDataEntry:
 
         src_crs, _, _ = self.get_crs_transform_shape_from_file()
 
-        reproject(da, output_path, src_crs=src_crs, dst_crs=crs, dst_transform=transform, dst_shape=shape,
-                  resampling=self.resampling, **self.reprojection_kwargs)
+        reproject(
+            da,
+            output_path,
+            src_crs=src_crs,
+            dst_crs=crs,
+            dst_transform=transform,
+            dst_shape=shape,
+            resampling=self.resampling,
+            **self.reprojection_kwargs,
+        )
         da.close()
         gc.collect()
 
@@ -115,26 +112,33 @@ class RasterDataEntry:
             return
 
         if not self.path_exists():
+            param_str = ', '.join([f'{param}:{self.params[param]}' for param in self.params])
+
             if self.generate_func is None:
                 raise NotImplementedError(
-                    f"Path not provided or not found and no function specified for generating the "
-                    f"data: {self.name}")
+                    f'Path not provided or not found and no function specified for generating the data: {self.name} \n'
+                    f'{param_str} \n'
+                    f'path={self.get_processed_path(crs=crs, transform=transform, shape=shape)}'
+                )
 
-            param_str = ", ".join([f"{param}:{self.params[param]}" for param in self.params])
-            print(f"Generating {self.name}: {param_str}", end=" ")
+            if param_str == '':
+                print(f'Generating {self.name}')
+            else:
+                print(f'Generating {self.name}-> {param_str}')
             self.generate_func(crs, transform, shape)
 
         # The generate func can, but does not have to create data aligning with the projection. If it does,
         # the result is stored in the path_processed directory, and the self.is_processed call will be True.
-        # If instead it does not, the data will be stored at the self.path and reprojection is still requred
+        # If instead it does not, the data will be stored at the self.path and reprojection is still required
         if self.is_processed(crs, transform, shape):
             return
 
         if self.path_exists():
             self.reproject(crs, transform, shape)
 
-    def load(self, crs: Optional[CRS] = None, transform: Optional[Affine] = None,
-             shape: Optional[Shape] = None) -> xr.DataArray:
+    def load(
+        self, crs: Optional[CRS] = None, transform: Optional[Affine] = None, shape: Optional[Shape] = None
+    ) -> xr.DataArray:
         crs, transform, shape = self.parse_crs_transform_shape(crs, transform, shape)
         self.process(crs, transform, shape)
         path_processed = self.get_processed_path(crs=crs, transform=transform, shape=shape)
