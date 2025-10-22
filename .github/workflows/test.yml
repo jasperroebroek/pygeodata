@@ -27,4 +27,4 @@ jobs:
         shell: bash -l {0}
         run: |
           micromamba activate pygeodata-tests-env
-          python -m "import pygeodata"
+          python -c "import pygeodata"
