@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pygeodata"
-description = "Lightweight framework for geospatial data access and processing"
 version = "0.0.1"
+description = "Lightweight framework for geospatial data access and processing"
 authors = [
     { name = "Jasper Roebroek", email = "roebroek.jasper@gmail.com" }
 ]
