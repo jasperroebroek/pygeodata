@@ -1,3 +1,6 @@
-rioxarray
-pytest
 python>=3.12
+rioxarray
+geopandas
+dask
+zarr
+pytest
