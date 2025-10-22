@@ -38,6 +38,10 @@ class Reprojector:
         GeoTIFF creation profile options. If None, uses defaults
     warp_kw : dict, optional
         Additional keyword arguments for rasterio.warp.reproject
+    scale : float or sequence of floats, optional
+        Scale factor for each band
+    offset : float or sequence of floats, optional
+        Offset for each band
     """
 
     src_path: str | Path
@@ -50,6 +54,8 @@ class Reprojector:
     warp_mem_limit: Optional[int] = None
     num_threads: Optional[int] = None
     profile: RasterioProfile = field(default_factory=RasterioProfile)
+    scale: Optional[float | Sequence[float]] = None
+    offset: Optional[float | Sequence[float]] = None
 
     def __call__(self, dst_path: str | Path, spec: SpatialSpec) -> None:
         """Reproject raster to specified spatial configuration.
@@ -120,5 +126,13 @@ class Reprojector:
                         num_threads=self.num_threads or get_config().num_threads,
                         **self.warp_kw,
                     )
+
+                    if self.scale is not None:
+                        scales = self.scale if isinstance(self.scale, Sequence) else [self.scale] * len(src_bands)
+                        dst._set_all_scales(scales)
+
+                    if self.offset is not None:
+                        offsets = self.offset if isinstance(self.offset, Sequence) else [self.offset] * len(src_bands)
+                        dst._set_all_offsets(offsets)
 
             shutil.move(temp_path, dst_path)

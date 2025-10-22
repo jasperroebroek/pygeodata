@@ -65,4 +65,4 @@ class DataLoader(ABC):
 
     def load(self, spec: SpatialSpec) -> Any:
         self.process(spec)
-        self.driver.load(self.get_processed_path(spec))
+        return self.driver.load(self.get_processed_path(spec))
