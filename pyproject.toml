@@ -11,7 +11,7 @@ authors = [
 ]
 license = { text = "MIT" }
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.9"
 keywords = []
 classifiers = [
     "Programming Language :: Python :: 3"
