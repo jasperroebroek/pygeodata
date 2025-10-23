@@ -17,8 +17,7 @@ class RioXArrayDriver:
     parse_coordinates : bool, optional
         Whether to parse coordinates
     mask_and_scale : bool, optional
-        Whether to mask and scale. By default, this parameter is None, which causes it to be inferred from the data
-        type. Floating data will default to True, integer data to False.
+        Whether to mask and scale
     decode_times : bool, optional
         Whether to decode times, by default False
     cache : bool, optional
@@ -31,7 +30,7 @@ class RioXArrayDriver:
     """
 
     parse_coordinates: bool = True
-    mask_and_scale: bool | None = None  # if None, inferred from data -> float yes, int no
+    mask_and_scale: bool = True
     decode_times: bool = False
     cache: bool = False
     open_kw: dict = field(default_factory=dict)
@@ -64,15 +63,13 @@ class RioXArrayDriver:
             subs_str = '\n'.join(self._subdatasets(path))
             raise TooManyDimensions(f'Multiple variables found in {path}. Use one of the subdatasets:\n{subs_str}')
 
-        mask_and_scale = self.mask_and_scale if self.mask_and_scale is not None else self._infer_mask_and_scale(path)
-
         try:
             da = rxr.open_rasterio(
                 path,
                 parse_coordinates=self.parse_coordinates,
                 decode_times=self.decode_times,
                 cache=self.cache,
-                mask_and_scale=mask_and_scale,
+                mask_and_scale=self.mask_and_scale,
                 **self.open_kw,
             )
         except Exception as e:

@@ -39,9 +39,9 @@ class Reprojector:
         Output nodata value. If None, uses source nodata
     warp_kw : dict, optional
         Additional keyword arguments for rasterio.warp.reproject
-    scale : float or sequence of floats, optional
+    scales : float or sequence of floats, optional
         Scale factor for each band
-    offset : float or sequence of floats, optional
+    offsets : float or sequence of floats, optional
         Offset for each band
     raster_creation_options : RasterCreationOptions, optional
         GeoTIFF creation profile options. If None, uses defaults
@@ -56,8 +56,8 @@ class Reprojector:
     warp_kw: dict[str, Any] = field(default_factory=dict)
     warp_mem_limit: int | None = None
     num_threads: int | None = None
-    scale: float | Sequence[float] | None = None
-    offset: float | Sequence[float] | None = None
+    scales: float | Sequence[float] | None = None
+    offsets: float | Sequence[float] | None = None
     raster_creation_options: RasterCreationOptions | None = None
 
     def __call__(self, dst_path: str | Path, spec: SpatialSpec) -> None:
@@ -133,12 +133,15 @@ class Reprojector:
                         **self.warp_kw,
                     )
 
-                    if self.scale is not None:
-                        scales = self.scale if isinstance(self.scale, Sequence) else [self.scale] * dst.count
+                    scales = self.scales or src.scales
+                    offsets = self.offsets or src.offsets
+
+                    if scales is not None:
+                        scales = scales if isinstance(scales, Sequence) else [scales] * dst.count
                         dst._set_all_scales(scales)
 
-                    if self.offset is not None:
-                        offsets = self.offset if isinstance(self.offset, Sequence) else [self.offset] * dst.count
+                    if offsets is not None:
+                        offsets = offsets if isinstance(offsets, Sequence) else [offsets] * dst.count
                         dst._set_all_offsets(offsets)
 
             shutil.move(temp_path, dst_path)
