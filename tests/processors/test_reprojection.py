@@ -1,15 +1,14 @@
 import pytest
 import rasterio as rio
 from affine import Affine
+from pygeodata.options import RasterCreationOptions
+from pygeodata.processors.reprojection import Reprojector
+from pygeodata.types import SpatialSpec
 from pyproj import CRS
 from rasterio import RasterioIOError
 from rasterio.enums import Compression
 from rasterio.errors import CRSError
 from rasterio.warp import calculate_default_transform
-
-from pygeodata.options import RasterioProfile
-from pygeodata.processors.reprojection import Reprojector
-from pygeodata.types import SpatialSpec
 from tests.conftest import LUH2_NC, WTD_TIF
 
 
@@ -44,7 +43,7 @@ def test_reprojection_with_compression(sample_geotiff, sample_spatial_spec, tmp_
 
     processor = Reprojector(
         sample_geotiff,
-        profile=RasterioProfile(
+        raster_creation_options=RasterCreationOptions(
             compress='lzw',
             compress_level=6,
             tiled=True,

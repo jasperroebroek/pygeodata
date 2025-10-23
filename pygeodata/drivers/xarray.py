@@ -1,6 +1,5 @@
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import rasterio as rio
@@ -32,7 +31,7 @@ class RioXArrayDriver:
     """
 
     parse_coordinates: bool = True
-    mask_and_scale: Optional[bool] = None  # if None, inferred from data -> float yes, int no
+    mask_and_scale: bool | None = None  # if None, inferred from data -> float yes, int no
     decode_times: bool = False
     cache: bool = False
     open_kw: dict = field(default_factory=dict)

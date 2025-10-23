@@ -45,7 +45,6 @@ def sample_raster_data():
 @pytest.fixture
 def sample_geotiff(tmp_path, sample_raster_data):
     """Create a sample GeoTIFF file for testing."""
-
     # Add spatial attributes
     sample_raster_data.rio.write_crs('EPSG:4326', inplace=True)
 
@@ -67,7 +66,7 @@ def sample_loader_class(sample_spatial_spec, sample_geotiff):
 
 @pytest.fixture
 def sample_loader_class_complex(sample_spatial_spec, sample_geotiff):
-    @dataclass
+    @dataclass(repr=False)
     class ComplexSampleLoader(DataLoader):
         time: int
         resolution: int

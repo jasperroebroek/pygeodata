@@ -1,9 +1,9 @@
 from dataclasses import asdict, dataclass
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass
-class RasterioProfile:
+class RasterCreationOptions:
     """Rasterio creation profile options.
 
     Parameters
@@ -30,17 +30,16 @@ class RasterioProfile:
         Allow sparse files
     """
 
-    compress: Optional[str] = None
-    compress_level: Optional[int] = None
-    tiled: Optional[bool] = None
-    blockxsize: Optional[int] = None
-    blockysize: Optional[int] = None
-    interleave: Optional[str] = None
-    photometric: Optional[str] = None
-    predictor: Optional[int] = None
-    bigtiff: Optional[bool | str] = None
-    sparse_ok: Optional[bool] = None
-    num_threads: Optional[int | str] = None
+    compress: str | None = None
+    compress_level: int | None = None
+    tiled: bool | None = None
+    blockxsize: int | None = None
+    blockysize: int | None = None
+    interleave: str | None = None
+    photometric: str | None = None
+    predictor: int | None = None
+    bigtiff: bool | str | None = None
+    sparse_ok: bool | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {k: v for k, v in asdict(self).items() if v is not None}
