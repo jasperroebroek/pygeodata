@@ -6,7 +6,7 @@ from affine import Affine
 from pyproj import CRS
 from rasterio.coords import BoundingBox
 
-type RasterShape = tuple[int, int]
+RasterShape = tuple[int, int]
 
 
 @dataclass

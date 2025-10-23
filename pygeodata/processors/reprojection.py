@@ -27,7 +27,7 @@ class Reprojector:
     ----------
     src_path : str | Path
         Path to source raster file
-    bands : int | Sequence[int], optional
+    bands : int or tuple of int, optional
         Band indices to reproject (1-indexed). If None, reprojects all bands
     src_crs : CRS, optional
         Override source CRS if not defined in file
@@ -133,8 +133,8 @@ class Reprojector:
                         **self.warp_kw,
                     )
 
-                    scales = self.scales or src.scales
-                    offsets = self.offsets or src.offsets
+                    scales = self.scales or src.scales[src_bands]
+                    offsets = self.offsets or src.offsets[src_bands]
 
                     if scales is not None:
                         scales = scales if isinstance(scales, Sequence) else [scales] * dst.count
