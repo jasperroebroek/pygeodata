@@ -50,12 +50,15 @@ class DataLoader:
         parts = [f'{k}={v!r}' for k, v in sorted(params.items())]
         return f'{self.class_name}({", ".join(parts)})'
 
-    def get_processed_path(self, spec: SpatialSpec) -> Path:
+    def get_processed_path(self, spec: SpatialSpec, ext: str | None = None) -> Path:
+        ext = ext or getattr(self.processor, 'ext', None) or self.driver.default_ext
+
         path = generate_path(
             spec=spec,
             name=self.class_name,
             filename=self.name,
             base_dir=get_config().path_data_processed,
+            ext=ext,
             **self.get_params(),
         )
         path.parent.mkdir(exist_ok=True, parents=True)

@@ -98,7 +98,9 @@ class Reprojector:
                 src_nodata = src.nodata or (np.nan if np.issubdtype(src_dtype, np.floating) else 0)
 
                 src_bands = src.indexes if self.bands is None else self.bands
-                count = 1 if isinstance(src_bands, Number) else len(src_bands)
+                if isinstance(src_bands, Number):
+                    src_bands = (src_bands,)
+                count = len(src_bands)
 
                 dst_dtype = src_dtype if self.dst_dtype is None else self.dst_dtype
                 dst_nodata = src_nodata if self.dst_nodata is None else self.dst_nodata
@@ -133,8 +135,8 @@ class Reprojector:
                         **self.warp_kw,
                     )
 
-                    scales = self.scales or src.scales[src_bands]
-                    offsets = self.offsets or src.offsets[src_bands]
+                    scales = self.scales or tuple(src.scales[i - 1] for i in src_bands)
+                    offsets = self.offsets or tuple(src.offsets[i - 1] for i in src_bands)
 
                     if scales is not None:
                         scales = scales if isinstance(scales, Sequence) else [scales] * dst.count
@@ -147,3 +149,4 @@ class Reprojector:
             shutil.move(temp_path, dst_path)
 
     default_driver = RioXArrayDriver()
+    ext = '.tif'

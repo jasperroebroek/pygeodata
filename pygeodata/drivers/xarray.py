@@ -82,3 +82,5 @@ class RioXArrayDriver:
             da = da.isel(band=0).drop_vars('band')
 
         return da
+
+    default_ext = '.tif'

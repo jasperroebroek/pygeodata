@@ -7,10 +7,10 @@ from pygeodata.utils import transform_to_str
 
 def generate_path(
     spec: SpatialSpec,
+    base_dir: str | Path,
     filename: str,
+    ext: str,
     name: str | None = None,
-    base_dir: str | Path = 'data_processed',
-    ext: str = 'tif',
     **kwargs,
 ) -> Path:
     """Function that converts a path of the data to the processed data."""
