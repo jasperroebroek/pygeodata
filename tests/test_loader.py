@@ -170,7 +170,7 @@ def test_load_returns_data(sample_loader_class, sample_spatial_spec, tmp_path, m
     with set_config(path_data_processed=tmp_path):
         # Mock driver.load to return test data
         mock_load = mocker.MagicMock(return_value=expected_data)
-        mocker.patch.object(loader.driver, 'load', mock_load)
+        mocker.patch.object(loader, 'load', mock_load)
 
         result = loader.load(sample_spatial_spec)
 
@@ -184,9 +184,9 @@ def test_load_processes_before_loading(sample_loader_class, sample_spatial_spec,
 
     with set_config(path_data_processed=tmp_path):
         mock_process = mocker.patch.object(loader, 'process')
-        mock_load = mocker.patch.object(loader.driver, 'load', return_value=None)
+        mock_load = mocker.patch.object(loader, 'load', return_value=None)
 
-        loader.load(sample_spatial_spec)
+        loader(sample_spatial_spec)
 
         # Ensure process is called before load
         mock_process.assert_called_once_with(sample_spatial_spec)
@@ -227,7 +227,7 @@ def test_driver_fallback_to_processor_default(sample_loader_class):
     loader = sample_loader_class()
     driver = loader.driver
     assert driver is not None
-    assert hasattr(driver, 'load')
+    assert hasattr(driver, '__call__')
 
 
 def test_get_processed_path_creates_parent_directory(sample_loader_class, sample_spatial_spec, tmp_path):

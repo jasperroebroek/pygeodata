@@ -38,7 +38,7 @@ class DataLoader:
     def get_params(self) -> dict[str, Any]:
         params = {}
         for key in self.__dict__:
-            if key in ('name', 'class_name', 'processor', 'driver'):
+            if key in ('name', 'class_name', 'processor', 'driver', 'process', 'load'):
                 continue
             if key.startswith('_'):
                 continue
@@ -78,5 +78,8 @@ class DataLoader:
             self.processor(self.get_processed_path(spec), spec)
 
     def load(self, spec: SpatialSpec) -> Any:
+        self.driver(self.get_processed_path(spec))
+
+    def __call__(self, spec: SpatialSpec) -> Any:
         self.process(spec)
-        return self.driver.load(self.get_processed_path(spec))
+        return self.load(spec)

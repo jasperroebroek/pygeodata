@@ -57,7 +57,7 @@ class RioXArrayDriver:
         with rio.open(path):
             pass
 
-    def load(self, path: str | Path) -> xr.DataArray:
+    def __call__(self, path: str | Path) -> xr.DataArray:
         path = Path(path)
 
         self._assert_exists(path)

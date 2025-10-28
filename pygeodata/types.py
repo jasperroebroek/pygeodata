@@ -42,6 +42,6 @@ class Processor(Protocol):
 
 
 class Driver(Protocol):
-    def load(self, path: str | Path) -> Any: ...
+    def __call__(self, path: str | Path) -> Any: ...
 
     default_ext: str
