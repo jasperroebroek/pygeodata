@@ -78,7 +78,7 @@ class DataLoader:
             self.processor(self.get_processed_path(spec), spec)
 
     def load(self, spec: SpatialSpec) -> Any:
-        self.driver(self.get_processed_path(spec))
+        return self.driver(self.get_processed_path(spec))
 
     def __call__(self, spec: SpatialSpec) -> Any:
         self.process(spec)

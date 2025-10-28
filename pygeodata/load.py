@@ -9,4 +9,4 @@ def load_data(loader: DataLoader, spec: SpatialSpec | None = None) -> Any:
     spec = spec or get_config().spec
     if spec is None:
         raise ValueError('No spatial specification (spec) provided or present in config')
-    return loader.load(spec)
+    return loader(spec)
