@@ -25,7 +25,7 @@ def generate_path(
 
     return Path(
         base_dir,
-        f'{re.sub(r"[^\w\-]", "_", spec.crs.to_string())}',
+        re.sub(r'[^\w\-]', '_', spec.crs.to_string()),
         transform_to_str(spec.transform),
         f'{spec.shape[0]}-{spec.shape[1]}',
         *p,

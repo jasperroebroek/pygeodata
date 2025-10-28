@@ -22,19 +22,22 @@ class RioXArrayDriver:
         Whether to decode times, by default False
     cache : bool, optional
         Whether to cache, by default False
-    open_kw : dict, optional
-        Additional keyword arguments to pass to rioxarray.open_rasterio
     flatten : bool, optional
         By default 2D rasters will be returned as 3D, with a band dimension of size 1. If True, which is the
         default, this dimension is removed.
+    boolean : bool, optional
+        Whether to convert the data to boolean, by default False
+    open_kw : dict, optional
+        Additional keyword arguments to pass to rioxarray.open_rasterio
     """
 
     parse_coordinates: bool = True
     mask_and_scale: bool = True
     decode_times: bool = False
     cache: bool = False
-    open_kw: dict = field(default_factory=dict)
     flatten: bool = True
+    boolean: bool = False
+    open_kw: dict = field(default_factory=dict)
 
     @staticmethod
     def _subdatasets(path: Path) -> list[str]:
@@ -81,6 +84,9 @@ class RioXArrayDriver:
         if self.flatten and 'band' in da.dims and da.sizes['band'] == 1:
             da = da.isel(band=0).drop_vars('band')
 
+        if self.boolean:
+            da = da.astype(bool)
+
         return da
 
-    default_ext = '.tif'
+    default_ext = 'tif'

@@ -51,7 +51,12 @@ class DataLoader:
         return f'{self.class_name}({", ".join(parts)})'
 
     def get_processed_path(self, spec: SpatialSpec, ext: str | None = None) -> Path:
-        ext = ext or getattr(self.processor, 'ext', None) or self.driver.default_ext
+        if ext is None:
+            try:
+                ext = getattr(self.processor, 'ext', None)
+            except NotImplementedError:
+                ext = None
+            ext = ext or self.driver.default_ext
 
         path = generate_path(
             spec=spec,

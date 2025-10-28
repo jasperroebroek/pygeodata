@@ -96,4 +96,4 @@ class Rasterizer:
             dst.write(raster, 1)
 
     default_driver = RioXArrayDriver()
-    ext = '.tif'
+    ext = 'tif'

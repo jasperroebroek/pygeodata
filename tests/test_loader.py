@@ -143,6 +143,7 @@ def test_process_skips_if_already_processed(sample_loader_class, sample_spatial_
 
         # Mock the processor to ensure it's not called
         mock_processor = mocker.patch.object(loader, 'processor')
+        mock_processor.ext = 'tif'
         loader.process(sample_spatial_spec)
         mock_processor.assert_not_called()
 

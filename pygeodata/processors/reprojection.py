@@ -37,6 +37,8 @@ class Reprojector:
         Output data type. If None, uses source dtype
     dst_nodata : float, optional
         Output nodata value. If None, uses source nodata
+    nbits : int, optional
+        Number of bits per pixel
     warp_kw : dict, optional
         Additional keyword arguments for rasterio.warp.reproject
     scales : float or sequence of floats, optional
@@ -53,12 +55,18 @@ class Reprojector:
     resampling: Resampling = Resampling.nearest
     dst_dtype: DTypeLike | None = None
     dst_nodata: float | None = None
+    nbits: int | None = None
     warp_kw: dict[str, Any] = field(default_factory=dict)
     warp_mem_limit: int | None = None
     num_threads: int | None = None
     scales: float | Sequence[float] | None = None
     offsets: float | Sequence[float] | None = None
     raster_creation_options: RasterCreationOptions | None = None
+
+    def __post_init__(self):
+        if self.dst_dtype == np.bool_:
+            self.dst_dtype = 'uint8'
+            self.nbits = 1
 
     def __call__(self, dst_path: str | Path, spec: SpatialSpec) -> None:
         """Reproject raster to specified spatial configuration.
@@ -119,6 +127,9 @@ class Reprojector:
                     **raster_creation_options.to_dict(),
                 }
 
+                if self.nbits is not None:
+                    rio_profile['nbits'] = self.nbits
+
                 with rio.open(temp_path, 'w', **rio_profile) as dst:
                     rasterio.warp.reproject(
                         source=rio.band(src, src_bands),
@@ -149,4 +160,4 @@ class Reprojector:
             shutil.move(temp_path, dst_path)
 
     default_driver = RioXArrayDriver()
-    ext = '.tif'
+    ext = 'tif'
