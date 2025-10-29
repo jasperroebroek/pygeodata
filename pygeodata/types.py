@@ -24,6 +24,10 @@ class SpatialSpec:
         x1, y1 = self.transform * (width, height)
         return BoundingBox(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
 
+    def extent(self) -> tuple[float, float, float, float]:
+        bounds = self.bounds()
+        return (bounds.left, bounds.bottom, bounds.right, bounds.top)
+
     def __repr__(self):
         transform_str = (
             f'Affine('
