@@ -10,14 +10,14 @@ from pygeodata.types import Driver, Processor, SpatialSpec
 class DataLoader:
     @property
     def processor(self) -> Processor:
-        raise NotImplementedError('Either processor or process must be implemented')
+        raise NotImplementedError(f'{self}: Either processor or driver must be implemented')
 
     @property
     def driver(self) -> Driver:
         try:
             processor = self.processor
         except NotImplementedError:
-            raise NotImplementedError('Either processor or driver must be implemented')
+            raise NotImplementedError(f'{self}: Either processor or driver must be implemented')
 
         if not hasattr(processor, 'default_driver'):
             raise AttributeError(f'Processor {processor} lacks default_driver and no driver is set')
@@ -35,6 +35,15 @@ class DataLoader:
         s2 = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1)
         return s2.lower()
 
+    @property
+    def ext(self) -> str:
+        try:
+            ext = getattr(self.processor, 'ext', None)
+        except NotImplementedError:
+            ext = None
+        ext = ext or self.driver.default_ext
+        return ext
+
     def get_params(self) -> dict[str, Any]:
         params = {}
         for key in self.__dict__:
@@ -51,12 +60,7 @@ class DataLoader:
         return f'{self.class_name}({", ".join(parts)})'
 
     def get_processed_path(self, spec: SpatialSpec, ext: str | None = None) -> Path:
-        if ext is None:
-            try:
-                ext = getattr(self.processor, 'ext', None)
-            except NotImplementedError:
-                ext = None
-            ext = ext or self.driver.default_ext
+        ext = ext or self.ext
 
         path = generate_path(
             spec=spec,
@@ -74,12 +78,12 @@ class DataLoader:
         return p.exists()
 
     def process(self, spec: SpatialSpec) -> None:
-        if not self.is_processed(spec):
-            self.processor(self.get_processed_path(spec), spec)
+        self.processor(self.get_processed_path(spec), spec)
 
     def load(self, spec: SpatialSpec) -> Any:
         return self.driver(self.get_processed_path(spec))
 
     def __call__(self, spec: SpatialSpec) -> Any:
-        self.process(spec)
+        if not self.is_processed(spec):
+            self.process(spec)
         return self.load(spec)

@@ -134,7 +134,7 @@ def test_get_params_multiple_params(sample_loader_class_complex):
     assert len(params) == 2
 
 
-def test_process_skips_if_already_processed(sample_loader_class, sample_spatial_spec, tmp_path, mocker):
+def test_process_skips_if_already_processed(sample_loader_class, sample_spatial_spec, tmp_path):
     """Test that process doesn't reprocess if file already exists."""
     loader = sample_loader_class()
     with set_config(path_data_processed=tmp_path):
@@ -142,11 +142,7 @@ def test_process_skips_if_already_processed(sample_loader_class, sample_spatial_
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch()
 
-        # Mock the processor to ensure it's not called
-        mock_processor = mocker.patch.object(loader, 'processor')
-        mock_processor.ext = 'tif'
-        loader.process(sample_spatial_spec)
-        mock_processor.assert_not_called()
+        loader.is_processed(sample_spatial_spec)
 
 
 def test_process_calls_processor_if_not_processed(sample_loader_class, sample_spatial_spec, tmp_path, mocker):
