@@ -59,12 +59,13 @@ class Rasterizer:
         if self.column not in df.columns:
             raise ValueError(f"Column '{self.column}' not found in GeoDataFrame.")
 
-        dtype = self.dtype or df[self.column].dtype
+        dtype = self.dtype if self.dtype is not None else df[self.column].dtype
 
         if not np.issubdtype(dtype, np.number):
             raise TypeError(f"Column '{self.column}' must be numeric, got {dtype}.")
 
-        fill_value = self.fill_value or (np.nan if np.issubdtype(dtype, np.floating) else 0)
+        default_fill_value = np.nan if np.issubdtype(dtype, np.floating) else 0
+        fill_value = self.fill_value if self.fill_value is not None else default_fill_value
 
         if fill_value in df[self.column]:
             raise ValueError(f'Fill value {fill_value} is present in the data. Overwrite with a different value.')

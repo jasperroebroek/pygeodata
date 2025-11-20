@@ -15,18 +15,21 @@ class SpatialSpec:
     transform: Affine
     shape: RasterShape
 
+    @property
     def resolution(self) -> tuple[int, int]:
         return (abs(self.transform.a), abs(self.transform.e))
 
+    @property
     def bounds(self) -> BoundingBox:
         height, width = self.shape
         x0, y0 = self.transform * (0, 0)
         x1, y1 = self.transform * (width, height)
         return BoundingBox(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
 
+    @property
     def extent(self) -> tuple[float, float, float, float]:
-        bounds = self.bounds()
-        return (bounds.left, bounds.bottom, bounds.right, bounds.top)
+        bounds = self.bounds
+        return (bounds.left, bounds.right, bounds.bottom, bounds.top)
 
     def __repr__(self):
         transform_str = (

@@ -41,7 +41,8 @@ class DataLoader:
             ext = getattr(self.processor, 'ext', None)
         except NotImplementedError:
             ext = None
-        ext = ext or self.driver.default_ext
+        if ext is None:
+            ext = self.driver.default_ext
         return ext
 
     def get_params(self) -> dict[str, Any]:

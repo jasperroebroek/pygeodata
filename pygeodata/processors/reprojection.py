@@ -103,7 +103,9 @@ class Reprojector:
                 src_dtype = src.dtypes[0]
                 src_transform = src.transform
 
-                src_nodata = src.nodata or (np.nan if np.issubdtype(src_dtype, np.floating) else 0)
+                src_nodata = src.nodata
+                if src_nodata is None and np.issubdtype(src_dtype, np.floating):
+                    src_nodata = np.nan
 
                 src_bands = src.indexes if self.bands is None else self.bands
                 if isinstance(src_bands, Number):
@@ -130,6 +132,9 @@ class Reprojector:
                 if self.nbits is not None:
                     rio_profile['nbits'] = self.nbits
 
+                warp_mem_limit = self.warp_mem_limit if self.warp_mem_limit is not None else get_config().warp_mem_limit
+                num_threads = self.num_threads if self.num_threads is not None else get_config().num_threads
+
                 with rio.open(temp_path, 'w', **rio_profile) as dst:
                     rasterio.warp.reproject(
                         source=rio.band(src, src_bands),
@@ -141,13 +146,13 @@ class Reprojector:
                         src_nodata=src_nodata,
                         dst_nodata=dst_nodata,
                         resampling=self.resampling,
-                        warp_mem_limit=self.warp_mem_limit or get_config().warp_mem_limit,
-                        num_threads=self.num_threads or get_config().num_threads,
+                        warp_mem_limit=warp_mem_limit,
+                        num_threads=num_threads,
                         **self.warp_kw,
                     )
 
-                    scales = self.scales or tuple(src.scales[i - 1] for i in src_bands)
-                    offsets = self.offsets or tuple(src.offsets[i - 1] for i in src_bands)
+                    scales = self.scales if self.scales is not None else tuple(src.scales[i - 1] for i in src_bands)
+                    offsets = self.offsets if self.offsets is not None else tuple(src.offsets[i - 1] for i in src_bands)
 
                     if scales is not None:
                         scales = scales if isinstance(scales, Sequence) else [scales] * dst.count

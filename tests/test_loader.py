@@ -1,6 +1,6 @@
 from dataclasses import asdict
 
-from pygeodata import load_data
+from pygeodata import load
 from pygeodata.config import set_config
 from pygeodata.loader import DataLoader
 from pygeodata.types import SpatialSpec
@@ -278,5 +278,5 @@ def test_different_loader_instances_same_behavior(sample_loader_class, sample_sp
 
 def test_load(sample_loader_class, sample_spatial_spec, tmp_path):
     with set_config(path_data_processed=tmp_path):
-        data = load_data(sample_loader_class(), spec=sample_spatial_spec)
+        data = load(sample_loader_class(), spec=sample_spatial_spec)
         assert data.rio.crs == sample_spatial_spec.crs
