@@ -8,7 +8,7 @@ description = "Lightweight framework for geospatial data access and processing"
 authors = [
     { name = "Jasper Roebroek", email = "roebroek.jasper@gmail.com" }
 ]
-dynamic = ["version"]
+version = "0.0.2"
 license = { text = "MIT" }
 readme = "README.md"
 requires-python = ">=3.10"
