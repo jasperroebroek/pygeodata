@@ -67,7 +67,7 @@ class Rasterizer:
         default_fill_value = np.nan if np.issubdtype(dtype, np.floating) else 0
         fill_value = self.fill_value if self.fill_value is not None else default_fill_value
 
-        if fill_value in df[self.column]:
+        if fill_value in df[self.column].values:
             raise ValueError(f'Fill value {fill_value} is present in the data. Overwrite with a different value.')
 
         raster = rasterize(
@@ -90,6 +90,7 @@ class Rasterizer:
             width=spec.shape[1],
             count=1,
             dtype=dtype,
+            nodata=fill_value,
             crs=spec.crs,
             transform=spec.transform,
             **raster_creation_options.to_dict(),

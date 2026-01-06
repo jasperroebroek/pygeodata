@@ -31,6 +31,8 @@ class Reprojector:
         Band indices to reproject (1-indexed). If None, reprojects all bands
     src_crs : CRS, optional
         Override source CRS if not defined in file
+    src_nodata : float, optional
+        Override source nodata value if not defined in file
     resampling : Resampling, default=Resampling.nearest
         Resampling method
     dst_dtype : DTypeLike, optional
@@ -50,8 +52,9 @@ class Reprojector:
     """
 
     src_path: str | Path
-    src_crs: CRS | None = None
     bands: int | Sequence[int] | None = None
+    src_crs: CRS | None = None
+    src_nodata: float | None = None
     resampling: Resampling = Resampling.nearest
     dst_dtype: DTypeLike | None = None
     dst_nodata: float | None = None
@@ -103,7 +106,7 @@ class Reprojector:
                 src_dtype = src.dtypes[0]
                 src_transform = src.transform
 
-                src_nodata = src.nodata
+                src_nodata = self.src_nodata if self.src_nodata is not None else src.nodata
                 if src_nodata is None and np.issubdtype(src_dtype, np.floating):
                     src_nodata = np.nan
 
