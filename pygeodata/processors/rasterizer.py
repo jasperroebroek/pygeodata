@@ -21,7 +21,7 @@ class Rasterizer:
 
     Parameters
     ----------
-    path : Path
+    path : Path, optional
         Path to the vector dataset (e.g., shapefile, GeoPackage).
     load_df : Callable[[SpatialSpec], gpd.GeoDataFrame], optional
         Function to load the vector data. ``path`` is preferred if provided.
@@ -41,7 +41,7 @@ class Rasterizer:
         Optional raster creation profile (compression, tiling, etc.).
     """
 
-    path: Path
+    path: Path | None = None
     load_df: Callable[[SpatialSpec], gpd.GeoDataFrame] | None = None
     values: str | float = 'index'
     all_touched: bool = True
