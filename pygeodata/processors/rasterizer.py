@@ -23,10 +23,12 @@ class Rasterizer:
     ----------
     path : Path
         Path to the vector dataset (e.g., shapefile, GeoPackage).
-    column : str
-        Name of the column to use as raster values (must be numeric).
-    load_df_func : Callable[[str | Path, SpatialSpec], gpd.GeoDataFrame], optional
-        Function to load the vector data. By default, reads with geopandas and reprojects to `spec.crs`.
+    load_df : Callable[[SpatialSpec], gpd.GeoDataFrame], optional
+        Function to load the vector data. ``path`` is preferred if provided.
+    values : str or int, default='index'
+        Values imprinted on the raster. A numeric value will be used for all polygons, while a string will be
+        interpreted as the name of the column in the data with the values. A special value is `index`, which refers to
+        the index of the dataframe.
     all_touched : bool, default=True
         Whether to burn all pixels touched by geometries.
     dtype : np.dtype, optional
@@ -40,10 +42,8 @@ class Rasterizer:
     """
 
     path: Path
-    column: str = 'index'
-    load_df_func: Callable[[str | Path, SpatialSpec], gpd.GeoDataFrame] = field(
-        default_factory=lambda: lambda path, spec: gpd.read_file(path).to_crs(spec.crs).reset_index(),
-    )
+    load_df: Callable[[SpatialSpec], gpd.GeoDataFrame] | None = None
+    values: str | float = 'index'
     all_touched: bool = True
     dtype: np.dtype | None = None
     fill_value: float | None = None
@@ -51,27 +51,31 @@ class Rasterizer:
     raster_creation_options: RasterCreationOptions | None = None
 
     def __call__(self, dst_path: str | Path, spec: SpatialSpec) -> None:
-        df = self.load_df_func(self.path, spec)
+        df = gpd.read_file(self.path).to_crs(spec.crs).reset_index() if self.path is not None else self.load_df(spec)
 
         if df.crs != spec.crs:
             raise ValueError(f'GeoDataFrame CRS ({df.crs}) does not match target spec CRS ({spec.crs}).')
 
-        if self.column not in df.columns:
-            raise ValueError(f"Column '{self.column}' not found in GeoDataFrame.")
+        if self.values == 'index':
+            raster_values = df.index.values
+        elif isinstance(self.values, float):
+            raster_values = np.full(df.shape[0], fill_value=self.values)
+        else:
+            raster_values = df[self.values].values
 
         dtype = self.dtype if self.dtype is not None else df[self.column].dtype
 
         if not np.issubdtype(dtype, np.number):
-            raise TypeError(f"Column '{self.column}' must be numeric, got {dtype}.")
+            raise TypeError(f'dtype must be numeric, got {dtype}.')
 
         default_fill_value = np.nan if np.issubdtype(dtype, np.floating) else 0
         fill_value = self.fill_value if self.fill_value is not None else default_fill_value
 
-        if fill_value in df[self.column].values:
+        if fill_value in raster_values:
             raise ValueError(f'Fill value {fill_value} is present in the data. Overwrite with a different value.')
 
         raster = rasterize(
-            ((row.geometry, row[self.column]) for i, row in df.iterrows()),
+            ((geom, val) for geom, val in zip(df.geometry.values, raster_values)),
             out_shape=spec.shape,
             transform=spec.transform,
             fill=fill_value,
