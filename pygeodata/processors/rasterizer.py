@@ -6,6 +6,7 @@ from typing import Any
 import geopandas as gpd
 import numpy as np
 import rasterio
+from numpy.typing import DTypeLike
 from rasterio.features import rasterize
 
 from pygeodata.config import get_config
@@ -45,7 +46,7 @@ class Rasterizer:
     load_df: Callable[[SpatialSpec], gpd.GeoDataFrame] | None = None
     values: str | float = 'index'
     all_touched: bool = True
-    dtype: np.dtype | None = None
+    dtype: DTypeLike | None = None
     fill_value: float | None = None
     rasterize_kw: dict[str, Any] = field(default_factory=dict)
     raster_creation_options: RasterCreationOptions | None = None
@@ -58,7 +59,7 @@ class Rasterizer:
 
         if self.values == 'index':
             raster_values = df.index.values
-        elif isinstance(self.values, float):
+        elif isinstance(self.values, (int, float)):
             raster_values = np.full(df.shape[0], fill_value=self.values)
         else:
             raster_values = df[self.values].values
