@@ -1,0 +1,10 @@
+/data
+/dist
+/.idea/
+/*_cache
+/*.egg-info
+
+.DS_Store
+__pycache__
+build
+test_*.py

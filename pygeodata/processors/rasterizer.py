@@ -35,7 +35,9 @@ class Rasterizer:
     dtype : np.dtype, optional
         Data type for raster. Defaults to the dtype of `column`.
     fill_value : float, optional
-        Nodata value for raster. Defaults to `_NODATA_DTYPE_MAP` based on dtype.
+        Fill value for raster. Defaults to 0 for integer dtypes and np.nan for floating point dtypes.
+    nodata_value : float, optional
+        Nodata value for raster.
     rasterize_kw : dict, optional
         Additional keyword arguments passed to `rasterio.features.rasterize`.
     raster_creation_options : RasterCreationOptions, optional
@@ -48,6 +50,7 @@ class Rasterizer:
     all_touched: bool = True
     dtype: DTypeLike | None = None
     fill_value: float | None = None
+    nodata_value: float | None = None
     rasterize_kw: dict[str, Any] = field(default_factory=dict)
     raster_creation_options: RasterCreationOptions | None = None
 
@@ -95,7 +98,7 @@ class Rasterizer:
             width=spec.shape[1],
             count=1,
             dtype=dtype,
-            nodata=fill_value,
+            nodata=self.nodata_value,
             crs=spec.crs,
             transform=spec.transform,
             **raster_creation_options.to_dict(),

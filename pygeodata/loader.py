@@ -16,8 +16,8 @@ class DataLoader:
     def driver(self) -> Driver:
         try:
             processor = self.processor
-        except NotImplementedError:
-            raise NotImplementedError(f'{self}: Either processor or driver must be implemented')
+        except NotImplementedError as err:
+            raise NotImplementedError(f'{self}: Either processor or driver must be implemented') from err
 
         if not hasattr(processor, 'default_driver'):
             raise AttributeError(f'Processor {processor} lacks default_driver and no driver is set')
@@ -59,6 +59,18 @@ class DataLoader:
         params = self.get_params()
         parts = [f'{k}={v!r}' for k, v in sorted(params.items())]
         return f'{self.class_name}({", ".join(parts)})'
+
+    def get_src_path(self) -> Path:
+        try:
+            processor = self.processor
+        except NotImplementedError as err:
+            raise NotImplementedError(f'{self}: Either processor or driver must be implemented') from err
+
+        if hasattr(processor, 'src_path'):
+            return Path(getattr(processor, 'src_path'))
+        if hasattr(processor, 'path'):
+            return Path(getattr(processor, 'path'))
+        raise NotImplementedError(f'Processor {processor} lacks src_path and path')
 
     def get_processed_path(self, spec: SpatialSpec, ext: str | None = None) -> Path:
         ext = ext or self.ext
