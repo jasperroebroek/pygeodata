@@ -12,6 +12,7 @@ import rasterio.warp
 from numpy.typing import DTypeLike
 from rasterio import CRS, RasterioIOError
 from rasterio.enums import Resampling
+from rasterio.warp import calculate_default_transform
 
 from pygeodata.config import get_config
 from pygeodata.drivers import RioXArrayDriver
@@ -81,8 +82,10 @@ class Reprojector:
         spec : SpatialSpec
             Target spatial specification (CRS, transform, shape)
         """
-        dst_path = Path(dst_path)
+        if not spec.is_fully_defined:
+            raise ValueError('Shape and transform must be defined in spec for reprojection.')
 
+        dst_path = Path(dst_path)
         if dst_path.exists():
             raise FileExistsError(f'Destination already exists: {dst_path}')
 
@@ -159,13 +162,31 @@ class Reprojector:
 
                     if scales is not None:
                         scales = scales if isinstance(scales, Sequence) else [scales] * dst.count
-                        dst._set_all_scales(scales)
+                        dst._set_all_scales(scales)  # noqa: SLF001
 
                     if offsets is not None:
                         offsets = offsets if isinstance(offsets, Sequence) else [offsets] * dst.count
-                        dst._set_all_offsets(offsets)
+                        dst._set_all_offsets(offsets)  # noqa: SLF001
 
             shutil.move(temp_path, dst_path)
+
+    def resolve_spec(self, spec: SpatialSpec) -> SpatialSpec:
+        if spec.is_fully_defined:
+            return spec
+
+        with rio.open(self.src_path) as src:
+            src_transform = src.transform
+            src_shape = src.shape
+
+        transform, shape = calculate_default_transform(
+            src_crs=self.src_crs,
+            dst_crs=spec.crs,
+            width=src_shape[1],
+            height=src_shape[0],
+            transform=src_transform,
+        )
+
+        return SpatialSpec(crs=spec.crs, shape=shape, transform=transform)
 
     default_driver = RioXArrayDriver()
     ext = 'tif'

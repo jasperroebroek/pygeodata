@@ -16,7 +16,7 @@ class Config:
     spec: SpatialSpec | None = None
     raster_creation_options: RasterCreationOptions = field(default_factory=RasterCreationOptions)
 
-    def update(self, **kwargs):
+    def update(self, **kwargs) -> None:
         for key, value in kwargs.items():
             if not hasattr(self, key):
                 raise ValueError(f'Invalid config key: {key}')

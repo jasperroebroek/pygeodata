@@ -12,7 +12,7 @@ from rasterio.features import rasterize
 from pygeodata.config import get_config
 from pygeodata.drivers import RioXArrayDriver
 from pygeodata.options import RasterCreationOptions
-from pygeodata.types import SpatialSpec
+from pygeodata.types import RasterSpec
 
 
 @dataclass
@@ -22,14 +22,16 @@ class Rasterizer:
 
     Parameters
     ----------
-    path : Path, optional
+    src_path : Path, optional
         Path to the vector dataset (e.g., shapefile, GeoPackage).
-    load_df : Callable[[SpatialSpec], gpd.GeoDataFrame], optional
+    load_df : Callable[[RasterSpec], gpd.GeoDataFrame], optional
         Function to load the vector data. ``path`` is preferred if provided.
     values : str or int, default='index'
         Values imprinted on the raster. A numeric value will be used for all polygons, while a string will be
         interpreted as the name of the column in the data with the values. A special value is `index`, which refers to
         the index of the dataframe.
+    column : str, optional
+        Column to use for dtype if not provided.
     all_touched : bool, default=True
         Whether to burn all pixels touched by geometries.
     dtype : np.dtype, optional
@@ -44,9 +46,10 @@ class Rasterizer:
         Optional raster creation profile (compression, tiling, etc.).
     """
 
-    path: Path | None = None
-    load_df: Callable[[SpatialSpec], gpd.GeoDataFrame] | None = None
+    src_path: Path | None = None
+    load_df: Callable[[RasterSpec], gpd.GeoDataFrame] | None = None
     values: str | float = 'index'
+    column: str | None = None
     all_touched: bool = True
     dtype: DTypeLike | None = None
     fill_value: float | None = None
@@ -54,8 +57,16 @@ class Rasterizer:
     rasterize_kw: dict[str, Any] = field(default_factory=dict)
     raster_creation_options: RasterCreationOptions | None = None
 
-    def __call__(self, dst_path: str | Path, spec: SpatialSpec) -> None:
-        df = gpd.read_file(self.path).to_crs(spec.crs).reset_index() if self.path is not None else self.load_df(spec)
+    def __call__(self, dst_path: str | Path, spec: RasterSpec) -> None:
+        if not spec.is_fully_defined:
+            raise ValueError('Shape and transform must be defined in spec for rasterization.')
+
+        if self.src_path is not None:
+            df = gpd.read_file(self.src_path).to_crs(spec.crs).reset_index()
+        elif self.load_df is not None:
+            df = self.load_df(spec)
+        else:
+            raise ValueError('Either src_path or load_df must be provided.')
 
         if df.crs != spec.crs:
             raise ValueError(f'GeoDataFrame CRS ({df.crs}) does not match target spec CRS ({spec.crs}).')
@@ -79,7 +90,7 @@ class Rasterizer:
             raise ValueError(f'Fill value {fill_value} is present in the data. Overwrite with a different value.')
 
         raster = rasterize(
-            ((geom, val) for geom, val in zip(df.geometry.values, raster_values)),
+            ((geom, val) for geom, val in zip(df.geometry.values, raster_values, strict=True)),
             out_shape=spec.shape,
             transform=spec.transform,
             fill=fill_value,

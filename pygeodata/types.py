@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol, Self
+from typing import Any, Protocol, Self, TypeVar
 
 import fiona
 import rasterio as rio
@@ -8,20 +8,24 @@ from affine import Affine
 from pyproj import CRS
 from rasterio.coords import BoundingBox
 
-RasterShape = tuple[int, int]
+T = TypeVar('T')
+RasterShape = tuple[float, float]
 
 
-@dataclass
+@dataclass(frozen=True)
 class SpatialSpec:
     crs: CRS = field(default_factory=lambda: CRS.from_epsg(4326))
     transform: Affine | None = None
     shape: RasterShape | None = None
 
     @property
+    def is_fully_defined(self) -> bool:
+        return self.transform is not None and self.shape is not None
+
+    @property
     def resolution(self) -> tuple[int, int]:
         if self.transform is None:
             raise ValueError('No transform provided')
-
         return (abs(self.transform.a), abs(self.transform.e))
 
     @property
@@ -65,7 +69,7 @@ class SpatialSpec:
             if self.transform is not None
             else 'None'
         )
-        return f'SpatialSpec(crs={self.crs.to_string()}, transform={transform_str}, shape={self.shape})'
+        return f'RasterSpec(crs={self.crs.to_string()}, transform={transform_str}, shape={self.shape})'
 
 
 class Processor(Protocol):
@@ -73,6 +77,6 @@ class Processor(Protocol):
 
 
 class Driver(Protocol):
-    def __call__(self, path: str | Path) -> Any: ...
-
     default_ext: str
+
+    def __call__(self, path: str | Path) -> Any: ...

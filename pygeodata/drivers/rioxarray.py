@@ -78,7 +78,7 @@ class RioXArrayDriver:
         except Exception as e:
             raise type(e)(f'Failed to load {path}: {e}') from e
 
-        if isinstance(da, xr.Dataset):
+        if isinstance(da, (xr.Dataset, list)):
             raise TooManyDimensions(f'Dataset found in {path}. Use one of the subdatasets.')
 
         if self.flatten and 'band' in da.dims and da.sizes['band'] == 1:
