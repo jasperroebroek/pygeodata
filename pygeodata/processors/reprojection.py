@@ -175,9 +175,13 @@ class Reprojector:
             return spec
 
         with rio.open(self.src_path) as src:
+            src_crs = src.crs if src.crs is not None else self.src_crs
             src_transform = src.transform
             src_shape = src.shape
             src_bounds = src.bounds
+
+        if src_crs is None:
+            raise ValueError(f'Cannot determine CRS for {self.src_path}. Provide src_crs parameter.')
 
         bounds_dict = {
             'left': src_bounds.left,
@@ -187,7 +191,7 @@ class Reprojector:
         }
 
         transform, width, height = calculate_default_transform(
-            src_crs=self.src_crs,
+            src_crs=src_crs,
             dst_crs=spec.crs,
             width=src_shape[1],
             height=src_shape[0],
