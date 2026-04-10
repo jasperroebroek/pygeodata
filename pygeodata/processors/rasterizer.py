@@ -12,7 +12,7 @@ from rasterio.features import rasterize
 from pygeodata.config import get_config
 from pygeodata.drivers import RioXArrayDriver
 from pygeodata.options import RasterCreationOptions
-from pygeodata.types import RasterSpec
+from pygeodata.types import SpatialSpec
 
 
 @dataclass
@@ -24,7 +24,7 @@ class Rasterizer:
     ----------
     src_path : Path, optional
         Path to the vector dataset (e.g., shapefile, GeoPackage).
-    load_df : Callable[[RasterSpec], gpd.GeoDataFrame], optional
+    load_df : Callable[[SpatialSpec], gpd.GeoDataFrame], optional
         Function to load the vector data. ``path`` is preferred if provided.
     values : str or int, default='index'
         Values imprinted on the raster. A numeric value will be used for all polygons, while a string will be
@@ -47,7 +47,7 @@ class Rasterizer:
     """
 
     src_path: Path | None = None
-    load_df: Callable[[RasterSpec], gpd.GeoDataFrame] | None = None
+    load_df: Callable[[SpatialSpec], gpd.GeoDataFrame] | None = None
     values: str | float = 'index'
     column: str | None = None
     all_touched: bool = True
@@ -57,7 +57,7 @@ class Rasterizer:
     rasterize_kw: dict[str, Any] = field(default_factory=dict)
     raster_creation_options: RasterCreationOptions | None = None
 
-    def __call__(self, dst_path: str | Path, spec: RasterSpec) -> None:
+    def __call__(self, dst_path: str | Path, spec: SpatialSpec) -> None:
         if not spec.is_fully_defined:
             raise ValueError('Shape and transform must be defined in spec for rasterization.')
 

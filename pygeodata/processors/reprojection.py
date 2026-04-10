@@ -177,16 +177,25 @@ class Reprojector:
         with rio.open(self.src_path) as src:
             src_transform = src.transform
             src_shape = src.shape
+            src_bounds = src.bounds
 
-        transform, shape = calculate_default_transform(
+        bounds_dict = {
+            'left': src_bounds.left,
+            'right': src_bounds.right,
+            'top': src_bounds.top,
+            'bottom': src_bounds.bottom,
+        }
+
+        transform, width, height = calculate_default_transform(
             src_crs=self.src_crs,
             dst_crs=spec.crs,
             width=src_shape[1],
             height=src_shape[0],
             transform=src_transform,
+            **bounds_dict,
         )
 
-        return SpatialSpec(crs=spec.crs, shape=shape, transform=transform)
+        return SpatialSpec(crs=spec.crs, shape=(height, width), transform=transform)
 
     default_driver = RioXArrayDriver()
     ext = 'tif'

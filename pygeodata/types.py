@@ -69,7 +69,7 @@ class SpatialSpec:
             if self.transform is not None
             else 'None'
         )
-        return f'RasterSpec(crs={self.crs.to_string()}, transform={transform_str}, shape={self.shape})'
+        return f'SpatialSpec(crs={self.crs.to_string()}, transform={transform_str}, shape={self.shape})'
 
 
 class Processor(Protocol):

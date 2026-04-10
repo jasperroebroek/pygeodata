@@ -241,8 +241,9 @@ def test_multiple_specs_different_paths(sample_loader_class, sample_spatial_spec
     loader = sample_loader_class()
 
     # Create a second spec with different properties
-    spec2 = SpatialSpec(**asdict(sample_spatial_spec))
-    spec2.shape = (2, 3)
+    d = asdict(sample_spatial_spec)
+    d['shape'] = (2, 3)
+    spec2 = SpatialSpec(**d)
 
     with set_config(path_data_processed=tmp_path):
         path1 = loader.get_processed_path(sample_spatial_spec)

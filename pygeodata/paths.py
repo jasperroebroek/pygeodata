@@ -22,15 +22,18 @@ def generate_path(
     for key in sorted(kwargs.keys()):
         p.append(f'{key}={kwargs[key]}')
 
-    shape_str = f'{spec.shape[0]}-{spec.shape[1]}' if spec.shape is not None else 'None'
-    t = spec.transform
-    transform_str = f'affine_{t.a:.4f}_{t.b:.4f}_{t.c:.4f}_{t.d:.4f}_{t.e:.4f}_{t.f:.4f}' if t is not None else 'None'
+    if spec.shape is None or spec.transform is None:
+        geo_str = ['vector']
+    else:
+        shape_str = f'{spec.shape[0]}-{spec.shape[1]}'
+        t = spec.transform
+        transform_str = f'affine_{t.a:.4f}_{t.b:.4f}_{t.c:.4f}_{t.d:.4f}_{t.e:.4f}_{t.f:.4f}'
+        geo_str = [transform_str, shape_str]
 
     return Path(
         base_dir,
         re.sub(r'[^\w\-]', '_', spec.crs.to_string()),
-        transform_str,
-        shape_str,
+        *geo_str,
         *p,
         f'{filename}.{ext}',
     )
