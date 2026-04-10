@@ -1,5 +1,6 @@
 import shutil
 import tempfile
+import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from numbers import Number
@@ -50,6 +51,8 @@ class Reprojector:
         Offset for each band
     raster_creation_options : RasterCreationOptions, optional
         GeoTIFF creation profile options. If None, uses defaults
+    forced_read: bool, default=False
+        Force reading from source file
     """
 
     src_path: str | Path
@@ -66,6 +69,7 @@ class Reprojector:
     scales: float | Sequence[float] | None = None
     offsets: float | Sequence[float] | None = None
     raster_creation_options: RasterCreationOptions | None = None
+    forced_read: bool = False
 
     def __post_init__(self):
         if self.dst_dtype == np.bool_:
@@ -84,6 +88,15 @@ class Reprojector:
         """
         if not spec.is_fully_defined:
             raise ValueError('Shape and transform must be defined in spec for reprojection.')
+
+        if str(self.src_path).startswith('netcdf:') and not self.forced_read:
+            warnings.warn(
+                'NetCDF subdataset detected in Reprojector.\n'
+                'Using rio.band() with rasterio.warp.reproject can produce empty or incorrect rasters.\n'
+                'If results are all-NaN or incomplete, set forced_read=True.',
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
         dst_path = Path(dst_path)
         if dst_path.exists():
@@ -142,8 +155,15 @@ class Reprojector:
                 num_threads = self.num_threads if self.num_threads is not None else get_config().num_threads
 
                 with rio.open(temp_path, 'w', **rio_profile) as dst:
+                    if self.forced_read:
+                        source = src.read(src_bands)
+                        if source.ndim == 2:
+                            source = source[np.newaxis, ...]
+                    else:
+                        source = rio.band(src, src_bands)
+
                     rasterio.warp.reproject(
-                        source=rio.band(src, src_bands),
+                        source=source,
                         destination=rio.band(dst, dst.indexes),
                         src_crs=src_crs,
                         dst_crs=spec.crs,
