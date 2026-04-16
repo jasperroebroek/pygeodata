@@ -21,7 +21,8 @@ dependencies = [
     "geopandas",
     "dask",
     "zarr",
-    "fiona"
+    "fiona",
+    "pyarrow"
 ]
 
 [tool.setuptools.packages.find]

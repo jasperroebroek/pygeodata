@@ -8,6 +8,9 @@ from pygeodata.types import Driver, Processor, SpatialSpec, T
 
 
 class DataLoader(Generic[T]):
+    _sort_params: tuple[str] = ()
+    _exclude_params: tuple[str] = ()
+
     def resolve_spec(self, spec: SpatialSpec) -> SpatialSpec:
         if spec.is_fully_defined:
             return spec
@@ -56,8 +59,34 @@ class DataLoader(Generic[T]):
                 continue
             if key.startswith('_'):
                 continue
+            if key in self._exclude_params:
+                continue
             params.update({key: vars(self)[key]})
         return params
+
+    def get_flat_params(self) -> dict[str, Any]:
+        """Recursively flatten parameters for deterministic path generation."""
+        flat_params = {}
+        for k, v in self.get_params().items():
+            if isinstance(v, DataLoader):
+                flat_params[k] = v.class_name
+                for nested_k, nested_v in v.get_flat_params().items():
+                    flat_params[f'{k}__{nested_k}'] = nested_v
+
+            elif isinstance(v, (list, tuple)) and v and isinstance(v[0], DataLoader):
+                v_parsed = sorted(v, key=repr) if k in self._sort_params else v
+
+                joined_names = ', '.join(i.class_name for i in v_parsed)
+                flat_params[k] = f'({joined_names})'
+
+                for idx, item in enumerate(v_parsed):
+                    for nested_k, nested_v in item.get_flat_params().items():
+                        flat_params[f'{k}_{idx}__{nested_k}'] = nested_v
+
+            else:
+                flat_params[k] = v
+
+        return flat_params
 
     def __repr__(self) -> str:
         params = self.get_params()
@@ -84,7 +113,7 @@ class DataLoader(Generic[T]):
             filename=self.name,
             base_dir=get_config().path_data_processed,
             ext=ext,
-            **self.get_params(),
+            **self.get_flat_params(),
         )
         path.parent.mkdir(exist_ok=True, parents=True)
         return path
