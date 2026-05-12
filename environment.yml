@@ -1,4 +1,4 @@
-name: pygeodata-tests-env
+name: pygeodata
 channels:
   - conda-forge
   - defaults
@@ -9,3 +9,11 @@ dependencies:
   - geopandas
   - dask
   - zarr
+  - pyarrow
+  - filelock
+  - graphviz
+  - python-graphviz
+  - pytest
+  - fiona
+  - libgdal-netcdf
+  - pytest-mock

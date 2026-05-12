@@ -1,5 +1,6 @@
 import shutil
 import tempfile
+import uuid
 import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -99,13 +100,11 @@ class Reprojector:
             )
 
         dst_path = Path(dst_path)
-        if dst_path.exists():
-            raise FileExistsError(f'Destination already exists: {dst_path}')
 
         print(f'Reprojecting: {self.src_path} -> {dst_path}')
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            temp_path = Path(tmpdir) / f'~{"_".join(dst_path.parts[1:])}'
+            temp_path = Path(tmpdir) / f'~{uuid.uuid4().hex}{dst_path.suffix}'
 
             with rio.open(self.src_path) as src:
                 if len(src.subdatasets) > 1:

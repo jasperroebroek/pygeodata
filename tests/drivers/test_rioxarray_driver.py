@@ -1,8 +1,9 @@
 import pytest
-from pygeodata.drivers.rioxarray import RioXArrayDriver
 from rasterio.shutil import RasterioIOError
 from rioxarray.exceptions import TooManyDimensions
-from tests.conftest import LUH2_NC, WTD_TIF
+
+from pygeodata.drivers.rioxarray import RioXArrayDriver
+from tests.dummy_loaders import LUH2_NC, WTD_TIF
 
 
 def test_load_tiff_keep_band():

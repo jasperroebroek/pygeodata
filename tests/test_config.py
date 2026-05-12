@@ -24,6 +24,5 @@ def test_multiple_overrides():
 
 
 def test_config_invalid_key():
-    with pytest.raises(ValueError):
-        with set_config(invalid_key='value'):
-            pass
+    with pytest.raises(ValueError), set_config(invalid_key='value'):
+        pass

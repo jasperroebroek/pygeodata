@@ -10,7 +10,7 @@ from rasterio.warp import calculate_default_transform
 from pygeodata.options import RasterCreationOptions
 from pygeodata.processors.reprojection import Reprojector
 from pygeodata.types import SpatialSpec
-from tests.conftest import LUH2_NC, WTD_TIF
+from tests.dummy_loaders import LUH2_NC, WTD_TIF
 
 
 def test_reprojection_creates_file(sample_geotiff, sample_spatial_spec, tmp_path):

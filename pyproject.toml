@@ -8,7 +8,7 @@ description = "Lightweight framework for geospatial data access and processing"
 authors = [
     { name = "Jasper Roebroek", email = "roebroek.jasper@gmail.com" }
 ]
-version = "0.0.4"
+version = "0.1.0"
 license = { text = "MIT" }
 readme = "README.md"
 requires-python = ">=3.10"
@@ -22,7 +22,9 @@ dependencies = [
     "dask",
     "zarr",
     "fiona",
-    "pyarrow"
+    "pyarrow",
+    "graphviz",
+    "filelock",
 ]
 
 [tool.setuptools.packages.find]

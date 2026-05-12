@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -7,16 +7,12 @@ import xarray as xr
 from affine import Affine
 from pyproj import CRS
 
+import pygeodata.loader as loader_module
 from pygeodata.drivers import RioXArrayDriver
 from pygeodata.loader import DataLoader
 from pygeodata.processors import Reprojector
 from pygeodata.types import SpatialSpec
-
-# Test data paths
-TEST_DATA_DIR = Path(__file__).parent.parent / 'data'
-WTD_TIF = TEST_DATA_DIR / 'wtd.tif'
-LUH2_NC = TEST_DATA_DIR / 'luh2.nc'
-COUNTRIES_SHP = TEST_DATA_DIR / 'countries' / 'ne_110m_admin_0_map_units.shp'
+from tests.dummy_loaders import NestedLoader, SimpleLoader
 
 
 @pytest.fixture
@@ -73,3 +69,46 @@ def sample_loader_class_complex(sample_spatial_spec, sample_geotiff):
         __slots__ = dict(processor=Reprojector(sample_geotiff), driver=RioXArrayDriver())
 
     return ComplexSampleLoader
+
+
+@pytest.fixture
+def mock_spec():
+    """Mock SpatialSpec to bypass geographic math during tests."""
+    spec = MagicMock()
+    spec.is_fully_defined = True
+    spec.shape = (100, 100)
+    spec.transform.a = 1.0
+    spec.transform.b = 0.0
+    spec.transform.c = 0.0
+    spec.transform.d = 0.0
+    spec.transform.e = -1.0
+    spec.transform.f = 0.0
+    spec.crs.to_string.return_value = 'EPSG:4326'
+    return spec
+
+
+@pytest.fixture
+def mock_config(tmp_path):
+    """Mock get_config() so paths are generated in a temporary test directory."""
+    with patch.object(loader_module, 'get_config') as mock_conf:
+        mock_conf.return_value.path_data_processed = tmp_path
+        yield mock_conf
+
+
+@pytest.fixture
+def simple_loader():
+    return SimpleLoader('a.tif', scale=2.0)
+
+
+@pytest.fixture
+def nested_loader(simple_loader):
+    return NestedLoader(inner=simple_loader, tag='test')
+
+
+@pytest.fixture
+def tree(tmp_path):
+    (tmp_path / 'region1' / 'SimpleLoader' / '2020').mkdir(parents=True)
+    (tmp_path / 'region1' / 'SimpleLoader' / '2021').mkdir(parents=True)
+    (tmp_path / 'region1' / 'OtherLoader' / '2020').mkdir(parents=True)
+    (tmp_path / 'region2' / 'SimpleLoader' / 'sub' / 'tile').mkdir(parents=True)
+    return tmp_path

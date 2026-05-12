@@ -15,6 +15,7 @@ class Config:
     warp_mem_limit: int = 0  # GDAL default, indicates 64 MB
     spec: SpatialSpec | None = None
     raster_creation_options: RasterCreationOptions = field(default_factory=RasterCreationOptions)
+    max_path_param_depth: int = 5
 
     def update(self, **kwargs) -> None:
         for key, value in kwargs.items():
