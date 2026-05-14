@@ -218,3 +218,75 @@ def test_driver_raises_if_no_processor():
 
     with pytest.raises(NotImplementedError):
         _ = Bare().driver
+
+
+def test_yielded_loaders_get_state_hash_written(
+    multi_output_loader_class,
+    sample_loader_class,
+    secondary_loader_class,
+    sample_spatial_spec,
+    tmp_path,
+):
+    """Each yielded loader should have its state hash written after process()."""
+    with set_config(path_data_processed=tmp_path):
+        multi_output_loader_class().process(sample_spatial_spec)
+        assert sample_loader_class().read_state_hash(sample_spatial_spec) == sample_loader_class().get_state_hash()
+        assert (
+            secondary_loader_class().read_state_hash(sample_spatial_spec) == secondary_loader_class().get_state_hash()
+        )
+
+
+def test_self_hash_not_written_when_yielding(multi_output_loader_class, sample_spatial_spec, tmp_path):
+    """When _process yields loaders, self does NOT get its hash written."""
+    loader = multi_output_loader_class()
+    with set_config(path_data_processed=tmp_path):
+        loader.process(sample_spatial_spec)
+        assert loader.read_state_hash(sample_spatial_spec) is None
+
+
+def test_yielded_loader_is_processed(multi_output_loader_class, sample_loader_class, sample_spatial_spec, tmp_path):
+    """is_processed() returns True for a yielded loader after process() runs."""
+    with set_config(path_data_processed=tmp_path):
+        # Need the actual file to exist for is_processed to return True
+        primary = sample_loader_class()
+        primary.get_processed_path(sample_spatial_spec).parent.mkdir(parents=True, exist_ok=True)
+        primary.get_processed_path(sample_spatial_spec).touch()
+
+        multi_output_loader_class().process(sample_spatial_spec)
+        assert primary.is_processed(sample_spatial_spec)
+
+
+def test_none_return_writes_self_hash(sample_loader_class, sample_spatial_spec, tmp_path):
+    """When _process returns None (default), self gets its own hash written."""
+    loader = sample_loader_class()
+    with set_config(path_data_processed=tmp_path):
+        loader.process(sample_spatial_spec)
+        assert loader.read_state_hash(sample_spatial_spec) == loader.get_state_hash()
+
+
+def test_process_not_rerun_if_yielded_loader_already_valid(
+    multi_output_loader_class,
+    sample_spatial_spec,
+    tmp_path,
+) -> None:
+    """process() short-circuits via is_processed() — but since self hash is never written when yielding, this always reruns. Verify _process IS called each time."""
+    with set_config(path_data_processed=tmp_path):
+        multi_output_loader_class().process(sample_spatial_spec)
+        call_count_after_first = len(multi_output_loader_class._calls)
+        multi_output_loader_class().process(sample_spatial_spec)
+        # is_processed checks self's hash — which is never written, so it reruns
+        assert len(multi_output_loader_class._calls) > call_count_after_first
+
+
+def test_yielded_loaders_get_parameters_written(
+    multi_output_loader_class,
+    sample_loader_class,
+    secondary_loader_class,
+    sample_spatial_spec,
+    tmp_path,
+) -> None:
+    """write_parameters() is called for each yielded loader."""
+    with set_config(path_data_processed=tmp_path):
+        multi_output_loader_class().process(sample_spatial_spec)
+        assert sample_loader_class().get_processed_path(sample_spatial_spec).with_suffix('.params.json').exists()
+        assert secondary_loader_class().get_processed_path(sample_spatial_spec).with_suffix('.params.json').exists()

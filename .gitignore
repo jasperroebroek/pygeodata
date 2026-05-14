@@ -3,8 +3,11 @@
 /.idea/
 /*_cache
 /*.egg-info
+/.vscode
+/data_processed
+/build
 
 .DS_Store
 __pycache__
-build
 test_*.py
+build

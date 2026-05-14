@@ -1,4 +1,6 @@
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -106,9 +108,81 @@ def nested_loader(simple_loader):
 
 
 @pytest.fixture
-def tree(tmp_path):
-    (tmp_path / 'region1' / 'SimpleLoader' / '2020').mkdir(parents=True)
-    (tmp_path / 'region1' / 'SimpleLoader' / '2021').mkdir(parents=True)
-    (tmp_path / 'region1' / 'OtherLoader' / '2020').mkdir(parents=True)
-    (tmp_path / 'region2' / 'SimpleLoader' / 'sub' / 'tile').mkdir(parents=True)
+def secondary_loader_class():
+    """A second simple loader to use as a co-output."""
+
+    class SecondaryLoader(DataLoader):
+        driver = RioXArrayDriver()
+
+    return SecondaryLoader
+
+
+@pytest.fixture
+def multi_output_loader_class(sample_loader_class, secondary_loader_class):
+    """
+    A loader whose _process yields two loaders.
+    The yielded loaders (not self) get their state hashes written.
+    """
+    calls = []
+
+    class MultiOutputLoader(DataLoader):
+        ext = 'tif'
+        driver = RioXArrayDriver()
+
+        def _process(self, spec):
+            calls.append(spec)
+            yield sample_loader_class()
+            yield secondary_loader_class()
+
+    MultiOutputLoader._calls = calls
+    return MultiOutputLoader
+
+
+@pytest.fixture
+def cache_tree(tmp_path):
+    """
+    root/
+      region1/
+        SimpleLoader/
+          tile.tif
+          tile.hash.json          <- correct hash
+      region2/
+        SimpleLoader/
+          other.tif
+          other.hash.json         <- wrong hash
+      region3/
+        SimpleLoader/
+          no_hash.tif             <- hash file absent
+      _source/
+        SimpleLoader/
+          ignored.tif             <- should be skipped entirely
+    """
+
+    def write_hash(path: Path, hash_value: str) -> None:
+        path.write_text(json.dumps({'source_hierarchy_hash': hash_value}))
+
+    correct_hash = 'abc123'
+
+    # region1 — valid
+    r1 = tmp_path / 'region1' / 'SimpleLoader'
+    r1.mkdir(parents=True)
+    (r1 / 'tile.tif').write_bytes(b'data')
+    write_hash(r1 / 'tile.hash.json', correct_hash)
+
+    # region2 — wrong hash
+    r2 = tmp_path / 'region2' / 'SimpleLoader'
+    r2.mkdir(parents=True)
+    (r2 / 'other.tif').write_bytes(b'data')
+    write_hash(r2 / 'other.hash.json', 'stale_hash')
+
+    # region3 — missing hash
+    r3 = tmp_path / 'region3' / 'SimpleLoader'
+    r3.mkdir(parents=True)
+    (r3 / 'no_hash.tif').write_bytes(b'data')
+
+    # _source — must be ignored
+    rs = tmp_path / '_source' / 'SimpleLoader'
+    rs.mkdir(parents=True)
+    (rs / 'ignored.tif').write_bytes(b'data')
+
     return tmp_path

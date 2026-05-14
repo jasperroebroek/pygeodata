@@ -19,11 +19,9 @@ classifiers = [
 dependencies = [
     "rioxarray",
     "geopandas",
-    "dask",
     "zarr",
     "fiona",
     "pyarrow",
-    "graphviz",
     "filelock",
 ]
 
@@ -31,4 +29,27 @@ dependencies = [
 include = ["pygeodata*"]
 
 [project.optional-dependencies]
-test = ["pytest", "pytest-mock"]
+viz = [
+    "graphviz",
+]
+parallel = [
+    "dask",
+    "distributed",
+]
+test = [
+    "pytest",
+    "pytest-mock",
+]
+documentation = [
+    "sphinx",
+    "sphinx_rtd_theme",
+    "numpydoc",
+    "jupyter",
+    "matplotlib",
+]
+all = [
+    "pygeodata[viz]",
+    "pygeodata[parallel]",
+    "pygeodata[test]",
+    "pygeodata[documentation]",
+]

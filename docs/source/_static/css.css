@@ -1,0 +1,5 @@
+/* Input cells */
+div.highlight-python { background-color: #f8f8f8; }
+
+/* Output cells */
+div.highlight-none { background-color: #efefef; border-left: 3px solid #ccc; }
