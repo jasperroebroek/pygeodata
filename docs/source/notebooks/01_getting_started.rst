@@ -12,7 +12,7 @@ This notebook introduces the core concepts of ``pygeodata``:
 
 - Configuring the library
 - Defining a ``SpatialSpec``
-- Writing a minimal ``DataLoader``
+- Writing a minimal ``Data``
 - Processing and loading data
 
 .. code:: python
@@ -22,7 +22,7 @@ This notebook introduces the core concepts of ``pygeodata``:
 
 .. code:: python
 
-    from pygeodata import DataLoader, SpatialSpec, get_config, set_config, process, load
+    from pygeodata import Data, SpatialSpec, get_config, set_config, process, load
     from pygeodata.processors.reprojection import Reprojector
     from pyproj import CRS
     from affine import Affine
@@ -91,18 +91,18 @@ raster file.
     Fully defined: True
 
 
-3. A minimal ``DataLoader``
+3. A minimal ``Data``
 ---------------------------
 
-Subclass ``DataLoader`` and set the ``processor`` property. Here we use
+Subclass ``Data`` and set the ``processor`` property. Here we use
 ``Reprojector`` which reprojects a source GeoTIFF to the target
-``SpatialSpec``. Note that the actual class is imported, as DataLoaders
+``SpatialSpec``. Note that the actual class is imported, as Datas
 cannot be defined in a REPL or jupyter notebook.
 
 .. code:: python
 
     # @dataclass
-    # class ElevationLoader(DataLoader):
+    # class ElevationLoader(Data):
     #     """Reproject a raw DEM to the target spec."""
     #     src: str = "data/raw/dem.tif"
     

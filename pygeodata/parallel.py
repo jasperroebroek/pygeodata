@@ -1,42 +1,42 @@
-from __future__ import annotations
 from typing import TYPE_CHECKING
+
+from pygeodata.api import process
+from pygeodata.artifact import Artifact
+from pygeodata.data import Data
+from pygeodata.extraction import extract_instances
+from pygeodata.types import SpatialSpec
 
 if TYPE_CHECKING:
     from dask.delayed import Delayed
-from pygeodata.base import process
-
-# Import your top level process function
-from pygeodata.loader import DataLoader, extract_dataloaders
-from pygeodata.types import SpatialSpec
 
 
 def build_dask_graph(
-    loader: DataLoader,
+    artifact: Data,
     spec: SpatialSpec | None = None,
     _cache: dict[str, Delayed] | None = None,
 ) -> Delayed:
     """
-    Recursively build a Dask delayed computation graph for a loader and its dependencies.
+    Recursively build a Dask delayed computation graph for a artifact and its dependencies.
 
-    Traverses all :class:`~pygeodata.loader.DataLoader` instances embedded in the loader's
-    parameters (via :func:`~pygeodata.loader.extract_dataloaders`) and constructs a graph
-    where each node is a delayed call to :func:`~pygeodata.base.process`. Dependencies are
-    wired as upstream tasks so Dask can schedule them in the correct order.
+    Traverses all :class:`~pygeodata.data.Data` instances embedded in the artifact's
+    parameters`) and constructs a graph where each node is a delayed call to
+    :func:`~pygeodata.api.process`. Dependencies are wired as upstream tasks so Dask can
+    schedule them in the correct order.
 
     Parameters
     ----------
-    loader : DataLoader
-        The root loader for which to build the graph.
+    artifact : Data
+        The root artifact for which to build the graph.
     spec : SpatialSpec, optional
         Spatial specification passed to each :func:`~pygeodata.base.process` call.
     _cache : dict[str, Delayed], optional
-        Internal memoization cache keyed by loader state hash. Shared across recursive
+        Internal memoization cache keyed by artifact state hash. Shared across recursive
         calls to avoid duplicate nodes. Should not be provided by the caller.
 
     Returns
     -------
     dask.delayed.Delayed
-        A delayed task representing the root loader, with all upstream dependencies
+        A delayed task representing the root artifact, with all upstream dependencies
         already wired in the graph.
 
     Notes
@@ -52,7 +52,7 @@ def build_dask_graph(
         from pygeodata.parallel import build_dask_graph
 
         client = Client()
-        graph = build_dask_graph(my_loader, spec=my_spec)
+        graph = build_dask_graph(my_artifact, spec=my_spec)
         graph.compute()
     """
     try:
@@ -63,20 +63,20 @@ def build_dask_graph(
     if _cache is None:
         _cache = {}
 
-    node_id = loader.get_state_hash()
+    node_id = artifact.get_state_hash()
     if node_id in _cache:
         return _cache[node_id]
 
-    deps = list(extract_dataloaders(loader.get_params(exclude=False)))
+    deps = list(extract_instances(artifact.get_params(exclude=False), Artifact))
 
     delayed_deps = [build_dask_graph(dep, spec, _cache) for dep in deps]
 
     @delayed
-    def run_node(l: DataLoader, s: SpatialSpec | None, *args) -> DataLoader:
+    def run_node(l: Data, s: SpatialSpec | None, *args) -> Data:
         process(l, s)
         return l
 
-    task_name = f'{loader.get_class_name()}-{node_id[:8]}'
-    task = run_node(loader, spec, *delayed_deps, dask_key_name=task_name)
+    task_name = f'{artifact.get_class_name()}-{node_id[:8]}'
+    task = run_node(artifact, spec, *delayed_deps, dask_key_name=task_name)
     _cache[node_id] = task
     return task

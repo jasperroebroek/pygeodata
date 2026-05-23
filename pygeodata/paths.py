@@ -4,6 +4,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from affine import Affine
+
 from pygeodata.config import get_config
 from pygeodata.types import SpatialSpec
 
@@ -13,8 +15,8 @@ def sanitize(val: Any) -> str:
 
 
 def generate_path(
-    spec: SpatialSpec,
     base_dir: str | Path,
+    spec: SpatialSpec | None = None,
     name: str | None = None,
     max_path_param_depth: int | None = None,
     **kwargs,
@@ -38,15 +40,17 @@ def generate_path(
     else:
         params = []
 
-    if spec.shape is None or spec.transform is None:
+    if spec is None:
+        geo_str = '**'
+    elif not spec.is_fully_defined:
         geo_str = 'vector'
     else:
-        t = spec.transform
+        t: Affine = spec.transform
         geo_str = (
             f'affine_{t.a:.4f}_{t.b:.4f}_{t.c:.4f}_{t.d:.4f}_{t.e:.4f}_{t.f:.4f}_shape_{spec.shape[0]}_{spec.shape[1]}'
         )
 
-    crs_str = re.sub(r'[^\w\-]', '_', spec.crs.to_string())
+    crs_str = '**' if spec is None else re.sub(r'[^\w\-]', '_', spec.crs.to_string())
 
     parts = [crs_str, geo_str]
     if name is not None:

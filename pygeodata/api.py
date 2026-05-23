@@ -1,18 +1,19 @@
+from pygeodata.artifact import Artifact
 from pygeodata.config import get_config
-from pygeodata.loader import DataLoader
+from pygeodata.data import Data
 from pygeodata.types import SpatialSpec, T
 
 
-def process(loader: DataLoader, spec: SpatialSpec | None = None) -> SpatialSpec:
+def process(artifact: Artifact, spec: SpatialSpec | None = None) -> SpatialSpec:
     """
-    Process a loader for a given spatial specification.
+    Process an Artifact for a given spatial specification.
 
-    Resolves the spec via the loader, then calls :meth:`~pygeodata.loader.DataLoader.process`
+    Resolves the spec via the Artifact, then calls :meth:`~pygeodata.data.Data.process`
     if the output is not already cached. Falls back to the global config spec if none is provided.
 
     Parameters
     ----------
-    loader : DataLoader
+    loader : Data
         The loader to process.
     spec : SpatialSpec, optional
         Spatial specification defining CRS, transform, and shape. If not provided,
@@ -31,24 +32,24 @@ def process(loader: DataLoader, spec: SpatialSpec | None = None) -> SpatialSpec:
     spec = spec or get_config().spec
     if spec is None:
         raise ValueError('No spatial specification (spec) provided')
-    spec = loader.resolve_spec(spec)
+    spec = artifact.resolve_spec(spec)
 
-    if not loader.is_processed(spec):
-        loader.process(spec)
+    if not artifact.is_processed(spec):
+        artifact.process(spec)
 
     return spec
 
 
-def load(loader: DataLoader[T], spec: SpatialSpec | None = None) -> T:
+def load(artifact: Data[T], spec: SpatialSpec | None = None) -> T:
     """
-    Process and load data for a given loader and spatial specification.
+    Process and load data for a given Artifact and spatial specification.
 
     Calls :func:`process` first to ensure the output exists, then reads and
-    returns the data via the loader's driver.
+    returns the data via the Artifact's driver.
 
     Parameters
     ----------
-    loader : DataLoader[T]
+    loader : Data[T]
         The loader to process and load from.
     spec : SpatialSpec, optional
         Spatial specification. Falls back to the global config spec if not provided.
@@ -63,5 +64,5 @@ def load(loader: DataLoader[T], spec: SpatialSpec | None = None) -> T:
     ValueError
         If no spec is provided and none is set in the global config.
     """
-    spec = process(loader, spec)
-    return loader.load(spec)
+    spec = process(artifact, spec)
+    return artifact.load(spec)

@@ -2,7 +2,11 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from pygeodata.loader import DataLoader
+from pygeodata.data import Data
+from pygeodata.drivers.rioxarray import RioXArrayDriver
+from pygeodata.figure import Figure
+from pygeodata.processors.reprojection import Reprojector
+from pygeodata.types import SpatialSpec
 
 TEST_DATA_DIR = Path(__file__).parent.parent / 'data'
 WTD_TIF = TEST_DATA_DIR / 'wtd.tif'
@@ -16,18 +20,18 @@ class DummyScenario(Enum):
 
 
 @dataclass
-class LoaderA(DataLoader):
+class LoaderA(Data):
     year: int
 
 
 @dataclass
-class LoaderB(DataLoader):
-    features: list[DataLoader]
+class LoaderB(Data):
+    features: list[Data]
     _sort_params = ('features',)
 
 
 @dataclass
-class LoaderC(DataLoader):
+class LoaderC(Data):
     target: str
     n_jobs: int = 4
     _private_state: bool = False
@@ -35,63 +39,68 @@ class LoaderC(DataLoader):
 
 
 @dataclass
-class LoaderD(DataLoader):
-    """Loader with a mixed list: a DataLoader AND a plain string."""
+class LoaderD(Data):
+    """Loader with a mixed list: a Data AND a plain string."""
 
     items: list
 
 
-@dataclass
-class UpstreamLoader(DataLoader):
-    """A simple parameterless upstream loader for DAG testing."""
-
-    def process(self, spec):
-        p = self.get_processed_path(spec)
-        p.write_text('upstream')
-        self.write_state_hash(spec)
+class EmptyLoader(Data):
+    driver = RioXArrayDriver()
 
 
 @dataclass
-class DownstreamLoader(DataLoader):
-    """Uses UpstreamLoader as an explicit dependency for DAG testing."""
+class SampleLoader(Data):
+    path: Path
+    scale: float = 1
 
-    upstream: DataLoader
+    @property
+    def processor(self) -> Reprojector:
+        return Reprojector(self.path)
 
-    def process(self, spec):
-        p = self.get_processed_path(spec)
-        p.write_text('downstream')
-        self.write_state_hash(spec)
-
-
-class SimpleLoader(DataLoader):
-    def __init__(self, path: str, scale: float = 1.0):
-        self.path = path
-        self.scale = scale
+    driver = RioXArrayDriver()
 
 
-class NestedLoader(DataLoader):
-    def __init__(self, inner: DataLoader, tag: str = 'default'):
+class NestedLoader(Data):
+    def __init__(self, inner: Data, tag: str = 'default'):
         self.inner = inner
         self.tag = tag
 
 
-class HardcodedDependencyLoader(DataLoader):
-    """A loader that hides a dependency inside a random method."""
-
-    def random_helper_method(self):
-        hidden_loader = LoaderA(year=2020)
-        return hidden_loader
+class HardcodedDependencyLoader(Data):
+    def random_helper_method(self) -> Data:
+        return LoaderA(year=2020)
 
 
-def make_simple_loader(name: str, write_fn=None):
-    """Creates a minimal DataLoader subclass with a controllable process() method."""
+@dataclass
+class MultiOutputLoader(Data):
+    loader_1: Data
+    loader_2: Data
+    ext = 'tif'
+    _calls = []
 
-    @dataclass(repr=False)
-    class _Loader(DataLoader):
-        pass
+    def _process(self, spec):
+        self._calls.append(spec)
+        yield self.loader_1
+        yield self.loader_2
 
-    _Loader.__name__ = name
-    _Loader.__qualname__ = name
-    if write_fn:
-        _Loader.process = lambda self, spec: write_fn(self, spec)
-    return _Loader
+
+@dataclass
+class SimpleFigure(Figure):
+    a: int = 1
+
+
+@dataclass
+class TwoParamFigure(Figure):
+    a: int
+    b: str
+
+
+@dataclass
+class DummyFigure(Figure):
+    a: int
+
+    def _process(self, spec: SpatialSpec) -> None:
+        out = self.get_processed_path(spec)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.touch()

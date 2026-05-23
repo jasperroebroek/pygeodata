@@ -2,7 +2,7 @@ pygeodata
 =========
 
 **pygeodata** is a framework for deterministic, cached geospatial data processing.
-It provides a :class:`~pygeodata.loader.DataLoader` base class whose subclasses
+It provides a :class:`~pygeodata.data.Data` base class whose subclasses
 encapsulate rasterization, reprojection, and arbitrary processing steps. Outputs
 are cached on disk and invalidated automatically when source code or parameters
 change, enabling reproducible, incremental pipelines.

@@ -5,7 +5,7 @@ API reference
 .. autosummary::
    :toctree: generated/
 
-   pygeodata.loader.DataLoader
+   pygeodata.data.Data
    pygeodata.types.SpatialSpec
    pygeodata.base.process
    pygeodata.base.load

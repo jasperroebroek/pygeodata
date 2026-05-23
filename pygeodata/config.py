@@ -11,6 +11,8 @@ from pygeodata.types import SpatialSpec
 @dataclass
 class Config:
     path_data_processed: Path = Path('data_processed')
+    path_figures: Path = Path('figures')
+    path_source_registry: Path = Path('.source')
     num_threads: int = 1
     warp_mem_limit: int = 0  # GDAL default, indicates 64 MB
     spec: SpatialSpec | None = None

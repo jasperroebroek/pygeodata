@@ -1,11 +1,13 @@
 import html
 import warnings
 from collections.abc import Mapping, Sequence, Set
-from pathlib import Path
 from typing import Any
 
+from pygeodata.artifact import Artifact
+from pygeodata.data import Data
+from pygeodata.figure import Figure
 from pygeodata.formatting import format_value_as_string
-from pygeodata.loader import DataLoader
+from pygeodata.tracked_object import TrackedObject
 
 try:
     from graphviz import Digraph
@@ -25,7 +27,7 @@ def _indent(level: int) -> str:
 
 
 def format_value_for_html(value: Any, indent: int = 0, nested: bool = True) -> str:
-    if isinstance(value, DataLoader):
+    if isinstance(value, Artifact):
         prefix = _indent(indent) if nested else ''
         return f'{prefix}{value.get_class_name()}'
 
@@ -60,11 +62,11 @@ def _get_class_name(cls_or_str: Any) -> str:
 
 
 def _get_named_dependencies(params: dict) -> list[tuple[str, Any]]:
-    """Extracts DataLoaders and tracks which parameter key they belong to."""
+    """Extracts Artifacts and tracks which parameter key they belong to."""
     deps = []
 
     def extract(val: Any, name: str):
-        if isinstance(val, DataLoader):
+        if isinstance(val, Artifact):
             deps.append((name, val))
         elif isinstance(val, (list, tuple, set)):
             for i, item in enumerate(val):
@@ -79,25 +81,25 @@ def _get_named_dependencies(params: dict) -> list[tuple[str, Any]]:
     return deps
 
 
-def _build_html_label(current_loader: DataLoader, show_params: bool, show_inheritance: bool, show_calls: bool) -> str:
+def _build_html_label(current_artifact: Artifact, show_params: bool, show_inheritance: bool, show_calls: bool) -> str:
     """Builds the lowercase HTML table label for the node."""
-    class_name = current_loader.get_class_name()
+    class_name = current_artifact.get_class_name()
 
     # 1. Header Row
     rows = [f'<tr><td bgcolor="#d0e4fe"><b>{class_name}</b></td></tr>']
 
     # 2. Static Code Context Row (Grey)
     meta_lines = []
-    if isinstance(current_loader, DataLoader):
-        metadata = current_loader.get_source_metadata()
-
-        if show_inheritance and metadata.get('inheritance_dependencies'):
-            inh = [cls.__name__ for cls in metadata['inheritance_dependencies']]
+    if isinstance(current_artifact, Artifact):
+        inheritance_dependencies = current_artifact.get_inheritance_dependencies()
+        if show_inheritance and inheritance_dependencies:
+            inh = [cls.__name__ for cls in inheritance_dependencies]
             inheritance_str = '<br/>'.join(inh)
             meta_lines.append(f'<b>inherits</b>:<br/> {inheritance_str}')
 
-        if show_calls and metadata.get('call_dependencies'):
-            cal = [cls.__name__ for cls in metadata['call_dependencies']]
+        call_dependencies = current_artifact.get_call_dependencies()
+        if show_calls and call_dependencies:
+            cal = [cls.__name__ for cls in call_dependencies]
             call_str = '<br/>'.join(cal)
             meta_lines.append(f'<b>calls</b>:<br/> {call_str}')
 
@@ -109,7 +111,7 @@ def _build_html_label(current_loader: DataLoader, show_params: bool, show_inheri
 
     # 3. Parameters Row (White)
     if show_params:
-        params = current_loader.get_params()
+        params = current_artifact.get_params()
         prim_params: list[str] = []
 
         for k, v in params.items():
@@ -137,7 +139,7 @@ def _build_html_label(current_loader: DataLoader, show_params: bool, show_inheri
 
 
 def _add_nodes_and_edges(
-    current_loader: DataLoader,
+    current_artifact: Artifact,
     dot: Digraph,
     visited_hashes: set[str],
     show_params: bool,
@@ -145,16 +147,16 @@ def _add_nodes_and_edges(
     show_calls: bool,
 ) -> str:
     """Recursively adds nodes and edges to the Graphviz Digraph."""
-    node_id = current_loader.get_state_hash()
+    node_id = current_artifact.get_state_hash()
 
     if node_id in visited_hashes:
         return node_id
     visited_hashes.add(node_id)
 
-    label = _build_html_label(current_loader, show_params, show_inheritance, show_calls)
+    label = _build_html_label(current_artifact, show_params, show_inheritance, show_calls)
     dot.node(node_id, label=label)
 
-    deps = _get_named_dependencies(current_loader.get_params(exclude=False))
+    deps = _get_named_dependencies(current_artifact.get_params(exclude=False))
     for edge_label, dep in deps:
         dep_id = _add_nodes_and_edges(dep, dot, visited_hashes, show_params, show_inheritance, show_calls)
 
@@ -176,7 +178,7 @@ def _add_nodes_and_edges(
 
 
 def plot_compact_execution_graph(
-    loader: DataLoader,
+    artifact: Artifact,
     view: bool = False,
     out_path: str = 'compact_execution_graph',
     show_params: bool = True,
@@ -184,7 +186,7 @@ def plot_compact_execution_graph(
     show_calls: bool = True,
 ) -> Digraph | None:
     """
-    Plots the runtime dependency data-flow graph.
+    Plots the runtime dependency flow graph.
     Collapses inheritance and call dependencies neatly into the node labels using lowercase HTML tables.
     Edges are labeled with the parameter names they originate from.
     """
@@ -208,7 +210,7 @@ def plot_compact_execution_graph(
     visited_runtime_hashes = set()
 
     _add_nodes_and_edges(
-        current_loader=loader,
+        current_artifact=artifact,
         dot=dot,
         visited_hashes=visited_runtime_hashes,
         show_params=show_params,
@@ -220,11 +222,7 @@ def plot_compact_execution_graph(
     return dot
 
 
-def plot_class_dependency_graph(
-    loader: type[DataLoader],
-    path: Path = 'class_dependency_graph',
-    view: bool = False,
-) -> Digraph | None:
+def plot_class_dependency_graph(cls: TrackedObject, view: bool = False) -> Digraph | None:
     """
     Plots the class dependency graph and saves it in the code registry directory.
     Returns the path to the generated PNG, or None if graphviz is missing.
@@ -232,9 +230,16 @@ def plot_class_dependency_graph(
     if not HAS_GRAPHVIZ:
         return None
 
-    graph_data = loader.get_dependency_graph()
+    fillcolors = {
+        TrackedObject: '#f8f9fa',
+        Artifact: '#f8f9fa',
+        Data: '#d0dceb',
+        Figure: '#bda0bc',
+    }
 
-    dot = Digraph(comment=f'{loader.get_class_name()} Dependency Graph')
+    graph_data = cls.get_dependency_graph()
+
+    dot = Digraph(comment=f'{cls.get_class_name()} Dependency Graph')
     dot.attr(rankdir='LR')
     dot.attr('node', fontname='Helvetica', fontsize='10')
     dot.attr('edge', fontname='Helvetica', fontsize='9')
@@ -245,14 +250,14 @@ def plot_class_dependency_graph(
             label=node_cls.__name__,
             shape='box',
             style='rounded,filled',
-            fillcolor='#f8f9fa',
+            fillcolor=fillcolors[node_cls.object_type],
         )
 
     for src, dst in graph_data['inheritance_edges']:
         dot.edge(
             src.__name__,
             dst.__name__,
-            style='solid',
+            style='dashed',
             color='#2c3e50',
             arrowhead='empty',
             label=' inherits',
@@ -262,11 +267,13 @@ def plot_class_dependency_graph(
         dot.edge(
             src.__name__,
             dst.__name__,
-            style='dashed',
-            color='#e74c3c',
+            style='solid',
+            color='#2c3e50',
             arrowhead='normal',
             label=' calls',
         )
 
-    dot.render(str(path), format='png', view=view, cleanup=True)
+    dir = cls.get_source_registry_dir()
+    dir.mkdir(parents=True, exist_ok=True)
+    dot.render(str(dir / 'dependency_graph'), format='png', view=view, cleanup=True)
     return dot

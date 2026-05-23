@@ -1,13 +1,13 @@
 from dataclasses import dataclass
 
-from pygeodata.base import load
+from pygeodata.api import load
+from pygeodata.data import Data
 from pygeodata.drivers.rioxarray import RioXArrayDriver
-from pygeodata.loader import DataLoader
 from pygeodata.processors.reprojection import Reprojector
 
 
 @dataclass
-class ElevationLoader(DataLoader):
+class ElevationLoader(Data):
     """Reproject a raw DEM to the target spec."""
 
     src: str = 'data/elevation.tif'
@@ -18,7 +18,7 @@ class ElevationLoader(DataLoader):
 
 
 @dataclass
-class Red(DataLoader):
+class Red(Data):
     year: int
 
     def _process(self, spec) -> None:
@@ -31,7 +31,7 @@ class Red(DataLoader):
 
 
 @dataclass
-class NIR(DataLoader):
+class NIR(Data):
     year: int
 
     def _process(self, spec) -> None:
@@ -44,7 +44,7 @@ class NIR(DataLoader):
 
 
 @dataclass
-class NDVI(DataLoader):
+class NDVI(Data):
     year: int
 
     def _process(self, spec) -> None:
@@ -59,7 +59,7 @@ class NDVI(DataLoader):
 
 
 @dataclass
-class NDVIInjection(DataLoader):
+class NDVIInjection(Data):
     red: Red
     nir: NIR
 

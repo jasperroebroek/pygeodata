@@ -8,7 +8,7 @@ None
 Building a Multi-Step Pipeline
 ==============================
 
-Chain ``DataLoader``\ s so downstream loaders depend on upstream ones,
+Chain ``Data``\ s so downstream loaders depend on upstream ones,
 forming a DAG that ``pygeodata`` manages automatically. If an upstream
 loader’s code or parameters change, all downstream caches are
 automatically invalidated.
@@ -24,7 +24,7 @@ automatically invalidated.
     from pathlib import Path
     import numpy as np
     
-    from pygeodata import DataLoader, SpatialSpec, load, set_config
+    from pygeodata import Data, SpatialSpec, load, set_config
     from pygeodata.visualisations import plot_compact_execution_graph, plot_class_dependency_graph
     from pyproj import CRS
     from affine import Affine
@@ -48,7 +48,7 @@ on red and near infrared bands. Red and NIR are defined as follows:
 .. code:: python
 
     # @dataclass
-    # class Red(DataLoader):
+    # class Red(Data):
     #     year: int
     
     #     def _process(self, spec) -> None:
@@ -61,7 +61,7 @@ on red and near infrared bands. Red and NIR are defined as follows:
     
     
     # @dataclass
-    # class NIR(DataLoader):
+    # class NIR(Data):
     #     year: int
     
     #     def _process(self, spec) -> None:
@@ -80,7 +80,7 @@ overkill in simple chains.
 .. code:: python
 
     # @dataclass
-    # class NDVI(DataLoader):
+    # class NDVI(Data):
     #     year: int
     
     #     def _process(self, spec) -> None:
@@ -94,7 +94,7 @@ overkill in simple chains.
     #     driver = RioXArrayDriver()
     
     # @dataclass
-    # class NDVIInjection(DataLoader):
+    # class NDVIInjection(Data):
     #     red: Red
     #     nir: NIR
     

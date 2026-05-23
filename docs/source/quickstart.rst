@@ -9,15 +9,15 @@ Install the package and point it at a processed-data directory:
 
    pgd.set_config(path_data_processed='/path/to/cache')
 
-Define a loader by subclassing :class:`~pygeodata.loader.DataLoader`:
+Define a loader by subclassing :class:`~pygeodata.data.Data`:
 
 .. code-block:: python
 
-   from pygeodata.loader import DataLoader
+   from pygeodata.data import Data
    from pygeodata.processors.reprojection import Reprojector
 
    @dataclass
-   class MyRaster(DataLoader):
+   class MyRaster(Data):
        year: int
 
        @property
@@ -35,10 +35,10 @@ Process and load in one call:
 Concepts
 --------
 
-DataLoader and the caching model
+Data and the caching model
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Every :class:`~pygeodata.loader.DataLoader` subclass represents a single
+Every :class:`~pygeodata.data.Data` subclass represents a single
 deterministic processing step. The framework caches each output as a file on
 disk and skips reprocessing when the cache is still valid.
 
@@ -48,7 +48,7 @@ Cache validity is determined by a **state hash** that combines:
   its call and inheritance dependencies. Reformatting code without changing
   logic does not invalidate the cache.
 - A **params hash** — a stable serialization of every constructor parameter,
-  including nested :class:`~pygeodata.loader.DataLoader` instances (represented
+  including nested :class:`~pygeodata.data.Data` instances (represented
   by their own state hashes).
 
 The hash is written alongside the output as a ``.hash.json`` file. On the next
@@ -67,7 +67,7 @@ three components of a raster grid:
 
 A spec is *fully defined* when both ``transform`` and ``shape`` are set. Some
 loaders can resolve an underdefined spec (CRS only) by inspecting their source
-data via :meth:`~pygeodata.loader.DataLoader.resolve_spec`.
+data via :meth:`~pygeodata.data.Data.resolve_spec`.
 
 Processors and Drivers
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -115,7 +115,7 @@ hashing, path generation, and serialization:
 
 Use ``_exclude_params`` for purely operational parameters (e.g. thread counts)
 that do not affect output content. Use ``_exclude_params_from_path`` for
-parameters that are used when overwriting meth:`DataLoader.get_processed_path`.
+parameters that are used when overwriting meth:`Data.get_processed_path`.
 
 Path generation
 ~~~~~~~~~~~~~~~
