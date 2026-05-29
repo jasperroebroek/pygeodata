@@ -11,7 +11,7 @@ from rasterio.features import rasterize
 
 from pygeodata.config import get_config
 from pygeodata.drivers import RioXArrayDriver
-from pygeodata.options import RasterCreationOptions
+from pygeodata.rasters import RasterCreationOptions
 from pygeodata.types import SpatialSpec
 
 
@@ -58,6 +58,9 @@ class Rasterizer:
     raster_creation_options: RasterCreationOptions | None = None
 
     def __call__(self, dst_path: str | Path, spec: SpatialSpec) -> None:
+        dst_path = Path(dst_path)
+        dst_path.parent.mkdir(parents=True, exist_ok=True)
+
         if not spec.is_fully_defined:
             raise ValueError('Shape and transform must be defined in spec for rasterization.')
 

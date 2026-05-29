@@ -1,10 +1,9 @@
 from pygeodata.artifact import Artifact
-from pygeodata.config import get_config
 from pygeodata.data import Data
 from pygeodata.types import SpatialSpec, T
 
 
-def process(artifact: Artifact, spec: SpatialSpec | None = None) -> SpatialSpec:
+def process(artifact: Artifact, spec: SpatialSpec | None = None) -> None:
     """
     Process an Artifact for a given spatial specification.
 
@@ -19,25 +18,12 @@ def process(artifact: Artifact, spec: SpatialSpec | None = None) -> SpatialSpec:
         Spatial specification defining CRS, transform, and shape. If not provided,
         the global config spec is used.
 
-    Returns
-    -------
-    SpatialSpec
-        The resolved spatial specification used for processing.
-
     Raises
     ------
     ValueError
         If no spec is provided and none is set in the global config.
     """
-    spec = spec or get_config().spec
-    if spec is None:
-        raise ValueError('No spatial specification (spec) provided')
-    spec = artifact.resolve_spec(spec)
-
-    if not artifact.is_processed(spec):
-        artifact.process(spec)
-
-    return spec
+    return artifact.process(spec)
 
 
 def load(artifact: Data[T], spec: SpatialSpec | None = None) -> T:
@@ -64,5 +50,4 @@ def load(artifact: Data[T], spec: SpatialSpec | None = None) -> T:
     ValueError
         If no spec is provided and none is set in the global config.
     """
-    spec = process(artifact, spec)
     return artifact.load(spec)

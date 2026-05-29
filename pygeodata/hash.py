@@ -1,16 +1,26 @@
 import ast
+import functools
 import hashlib
-import inspect
-import textwrap
+import json
+
+import numpy as np
+
+from pygeodata.ast import get_source_ast_tree
 
 
-def define_hash_from_class(cls: type) -> str:
-    """Formatting-agnostic hash of a class using AST dump."""
-    try:
-        source = inspect.getsource(cls)
-        tree = ast.parse(textwrap.dedent(source))
-    except (TypeError, OSError) as err:
-        raise OSError(
-            'AST Parsing failed. Caching is disabled. You are likely in a REPL/Notebook environment. Use standard .py files.',
-        ) from err
+@functools.cache
+def calculate_cls_source_hash(cls: type) -> str:
+    tree = get_source_ast_tree(cls)
     return hashlib.sha256(ast.dump(tree).encode()).hexdigest()
+
+
+def calculate_dict_hash(d: dict) -> str:
+    return hashlib.sha256(json.dumps(d, sort_keys=True).encode()).hexdigest()
+
+
+def calculate_array_hash(a: np.ndarray) -> str:
+    return hashlib.sha256(a.tobytes()).hexdigest()
+
+
+def calculate_string_hash(s: str) -> str:
+    return hashlib.sha256(s.encode()).hexdigest()

@@ -1,9 +1,10 @@
 from pathlib import Path
-from typing import Generic
+from typing import ClassVar, Generic
 
 from pygeodata.artifact import Artifact
+from pygeodata.cache import handle_invalid, is_zarr_root, path_matches_hash
 from pygeodata.config import get_config
-from pygeodata.paths import generate_path
+from pygeodata.paths import CachePathResolver, generate_path
 from pygeodata.types import Driver, SpatialSpec, T
 
 
@@ -20,7 +21,7 @@ class Data(Artifact, Generic[T]):
     1. Each loader computes a **state hash** from its class source code (via AST) and
        its parameter values. This hash uniquely identifies the combination of logic and
        inputs.
-    2. On :meth:`process`, the hash is compared against a ``.hash.json`` file written
+    2. On :meth:`process`, the hash is compared against a hash file written
        alongside the output. If they match, processing is skipped.
     3. The source code registry (``.source/``) tracks the class AST hash on disk,
        enabling detection of stale cache entries after code changes.
@@ -80,6 +81,20 @@ class Data(Artifact, Generic[T]):
                 yield LoaderB()
     """
 
+    color: ClassVar[str] = '#d0dceb'
+
+    def get_ext(self) -> str:
+        if self.ext is not None:
+            return self.ext
+        processor_ext = getattr(self.processor, 'ext', None)
+        if processor_ext is not None:
+            return processor_ext
+        driver = self.driver
+        driver_ext = getattr(driver, 'default_ext', None)
+        if driver_ext is not None:
+            return driver_ext
+        raise ValueError(f'{self.get_class_name()} must define ext or processor.ext or driver.default_ext')
+
     @property
     def driver(self) -> Driver:
         """
@@ -110,20 +125,61 @@ class Data(Artifact, Generic[T]):
 
         return driver
 
-    @property
-    def ext(self) -> str:
-        ext = getattr(self.processor, 'ext', None)
-        if ext is None:
-            ext = self.driver.default_ext
-        return ext
+    @classmethod
+    def get_cache_root(cls) -> Path:
+        return get_config().path_cache
 
     @classmethod
-    def get_processed_base_dir(cls) -> Path:
-        return get_config().path_data_processed
+    def get_general_cache_pattern(cls) -> str:
+        parts = ('*',) * len(Path(cls.get_cls_cache_pattern()).parts)
+        return str(Path(*parts))
 
     @classmethod
-    def get_processed_dir_pattern(cls) -> Path:
-        return generate_path(name=cls.get_class_name(), base_dir=cls.get_processed_base_dir())
+    def purge_cls_cache(cls, dry_run: bool = True) -> None:
+        dependency_tree_hash = cls.get_dependency_tree_hash()
+        root = cls.get_cache_root()
+        pattern = cls.get_cls_cache_pattern()
+
+        for path in root.glob(pattern):
+            for dirpath, dirs, files in path.walk(top_down=True, follow_symlinks=True):
+                if dirpath != path and is_zarr_root(dirpath):
+                    dirs.clear()
+                    hash_path = CachePathResolver.from_path(dirpath).state_hash_path
+                    if not path_matches_hash(hash_path, dependency_tree_hash):
+                        handle_invalid(dirpath, dry_run=dry_run, hash_path=hash_path)
+                    continue
+
+                for file in files:
+                    file_path = dirpath / file
+                    hash_path = CachePathResolver.from_path(file_path).state_hash_path
+                    if not path_matches_hash(hash_path, dependency_tree_hash):
+                        handle_invalid(file_path, dry_run=dry_run, hash_path=hash_path)
+
+                if dry_run:
+                    continue
+
+                for dir in dirs:
+                    path_dir = dirpath / dir
+                    if next(path_dir.iterdir(), None) is None:
+                        print(f'Removing {path_dir}')
+                        path_dir.rmdir()
+
+                if next(dirpath.iterdir(), None) is None:
+                    print(f'Removing {dirpath}')
+                    dirpath.rmdir()
+
+    @classmethod
+    def get_cls_cache_pattern(cls) -> str:
+        root = cls.get_cache_root()
+        full_pattern = generate_path(
+            name=cls.get_class_name(),
+            base_dir=root,
+        )
+        return str(full_pattern.relative_to(root))
+
+    @classmethod
+    def matches_cache_path(cls, path: Path) -> bool:
+        return path.name == cls.get_class_name()
 
     def get_processed_dir(self, spec: SpatialSpec) -> Path:
         """
@@ -141,13 +197,11 @@ class Data(Artifact, Generic[T]):
         """
         spec = self.resolve_spec(spec)
 
-        flat_params = self.get_flat_params()
-
         return generate_path(
             spec=spec,
             name=self.get_class_name(),
-            base_dir=self.get_processed_base_dir(),
-            **flat_params,
+            base_dir=self.get_cache_root(),
+            **self.get_params(exclude=True),
         )
 
     def load(self, spec: SpatialSpec) -> T:
@@ -164,4 +218,8 @@ class Data(Artifact, Generic[T]):
             The data returned by the loader's :attr:`driver`.
         """
         spec = self.resolve_spec(spec)
+        self.process(spec)
+        return self._load(spec)
+
+    def _load(self, spec: SpatialSpec) -> T:
         return self.driver(self.get_processed_path(spec))

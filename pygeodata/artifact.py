@@ -2,166 +2,42 @@ import hashlib
 import json
 import re
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from filelock import FileLock
 
-from pygeodata.config import get_config
+from pygeodata.config import JSONKeys, get_config
 from pygeodata.extraction import extract_instances
-from pygeodata.formatting import format_value_as_json, format_value_as_string
-from pygeodata.hash import define_hash_from_class
-from pygeodata.paths import generate_path
+from pygeodata.formatting.json import format_json
+from pygeodata.graphs import plot_compact_execution_graph
+from pygeodata.hash import calculate_cls_source_hash
+from pygeodata.paths import CachePathResolver, generate_path
 from pygeodata.tracked_object import TrackedObject
-from pygeodata.types import Processor, SpatialSpec
-
-
-def normalize_value_for_json(value: Any) -> Any:
-    """
-    Recursively normalize a value to a JSON-serializable form.
-
-    :class:`Artifact` instances are represented as ``{"class_name": ..., "params": ...}``.
-    Sequences are converted to tuples. Dicts are sorted by key.
-
-    Parameters
-    ----------
-    value : Any
-        The value to normalize.
-
-    Returns
-    -------
-    Any
-        A JSON-serializable representation of the value.
-    """
-    if isinstance(value, Artifact):
-        return {
-            'class_name': value.get_class_name(),
-            'params': normalize_value_for_json(value.get_params(exclude=False)),
-        }
-    if isinstance(value, dict):
-        return {k: normalize_value_for_json(v) for k, v in sorted(value.items())}
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        return tuple(normalize_value_for_json(i) for i in value)
-    return format_value_as_json(value)
-
-
-def normalize_value_for_hash(value: Any) -> Any:
-    """
-    Recursively normalize a value for stable hashing.
-
-    :class:`Artifact` instances are replaced by their state hash. Sets are sorted
-    before conversion to ensure determinism.
-
-    Parameters
-    ----------
-    value : Any
-        The value to normalize.
-
-    Returns
-    -------
-    Any
-        A normalized, JSON-serializable form suitable for hashing.
-    """
-    if isinstance(value, set):
-        value = tuple(sorted(value, key=repr))
-
-    if isinstance(value, Artifact):
-        return value.get_state_hash()
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        return tuple(normalize_value_for_hash(i) for i in value)
-    if isinstance(value, dict):
-        return {str(k): normalize_value_for_hash(v) for k, v in sorted(value.items())}
-    return format_value_as_json(value)
-
-
-def render_value_for_path(value: Any) -> str:
-    """
-    Render a parameter value as a compact string for use in filesystem paths.
-
-    :class:`Artifact` instances render as their class name. Sequences and dicts
-    are rendered with their contents inline. Sets are sorted before rendering.
-
-    Parameters
-    ----------
-    value : Any
-        The value to render.
-
-    Returns
-    -------
-    str
-        A compact string representation safe for use in directory names.
-    """
-    if isinstance(value, set):
-        value = tuple(sorted(value, key=repr))
-
-    if isinstance(value, Artifact):
-        return value.get_class_name()
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        inner = ', '.join(render_value_for_path(v) for v in value)
-        return f'({inner})'
-    if isinstance(value, dict):
-        inner = ', '.join(f'{k}:{render_value_for_path(v)}' for k, v in sorted(value.items()))
-        return f'{{{inner}}}'
-    return format_value_as_string(value)
-
-
-def flatten_param_for_path(prefix: str, value: Any) -> dict[str, Any]:
-    """
-    Flatten a potentially nested parameter value into a dict of path-safe key-value pairs.
-
-    Nested :class:`Artifact` instances are expanded with ``__``-separated keys.
-    Lists and dicts containing artifacts get additional entries for each.
-
-    Parameters
-    ----------
-    prefix : str
-        The key prefix for the flattened entry.
-    value : Any
-        The value to flatten.
-
-    Returns
-    -------
-    dict
-        A flat dict of path-safe string values, keyed by their dotted parameter names.
-    """
-    flat: dict[str, Any] = {}
-
-    if isinstance(value, set):
-        value = tuple(sorted(value, key=repr))
-
-    if isinstance(value, Artifact):
-        flat[prefix] = value.get_class_name()
-        for nk, nv in value.get_flat_params(exclude=False).items():
-            flat[f'{prefix}__{nk}'] = nv
-    elif isinstance(value, (list, tuple)):
-        artifact_indices = {idx for idx, item in enumerate(value) if any(extract_instances(item, Artifact))}
-        flat[prefix] = render_value_for_path(value)
-        for idx in artifact_indices:
-            flat.update(flatten_param_for_path(f'{prefix}_{idx}', value[idx]))
-    elif isinstance(value, dict):
-        keys = sorted(value.keys())
-        artifact_keys = {k for k in keys if any(extract_instances(value[k], Artifact))}
-        flat[prefix] = render_value_for_path(value)
-        for k in artifact_keys:
-            flat.update(flatten_param_for_path(f'{prefix}_{k}', value[k]))
-    else:
-        flat[prefix] = render_value_for_path(value)
-
-    return flat
+from pygeodata.types import Processor, RuntimeDependencyGraph, RuntimeNode, RuntimeParamEdge, SpatialSpec
 
 
 class Artifact(TrackedObject, ABC):
-    _sort_params: tuple[str] = ()
-    _exclude_params: tuple[str] = ()
-    _exclude_params_from_path: tuple[str] = ()
+    _sort_params: ClassVar[tuple[str]] = ()
+    _exclude_params: ClassVar[tuple[str]] = ()
+    _exclude_params_from_path: ClassVar[tuple[str]] = ()
+    ext: ClassVar[str | None] = None
+    processor: ClassVar[Processor | None] = None
+    color: ClassVar[str] = '#f8f9fa'
 
-    @property
-    def ext(self) -> str:
-        ext = getattr(self.processor, 'ext', None)
-        if ext is None:
-            raise ValueError('ext must be specified as an instance variable')
-        return ext
+    def __repr__(self) -> str:
+        params = self.get_params()
+        parts = [f'{k}={v!r}' for k, v in sorted(params.items())]
+        return f'{self.get_class_name()}({", ".join(parts)})'
+
+    def get_ext(self) -> str:
+        if self.ext is not None:
+            return self.ext
+        processor_ext = getattr(self.processor, 'ext', None)
+        if processor_ext is not None:
+            return processor_ext
+        raise ValueError(f'{self.get_class_name()} must define ext or processor.ext')
 
     @classmethod
     def get_file_stem(cls) -> str:
@@ -172,17 +48,47 @@ class Artifact(TrackedObject, ABC):
         return s2.lower()
 
     def get_filename(self, ext: str | None = None) -> str:
-        ext = ext or self.ext
-        if ext is None:
-            raise ValueError('ext must be specified as parameter or as instance variable')
-        return f'{self.get_file_stem()}.{ext}'
+        resolved_ext = ext or self.get_ext()
+        return f'{self.get_file_stem()}.{resolved_ext}'
 
-    def __repr__(self) -> str:
-        params = self.get_params()
-        parts = [f'{k}={v!r}' for k, v in sorted(params.items())]
-        return f'{self.get_class_name()}({", ".join(parts)})'
+    def get_processed_dir(self, spec: SpatialSpec) -> Path:
+        """
+        Return the directory where this artifact's output is stored for the given spec.
 
-    def resolve_spec(self, spec: SpatialSpec) -> SpatialSpec:
+        Parameters
+        ----------
+        spec : SpatialSpec
+            The spatial specification.
+
+        Returns
+        -------
+        Path
+            The output directory path.
+        """
+        spec = self.resolve_spec(spec)
+
+        return generate_path(
+            spec=spec,
+            name=self.get_class_name(),
+            base_dir=self.get_cache_root(),
+            **self.get_params(exclude=True),
+        )
+
+    def resolve_cache_paths(self, spec: SpatialSpec) -> CachePathResolver:
+        spec = self.resolve_spec(spec)
+        return CachePathResolver.from_path(self.get_processed_dir(spec) / self.get_filename())
+
+    def format_for_display(self) -> str:
+        return self.get_class_name()
+
+    def format_as_json(self) -> Any:
+        return {
+            'class_name': self.get_class_name(),
+            'params': format_json(self.get_params(exclude=False)),
+            'state_hash': self.get_state_hash(),
+        }
+
+    def resolve_spec(self, spec: SpatialSpec | None) -> SpatialSpec:
         """
         Resolve a potentially underspecified :class:`~pygeodata.types.SpatialSpec`.
 
@@ -191,7 +97,7 @@ class Artifact(TrackedObject, ABC):
 
         Parameters
         ----------
-        spec : SpatialSpec
+        spec : SpatialSpec, optional
             The spatial specification to resolve.
 
         Returns
@@ -199,25 +105,13 @@ class Artifact(TrackedObject, ABC):
         SpatialSpec
             The resolved specification.
         """
+        spec = spec or get_config().spec
+        if spec is None:
+            raise ValueError('No spatial specification (spec) provided')
         if spec.is_fully_defined:
             return spec
         resolver = getattr(self.processor, 'resolve_spec', None)
         return resolver(spec) if resolver is not None else spec
-
-    @property
-    def processor(self) -> Processor | None:
-        """
-        The processor callable used to produce the output file.
-
-        Override in subclasses to return a processor instance (e.g. :class:`~pygeodata.processors.rasterizer.Rasterizer`).
-        The processor is called as ``processor(output_path, spec)`` during :meth:`_process`.
-
-        Returns
-        -------
-        Processor or None
-            The processor, or ``None`` if not implemented.
-        """
-        return None
 
     def get_params(self, exclude: bool = True) -> dict[str, Any]:
         """
@@ -238,7 +132,7 @@ class Artifact(TrackedObject, ABC):
         """
         params = {}
         for key, value in vars(self).items():
-            if key in ('name', 'class_name', 'processor', 'driver', 'process', 'load'):
+            if key in ('name', 'class_name', 'processor', 'driver', 'process', 'load', 'ext', '_load', '_process'):
                 continue
             if key.startswith('_'):
                 continue
@@ -256,28 +150,8 @@ class Artifact(TrackedObject, ABC):
         return params
 
     def get_params_as_json(self, exclude: bool = True) -> dict[str, Any]:
-        return normalize_value_for_json(self.get_params(exclude=exclude))
-
-    def get_flat_params(self, exclude: bool = True) -> dict[str, Any]:
-        """
-        Return a flattened dict of parameters for deterministic path generation.
-
-        Nested :class:`Artifact` values are expanded with ``__``-separated keys.
-
-        Parameters
-        ----------
-        exclude : bool, default True
-            Passed through to :meth:`get_params`.
-
-        Returns
-        -------
-        dict[str, Any]
-            A flat dict suitable for use in :func:`~pygeodata.paths.generate_path`.
-        """
-        flat_params = {}
-        for k, v in self.get_params(exclude=exclude).items():
-            flat_params.update(flatten_param_for_path(k, v))
-        return flat_params
+        d: dict[str, Any] = format_json(self.get_params(exclude=exclude))
+        return d
 
     def get_src_path(self) -> Path:
         """
@@ -301,41 +175,30 @@ class Artifact(TrackedObject, ABC):
 
     @classmethod
     @abstractmethod
-    def get_processed_base_dir(cls) -> Path:
+    def get_cache_root(cls) -> Path:
         pass
 
     @classmethod
     @abstractmethod
-    def get_processed_dir_pattern(cls) -> Path:
-        return generate_path(name=cls.get_class_name(), base_dir=get_config().path_data_processed)
+    def get_general_cache_pattern(cls) -> str:
+        pass
 
+    @classmethod
     @abstractmethod
-    def get_processed_dir(self, spec: SpatialSpec) -> Path:
-        """
-        Return the directory where this artifact's output is stored for the given spec.
+    def get_cls_cache_pattern(cls) -> str:
+        pass
 
-        Parameters
-        ----------
-        spec : SpatialSpec
-            The spatial specification.
+    @classmethod
+    @abstractmethod
+    def matches_cache_path(cls, path: Path) -> bool:
+        pass
 
-        Returns
-        -------
-        Path
-            The output directory path.
-        """
-        spec = self.resolve_spec(spec)
+    @classmethod
+    @abstractmethod
+    def purge_cls_cache(cls, dry_run: bool = True) -> None:
+        pass
 
-        flat_params = self.get_flat_params()
-
-        return generate_path(
-            spec=spec,
-            name=self.get_class_name(),
-            base_dir=self.get_processed_base_dir(),
-            **flat_params,
-        )
-
-    def get_processed_path(self, spec: SpatialSpec, ext: str | None = None) -> Path:
+    def get_processed_path(self, spec: SpatialSpec) -> Path:
         """
         Return the full path to the processed output file.
 
@@ -343,8 +206,6 @@ class Artifact(TrackedObject, ABC):
         ----------
         spec : SpatialSpec
             The spatial specification.
-        ext : str, optional
-            File extension override. Falls back to :attr:`ext`.
 
         Returns
         -------
@@ -356,16 +217,12 @@ class Artifact(TrackedObject, ABC):
         ValueError
             If no extension is available from either the argument or :attr:`ext`.
         """
-        if ext is None:
-            ext = self.ext
-        return self.get_processed_dir(spec) / self.get_filename(ext=ext)
+        return self.resolve_cache_paths(spec).processed_path
 
     def get_params_path(self, spec: SpatialSpec) -> Path:
-        path = self.get_processed_path(spec)
-        return path.parent / f'.{path.stem}.params.json'
+        return self.resolve_cache_paths(spec).params_path
 
     def write_parameters(self, spec: SpatialSpec) -> None:
-        spec = self.resolve_spec(spec)
         path = self.get_params_path(spec)
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open('w', encoding='utf-8') as f:
@@ -374,18 +231,18 @@ class Artifact(TrackedObject, ABC):
     def get_state_hash(self) -> str:
         """Recursively hashes the class code and all injected parameter artifacts."""
         state = {
-            'blueprint_hash': self.get_source_hierarchy_hash(),
-            'params': {k: normalize_value_for_hash(v) for k, v in self.get_params().items()},
+            'blueprint_hash': self.get_dependency_tree_hash(),
+            'params': {k: format_json(v) for k, v in self.get_params().items()},
         }
 
         if self.processor:
-            state['processor_hash'] = define_hash_from_class(self.processor.__class__)
+            state['processor_hash'] = calculate_cls_source_hash(self.processor.__class__)
 
         return hashlib.sha256(json.dumps(state, sort_keys=True).encode()).hexdigest()
 
     def get_state_hash_path(self, spec: SpatialSpec) -> Path:
         """
-        Return the path to the ``.hash.json`` file for the given spec.
+        Return the path to the hash file for the given spec.
 
         Parameters
         ----------
@@ -395,12 +252,11 @@ class Artifact(TrackedObject, ABC):
         -------
         Path
         """
-        path = self.get_processed_path(spec)
-        return path.parent / f'.{path.stem}.hash.json'
+        return self.resolve_cache_paths(spec).state_hash_path
 
     def get_execution_graph_path(self, spec: SpatialSpec) -> Path:
         """
-        Return the path to the ``.graph.json`` file for the given spec.
+        Return the path to the ``.graph.svg`` file for the given spec.
 
         Parameters
         ----------
@@ -410,12 +266,11 @@ class Artifact(TrackedObject, ABC):
         -------
         Path
         """
-        path = self.get_processed_path(spec)
-        return path.parent / f'.{path.stem}.graph.json'
+        return self.resolve_cache_paths(spec).execution_graph_path
 
     def write_state_hash(self, spec: SpatialSpec) -> None:
         """
-        Write the state hash and source hierarchy hash to a ``.hash.json`` file.
+        Write the state hash and source hierarchy hash to the hash file.
 
         Creates the parent directory if it does not exist.
 
@@ -428,7 +283,11 @@ class Artifact(TrackedObject, ABC):
         hash_path.parent.mkdir(parents=True, exist_ok=True)
         with Path.open(hash_path, 'w', encoding='utf-8') as f:
             json.dump(
-                {'source_hierarchy_hash': self.get_source_hierarchy_hash(), 'state_hash': self.get_state_hash()},
+                {
+                    JSONKeys.CLASS_NAME: self.get_class_name(),
+                    JSONKeys.DEPENDENCY_TREE_HASH: self.get_dependency_tree_hash(),
+                    JSONKeys.STATE_HASH: self.get_state_hash(),
+                },
                 f,
                 indent=4,
             )
@@ -450,7 +309,7 @@ class Artifact(TrackedObject, ABC):
         if not hash_path.exists():
             return None
         with Path.open(hash_path, encoding='utf-8') as f:
-            return json.load(f).get('state_hash')
+            return json.load(f).get(JSONKeys.STATE_HASH, None)
 
     def processed_path_exists(self, spec: SpatialSpec) -> bool:
         return self.get_processed_path(spec).exists()
@@ -480,6 +339,63 @@ class Artifact(TrackedObject, ABC):
             return False
 
         return saved_state_hash == self.get_state_hash()
+
+    def get_runtime_dependency_graph(self, spec: SpatialSpec) -> RuntimeDependencyGraph:
+        nodes: dict[str, RuntimeNode] = {}
+        param_edges: set[RuntimeParamEdge] = set()
+
+        def collect(artifact: Artifact) -> None:
+            node_id = artifact.get_state_hash()
+            if node_id in nodes:
+                return
+
+            params = artifact.get_params(exclude=False)
+
+            call_deps = artifact.get_call_dependencies()
+            inh_deps = artifact.get_inheritance_dependencies()
+
+            nodes[node_id] = RuntimeNode(
+                node_id=node_id,
+                cls=artifact.__class__,
+                name=artifact.get_class_name(),
+                params=params,
+                call_dependencies=tuple(call_deps),
+                inheritance_dependencies=tuple(inh_deps),
+            )
+
+            def walk(value: Any, name: str) -> None:
+                if isinstance(value, Artifact):
+                    dep_id = value.get_state_hash()
+                    param_edges.add(RuntimeParamEdge(src_id=dep_id, dst_id=node_id, param_name=name))
+                    collect(value)
+                    return
+
+                if isinstance(value, dict):
+                    for k, item in value.items():
+                        walk(item, f'{name}[{k}]')
+                    return
+
+                if isinstance(value, (list, tuple, set)):
+                    for i, item in enumerate(value):
+                        walk(item, f'{name}[{i}]')
+                    return
+
+            for k, v in params.items():
+                walk(v, k)
+
+        collect(self)
+        return RuntimeDependencyGraph(nodes=nodes, param_edges=param_edges)
+
+    def plot_runtime_execution_graph(self, spec: SpatialSpec) -> None:
+        graph_data = self.get_runtime_dependency_graph(spec)
+        plot_compact_execution_graph(
+            graph_data=graph_data,
+            root_id=self.get_state_hash(),
+            path=self.get_execution_graph_path(spec),
+            show_params=True,
+            show_inheritance=True,
+            show_calls=True,
+        )
 
     def is_processed(self, spec: SpatialSpec) -> bool:
         """
@@ -546,8 +462,6 @@ class Artifact(TrackedObject, ABC):
         spec : SpatialSpec
             The spatial specification to process for.
         """
-        from pygeodata.visualisations import plot_compact_execution_graph
-
         spec = self.resolve_spec(spec)
 
         processed_path = self.get_processed_path(spec)
@@ -564,9 +478,9 @@ class Artifact(TrackedObject, ABC):
             produced = self._process(spec)
             artifacts = () if produced is None else tuple(produced)
             for artifact in (*artifacts, self):
-                artifact.init_source_registry()
+                artifact.update_registry()
                 artifact.write_parameters(spec)
                 artifact.write_state_hash(spec)
 
                 if next(extract_instances(artifact.get_params(exclude=False), TrackedObject), None) is not None:
-                    plot_compact_execution_graph(artifact=self, out_path=self.get_execution_graph_path(spec))
+                    self.plot_runtime_execution_graph(spec)

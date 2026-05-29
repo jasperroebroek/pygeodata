@@ -1,7 +1,12 @@
+import hashlib
+import json
 from pathlib import Path
+from typing import ClassVar
 
 from pygeodata.artifact import Artifact
-from pygeodata.config import get_config
+from pygeodata.cache import handle_invalid, path_matches_hash
+from pygeodata.config import JSONKeys, get_config
+from pygeodata.paths import CachePathResolver, generate_path
 from pygeodata.types import SpatialSpec
 
 
@@ -18,7 +23,7 @@ class Figure(Artifact):
     1. Each object computes a **state hash** from its class source code (via AST) and
        its parameter values. This hash uniquely identifies the combination of logic and
        inputs.
-    2. On :meth:`process`, the hash is compared against a ``.hash.json`` file written
+    2. On :meth:`process`, the hash is compared against a hash file written
        alongside the output. If they match, processing is skipped.
     3. The source code registry (``.source/``) tracks the class AST hash on disk,
        enabling detection of stale cache entries after code changes.
@@ -78,22 +83,66 @@ class Figure(Artifact):
                 yield LoaderB()
     """
 
-    ext = 'png'
+    color: ClassVar[str] = '#bda0bc'
+    ext: ClassVar[str] = 'png'
 
     def get_filename(self, ext: str | None = None) -> str:
-        params = self.get_flat_params()
-        stem = self.get_file_stem()
+        resolved_ext = ext or self.get_ext()
+        params = self.get_params(exclude=True)
+        stem_part = self.get_file_stem()
+        config = get_config()
+
+        sep = '_' if config.filesystem_allows_punctuation else ' '
+        es = '=' if config.filesystem_allows_punctuation else '-'
+
         if len(params) == 0:
-            return f'{stem}.{ext}'
-        return f'{stem}_{"_".join(f"{k}={v}" for k, v in params.items())}.{ext}'
+            return f'{stem_part}.{resolved_ext}'
+
+        if len(params) <= config.max_file_param_depth:
+            param_str = sep.join(f'{k}{es}{v}' for k, v in sorted(params.items()))
+        else:
+            json_params = json.dumps(params, sort_keys=True)
+            param_str = hashlib.sha256(json_params.encode('utf-8')).hexdigest()
+        return f'{stem_part}{sep}{param_str}.{resolved_ext}'
 
     @classmethod
-    def get_processed_base_dir(cls) -> Path:
+    def get_cache_root(cls) -> Path:
         return get_config().path_figures
 
     @classmethod
-    def get_processed_dir_pattern(cls) -> Path:
-        return cls.get_processed_base_dir()
+    def get_general_cache_pattern(cls) -> str:
+        parts = ('*',) * len(Path(cls.get_cls_cache_pattern()).parts)
+        return str(Path(*parts))
+
+    @classmethod
+    def get_cls_cache_pattern(cls) -> str:
+        root = cls.get_cache_root()
+        full_pattern = (
+            generate_path(
+                base_dir=root,
+            )
+            / f'*{cls.get_file_stem()}*'
+        )
+        return str(full_pattern.relative_to(root))
+
+    @classmethod
+    def purge_cls_cache(cls, dry_run: bool = True) -> None:
+        dependency_tree_hash = cls.get_dependency_tree_hash()
+        root = cls.get_cache_root()
+        pattern = cls.get_cls_cache_pattern()
+
+        for path in root.glob(pattern):
+            hash_path = CachePathResolver.from_path(path).state_hash_path
+            if not path_matches_hash(hash_path, dependency_tree_hash):
+                handle_invalid(path, dry_run=dry_run, hash_path=hash_path)
+
+    @classmethod
+    def matches_cache_path(cls, path: Path) -> bool:
+        hash_path = CachePathResolver.from_path(path).state_hash_path
+        if not hash_path.exists():
+            return False
+        with hash_path.open(encoding='utf-8') as f:
+            return json.load(f).get(JSONKeys.CLASS_NAME, None) == cls.get_class_name()
 
     def get_processed_dir(self, spec: SpatialSpec) -> Path:
         """
@@ -109,4 +158,9 @@ class Figure(Artifact):
         Path
             The output directory path.
         """
-        return self.get_processed_base_dir()
+        spec = self.resolve_spec(spec)
+
+        return generate_path(
+            spec=spec,
+            base_dir=self.get_cache_root(),
+        )

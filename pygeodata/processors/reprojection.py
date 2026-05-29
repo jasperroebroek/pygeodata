@@ -18,7 +18,7 @@ from rasterio.warp import calculate_default_transform
 
 from pygeodata.config import get_config
 from pygeodata.drivers import RioXArrayDriver
-from pygeodata.options import RasterCreationOptions
+from pygeodata.rasters import RasterCreationOptions
 from pygeodata.types import SpatialSpec
 
 
@@ -100,6 +100,7 @@ class Reprojector:
             )
 
         dst_path = Path(dst_path)
+        dst_path.parent.mkdir(parents=True, exist_ok=True)
 
         print(f'Reprojecting: {self.src_path} -> {dst_path}')
 

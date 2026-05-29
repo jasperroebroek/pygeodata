@@ -4,9 +4,7 @@ from pathlib import Path
 
 from pygeodata.data import Data
 from pygeodata.drivers.rioxarray import RioXArrayDriver
-from pygeodata.figure import Figure
 from pygeodata.processors.reprojection import Reprojector
-from pygeodata.types import SpatialSpec
 
 TEST_DATA_DIR = Path(__file__).parent.parent / 'data'
 WTD_TIF = TEST_DATA_DIR / 'wtd.tif'
@@ -22,11 +20,13 @@ class DummyScenario(Enum):
 @dataclass
 class LoaderA(Data):
     year: int
+    ext = 'tif'
 
 
 @dataclass
 class LoaderB(Data):
     features: list[Data]
+    ext = 'tif'
     _sort_params = ('features',)
 
 
@@ -34,25 +34,39 @@ class LoaderB(Data):
 class LoaderC(Data):
     target: str
     n_jobs: int = 4
+    ext = 'tif'
     _private_state: bool = False
     _exclude_params = ('n_jobs',)
 
 
 @dataclass
 class LoaderD(Data):
-    """Loader with a mixed list: a Data AND a plain string."""
-
     items: list
+    ext = 'tif'
 
 
 class EmptyLoader(Data):
-    driver = RioXArrayDriver()
+    pass
+
+
+class SimpleLoader(Data):
+    ext = 'tif'
+    processor = Reprojector(src_path=WTD_TIF)
+
+
+class XMLHTTPLoader(Data):
+    ext = 'xml'
+
+
+class USGSElevationLoader(Data):
+    ext = 'tif'
 
 
 @dataclass
 class SampleLoader(Data):
     path: Path
     scale: float = 1
+    ext = 'tif'
 
     @property
     def processor(self) -> Reprojector:
@@ -62,12 +76,16 @@ class SampleLoader(Data):
 
 
 class NestedLoader(Data):
+    ext = 'tif'
+
     def __init__(self, inner: Data, tag: str = 'default'):
         self.inner = inner
         self.tag = tag
 
 
 class HardcodedDependencyLoader(Data):
+    ext = 'tif'
+
     def random_helper_method(self) -> Data:
         return LoaderA(year=2020)
 
@@ -76,8 +94,9 @@ class HardcodedDependencyLoader(Data):
 class MultiOutputLoader(Data):
     loader_1: Data
     loader_2: Data
-    ext = 'tif'
+
     _calls = []
+    ext = 'tif'
 
     def _process(self, spec):
         self._calls.append(spec)
@@ -85,22 +104,40 @@ class MultiOutputLoader(Data):
         yield self.loader_2
 
 
-@dataclass
-class SimpleFigure(Figure):
-    a: int = 1
+class Parent(Data):
+    ext = 'tif'
+
+
+class Child(Parent):
+    pass
 
 
 @dataclass
-class TwoParamFigure(Figure):
-    a: int
-    b: str
+class DictLoader(Data):
+    mapping: dict
 
 
 @dataclass
-class DummyFigure(Figure):
-    a: int
+class EnumLoader(Data):
+    ext = 'tif'
+    scenario: DummyScenario
 
-    def _process(self, spec: SpatialSpec) -> None:
-        out = self.get_processed_path(spec)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.touch()
+
+class DummyProcessor:
+    _calls: list
+    default_driver = None
+    ext = 'tif'
+
+    def __new__(self):
+        self._calls = []
+        return super().__new__(self)
+
+    def __call__(self, path, spec):
+        self._calls.append((path, spec))
+
+
+class DummyLoader(Data):
+    processor: DummyProcessor = None
+
+    def __init__(self):
+        self.processor = DummyProcessor()

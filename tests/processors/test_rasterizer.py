@@ -3,7 +3,7 @@ import rasterio as rio
 from numpy import dtype
 
 from pygeodata.processors.rasterizer import Rasterizer
-from tests.dummy_loaders import COUNTRIES_SHP
+from tests.dummy_data import COUNTRIES_SHP
 
 
 def test_rasterizer_float(tmp_path, sample_spatial_spec):

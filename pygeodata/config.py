@@ -1,23 +1,45 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
-from pygeodata.options import RasterCreationOptions
+from pygeodata.formatting.path import format_path
+from pygeodata.formatting.path_simplified import format_path_simplified
+from pygeodata.rasters import RasterCreationOptions
 from pygeodata.types import SpatialSpec
 
 
 @dataclass
 class Config:
-    path_data_processed: Path = Path('data_processed')
+    path_cache: Path = Path('data_processed')
     path_figures: Path = Path('figures')
-    path_source_registry: Path = Path('.source')
+    path_registry: Path = Path('.source')
     num_threads: int = 1
     warp_mem_limit: int = 0  # GDAL default, indicates 64 MB
     spec: SpatialSpec | None = None
     raster_creation_options: RasterCreationOptions = field(default_factory=RasterCreationOptions)
     max_path_param_depth: int = 5
+    max_file_param_depth: int = 2
+    filesystem_allows_punctuation: bool = True
+    removable_system_files: tuple[str] = (
+        '.DS_Store',
+        'Thumbs.db',
+        'desktop.ini',
+        '.Trash-1000',
+    )
+    removable_system_suffixes: tuple[str] = (
+        '.tmp',
+        '~',
+    )
+
+    @property
+    def es(self) -> str:
+        return '=' if self.filesystem_allows_punctuation else '   '
+
+    @property
+    def format_path_fn(self) -> Callable[[Any], str]:
+        return format_path if self.filesystem_allows_punctuation else format_path_simplified
 
     def update(self, **kwargs) -> None:
         for key, value in kwargs.items():
@@ -41,3 +63,15 @@ def set_config(**overrides: Any) -> Iterator[Config]:
         yield CONFIG
     finally:
         CONFIG.update(**old_values)
+
+
+class JSONKeys:
+    CLASS_NAME = 'class_name'
+    OBJECT_TYPE = 'object_type'
+    SOURCE_HASH = 'source_hash'
+    STATE_HASH = 'state_hash'
+    DEPENDENCY_TREE_HASH = 'dependency_tree_hash'
+    TREE = 'tree'
+    CALL_DEPENDENCIES = 'call_dependencies'
+    INHERITANCE_DEPENDENCIES = 'inheritance_dependencies'
+    DEPENDENCIES = 'dependencies'

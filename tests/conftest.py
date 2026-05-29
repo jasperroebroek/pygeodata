@@ -8,8 +8,9 @@ import xarray as xr
 from affine import Affine
 from pyproj import CRS
 
+from pygeodata.config import JSONKeys, set_config
 from pygeodata.types import SpatialSpec
-from tests.dummy_loaders import MultiOutputLoader, NestedLoader, SampleLoader
+from tests.dummy_data import MultiOutputLoader, NestedLoader, SampleLoader
 
 
 @pytest.fixture
@@ -96,7 +97,7 @@ def cache_tree(tmp_path):
     """
 
     def write_hash(path: Path, hash_value: str) -> None:
-        path.write_text(json.dumps({'source_hierarchy_hash': hash_value}))
+        path.write_text(json.dumps({JSONKeys.DEPENDENCY_TREE_HASH: hash_value}))
 
     correct_hash = 'abc123'
 
@@ -123,3 +124,13 @@ def cache_tree(tmp_path):
     (rs / 'ignored.tif').write_bytes(b'data')
 
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def registry_tmp_path(tmp_path):
+    with set_config(
+        path_registry=tmp_path / '.source',
+        path_cache=tmp_path / 'data_processed',
+        path_figures=tmp_path / 'figures',
+    ):
+        yield

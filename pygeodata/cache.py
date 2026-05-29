@@ -1,73 +1,138 @@
 import json
+import shutil
 from pathlib import Path
 
 from pygeodata.artifact import Artifact
+from pygeodata.config import JSONKeys, get_config
+from pygeodata.paths import ARTIFACT_SUFFIXES, CachePathResolver
 from pygeodata.tracked_object import TrackedObject
 
+ZARR_MARKERS = (
+    'zarr.json',  # v3
+    '.zgroup',  # v2 group
+    '.zarray',  # v2 array
+    '.zattrs',  # v2 attributes
+    '.zmetadata',  # v2 consolidated metadata
+)
 
-def path_matches_hash(path: Path, source_hierarchy_hash: str) -> bool:
+
+def is_zarr_root(path: Path) -> bool:
+    """Detect zarr v2 and v3 archive roots by marker files, with fast suffix check."""
+    if path.suffix == '.zarr':
+        return True
+    return any((path / marker).exists() for marker in ZARR_MARKERS)
+
+
+def path_matches_hash(path: Path, dependency_tree_hash: str) -> bool:
     if not path.exists():
         return False
 
-    with Path.open(path, encoding='utf-8') as f:
+    with path.open(encoding='utf-8') as f:
         saved_state = json.load(f)
 
-    return saved_state.get('source_hierarchy_hash', None) == source_hierarchy_hash
+    return saved_state.get(JSONKeys.DEPENDENCY_TREE_HASH, None) == dependency_tree_hash
 
 
-def purge_cache_invalid(artifact: type[Artifact] | Artifact, dry_run: bool = True) -> None:
-    source_hierarchy_hash = artifact.get_source_hierarchy_hash()
+def read_cache_class_name(path: Path) -> str | None:
+    hash_path = CachePathResolver.from_path(path).state_hash_path
+    if not hash_path.exists():
+        return None
+    with hash_path.open(encoding='utf-8') as f:
+        return json.load(f).get(JSONKeys.CLASS_NAME, None)
 
-    root = artifact.get_processed_base_dir()
-    dir_pattern = artifact.get_processed_dir_pattern()
 
-    pattern = str(Path(*dir_pattern.parts[len(root.parts) :]))
-    paths = root.rglob(pattern)
+def handle_invalid(path: Path, dry_run: bool, hash_path: Path | None = None) -> None:
+    if hash_path is None:
+        label = 'Invalid'
+    elif not hash_path.exists():
+        label = 'Hash missing'
+    else:
+        label = 'Hash wrong'
 
-    for path in paths:
-        for dirpath, dirs, files in path.walk(top_down=False, follow_symlinks=True):
-            for file in files:
-                filename = file.removeprefix('.')
-                stem = filename.split('.')[0]
-                hash_filename = f'.{stem}.hash.json'
-                path_hash = dirpath / hash_filename
+    if dry_run:
+        print(f'[dry_run] {label}: {path}')
+        return
 
-                match = path_matches_hash(path_hash, source_hierarchy_hash)
+    print(f'Deleting: {path}')
+    if path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
 
-                if match:
-                    continue
 
-                path_file = dirpath / file
-                if dry_run:
-                    if not path_hash.exists():
-                        print(f'[dry_run] Hash missing: {path_file}')
-                    else:
-                        print(f'[dry run] Hash wrong: {path_file}')
-                else:
-                    print(f'Deleting: {path_file}')
-                    path_file.unlink()
+def prune_empty_dirs(root: Path) -> None:
+    for dirpath, dirs, files in root.walk(top_down=False):
+        if dirpath == root:
+            continue
+        try:
+            dirpath.rmdir()
+            print(f'Removing {dirpath}')
+        except OSError:
+            pass
 
-            if dry_run:
+
+def purge_unregistered_cache(dry_run: bool = True) -> None:
+    registered: list[type[Artifact]] = Artifact.get_registered_objects()
+    registered_names = {a.get_class_name() for a in registered}
+
+    for family in Artifact.__subclasses__():
+        root = family.get_cache_root()
+        pattern = family.get_general_cache_pattern()
+
+        for path in root.glob(pattern):
+            if (
+                path.name in get_config().removable_system_files
+                or path.name.endswith(get_config().removable_system_suffixes)
+                or (path.name.startswith('.') and not path.name.endswith(ARTIFACT_SUFFIXES))
+            ):
+                if not dry_run:
+                    handle_invalid(path, dry_run)
                 continue
 
-            for dir in dirs:
-                path_dir = dirpath / dir
-                if next((path_dir).iterdir(), None) is None:
-                    print(f'Removing {path_dir}')
-                    path_dir.rmdir()
+            class_name = read_cache_class_name(path)
+            if class_name is not None and class_name in registered_names:
+                continue
 
-            if next(dirpath.iterdir(), None) is None:
-                print(f'Removing {dirpath}')
-                dirpath.rmdir()
+            if any(artifact.matches_cache_path(path) for artifact in registered):
+                continue
+
+            if dry_run:
+                print(f'[dry_run] {path}')
+                continue
+
+            answer = input(f'Delete {path}? [y/N] ')
+            if answer.lower() == 'y':
+                handle_invalid(path, dry_run)
+            else:
+                print(f'Skipping {path}')
+
+        if not dry_run:
+            print('Pruning empty directories')
+            prune_empty_dirs(root)
 
 
 def clean_cache(
     loader: type[Artifact] | Artifact | None = None,
     dry_run: bool = True,
 ) -> None:
-    nodes = Artifact._registry.values() if loader is None else loader.get_dependency_graph()['nodes']
+    artifacts: set[type[Artifact]]
+    if loader is None:
+        artifacts = Artifact.get_registered_objects()
+    else:
+        artifacts = loader.get_all_dependencies()
+        artifacts.add(loader)
 
-    for loader_cls in nodes:
-        if loader_cls.object_type == TrackedObject:
-            continue
-        purge_cache_invalid(loader_cls, dry_run)
+    for artifact in artifacts:
+        artifact.purge_cls_cache(dry_run=dry_run)
+
+    if loader is None and not dry_run:
+        purge_unregistered_cache(dry_run=dry_run)
+
+
+def rebuild_registry() -> None:
+    root = get_config().path_registry
+    if root.exists():
+        shutil.rmtree(root)
+
+    for tracked_cls in TrackedObject.get_registered_objects():
+        tracked_cls.write_registry()

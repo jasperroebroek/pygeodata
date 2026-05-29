@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol, Self, TypeVar
+from typing import Any, Protocol, Self, TypeVar, runtime_checkable
 
 import fiona
 import rasterio as rio
@@ -80,3 +80,66 @@ class Driver(Protocol):
     default_ext: str
 
     def __call__(self, path: str | Path) -> Any: ...
+
+
+@runtime_checkable
+class AllowsFormatting(Protocol):
+    def format_as_json(self) -> Any: ...
+    def format_for_display(self) -> str: ...
+
+
+@runtime_checkable
+class HasParameters(Protocol):
+    def get_params(self, exclude: bool = True) -> dict[str, Any]: ...
+
+
+@dataclass(frozen=True)
+class ClassNode:
+    cls: type
+    name: str
+    color: str = '#ffffff'
+
+
+@dataclass
+class DependencyGraph:
+    nodes: set[ClassNode] = field(default_factory=set)
+    call_edges: set[tuple[ClassNode, ClassNode]] = field(default_factory=set)
+    inheritance_edges: set[tuple[ClassNode, ClassNode]] = field(default_factory=set)
+
+
+@dataclass(frozen=True)
+class RuntimeNode:
+    node_id: str
+    cls: type
+    name: str
+    params: dict[str, Any] = field(default_factory=dict)
+    call_dependencies: tuple[type, ...] = ()
+    inheritance_dependencies: tuple[type, ...] = ()
+
+
+@dataclass(frozen=True)
+class RuntimeParamEdge:
+    src_id: str
+    dst_id: str
+    param_name: str
+
+
+@dataclass
+class RuntimeDependencyGraph:
+    nodes: dict[str, RuntimeNode] = field(default_factory=dict)
+    param_edges: set[RuntimeParamEdge] = field(default_factory=set)
+
+
+@dataclass(frozen=True)
+class SymbolTables:
+    imported_objects: dict[str, str]
+    module_aliases: dict[str, str]
+    local_defs: set[str]
+
+
+@dataclass(frozen=True)
+class Shape:
+    shape_tuple: tuple[int]
+
+    def __iter__(self):
+        return iter(self.shape_tuple)

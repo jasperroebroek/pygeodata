@@ -5,22 +5,17 @@ import pytest
 from pygeodata.config import Config, get_config, set_config
 
 
-def test_default_config() -> None:
-    cfg = get_config()
-    assert cfg.path_data_processed == Path('data_processed')
-
-
 def test_temporary_override() -> None:
-    original = get_config().path_data_processed
-    with set_config(path_data_processed=Path('/tmp')) as cfg:
-        assert cfg.path_data_processed == Path('/tmp')
-    assert get_config().path_data_processed == original
+    original = get_config().path_cache
+    with set_config(path_cache=Path('/tmp')) as cfg:
+        assert cfg.path_cache == Path('/tmp')
+    assert get_config().path_cache == original
 
 
 def test_multiple_overrides() -> None:
-    with set_config(path_data_processed=Path('/tmp')) as cfg:
+    with set_config(path_cache=Path('/tmp')) as cfg:
         assert isinstance(cfg, Config)
-        assert cfg.path_data_processed == Path('/tmp')
+        assert cfg.path_cache == Path('/tmp')
 
 
 def test_config_invalid_key() -> None:
