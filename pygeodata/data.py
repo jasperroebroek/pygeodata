@@ -170,12 +170,10 @@ class Data(Artifact, Generic[T]):
 
     @classmethod
     def get_cls_cache_pattern(cls) -> str:
-        root = cls.get_cache_root()
-        full_pattern = generate_path(
-            name=cls.get_class_name(),
-            base_dir=root,
-        )
-        return str(full_pattern.relative_to(root))
+        if not get_config().human_readable_paths:
+            return str(Path(cls.get_class_name()) / '*')
+        # readable layout: crs / shape_transform / ClassName
+        return str(Path('*') / '*' / cls.get_class_name())
 
     @classmethod
     def matches_cache_path(cls, path: Path) -> bool:

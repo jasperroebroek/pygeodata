@@ -1,21 +1,36 @@
+from __future__ import annotations
+
 import html
 import warnings
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pygeodata.formatting.html import format_html_block
 from pygeodata.types import DependencyGraph, RuntimeDependencyGraph
 
-try:
+if TYPE_CHECKING:
     from graphviz import Digraph
+
+try:
+    from graphviz import Digraph as _Digraph
 
     HAS_GRAPHVIZ = True
 except ImportError:
     HAS_GRAPHVIZ = False
-    warnings.warn(
-        'graphviz is not installed; skipping visualisation',
-        ImportWarning,
-        stacklevel=2,
-    )
+
+_GRAPHVIZ_WARNED = False
+
+
+def _warn_graphviz_missing() -> None:
+    global _GRAPHVIZ_WARNED
+    if not _GRAPHVIZ_WARNED:
+        _GRAPHVIZ_WARNED = True
+        warnings.warn(
+            'graphviz is not installed; dependency graphs will not be generated. '
+            'Install it with: pip install pygeodata[viz]',
+            ImportWarning,
+            stacklevel=3,
+        )
 
 
 def _build_runtime_html_label(
@@ -76,11 +91,12 @@ def plot_compact_execution_graph(
     view: bool = False,
 ) -> Digraph | None:
     if not HAS_GRAPHVIZ:
+        _warn_graphviz_missing()
         return None
 
     path = Path(path)
 
-    dot = Digraph(
+    dot = _Digraph(
         name='CompactExecutionGraph',
         graph_attr={
             'rankdir': 'LR',
@@ -142,9 +158,10 @@ def plot_class_dependency_graph(
     Returns the path to the generated PNG, or None if graphviz is missing.
     """
     if not HAS_GRAPHVIZ:
+        _warn_graphviz_missing()
         return None
 
-    dot = Digraph(comment=f'{cls_name} Dependency Graph')
+    dot = _Digraph(comment=f'{cls_name} Dependency Graph')
     dot.attr(rankdir='LR')
     dot.attr('node', fontname='Helvetica', fontsize='10')
     dot.attr('edge', fontname='Helvetica', fontsize='9')

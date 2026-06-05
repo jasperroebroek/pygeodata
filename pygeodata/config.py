@@ -1,13 +1,14 @@
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field, fields
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 from pygeodata.formatting.path import format_path
 from pygeodata.formatting.path_simplified import format_path_simplified
 from pygeodata.rasters import RasterCreationOptions
-from pygeodata.types import SpatialSpec
+from pygeodata.types import SpatialSpec, SpecKeys
 
 
 @dataclass
@@ -22,6 +23,8 @@ class Config:
     max_path_param_depth: int = 5
     max_file_param_depth: int = 2
     filesystem_allows_punctuation: bool = True
+    human_readable_paths: bool = False
+    flatten_figures: bool = False
     removable_system_files: tuple[str] = (
         '.DS_Store',
         'Thumbs.db',
@@ -65,10 +68,12 @@ def set_config(**overrides: Any) -> Iterator[Config]:
         CONFIG.update(**old_values)
 
 
-class JSONKeys:
+class JSONKeys(StrEnum):
     CLASS_NAME = 'class_name'
     OBJECT_TYPE = 'object_type'
+    PARAMS = 'params'
     SOURCE_HASH = 'source_hash'
+    PROCESSOR_HASH = 'processor_hash'
     INSTANCE_HASH = 'instance_hash'
     STATE_HASH = 'state_hash'
     DEPENDENCY_TREE_HASH = 'dependency_tree_hash'
@@ -77,5 +82,3 @@ class JSONKeys:
     CALL_DEPENDENCIES = 'call_dependencies'
     INHERITANCE_DEPENDENCIES = 'inheritance_dependencies'
     DEPENDENCIES = 'dependencies'
-    CRS = 'crs'
-    TRANSFORM = 'transform'

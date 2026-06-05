@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol, Self, TypeVar, runtime_checkable
 
@@ -10,6 +11,16 @@ from rasterio.coords import BoundingBox
 
 T = TypeVar('T')
 RasterShape = tuple[float, float]
+
+
+class SpecKeys(StrEnum):
+    SPEC = 'spec'
+    CRS = 'crs'
+    TRANSFORM = 'transform'
+    RESOLUTION = 'resolution'
+    SHAPE = 'shape'
+    BOUNDS = 'bounds'
+    BOUNDS_LATLON = 'bounds_latlon'
 
 
 @dataclass(frozen=True)
@@ -86,11 +97,11 @@ class SpatialSpec:
         )
 
         return {
-            'crs': self.crs.to_string(),
-            'transform': transform_dict,
-            'shape': self.shape,
-            'resolution': self.resolution,
-            'bounds': self.bounds,
+            SpecKeys.CRS: self.crs.to_string(),
+            SpecKeys.TRANSFORM: transform_dict,
+            SpecKeys.SHAPE: self.shape,
+            SpecKeys.RESOLUTION: self.resolution if self.transform is not None else None,
+            SpecKeys.BOUNDS: self.bounds if self.transform is not None or self.crs.area_of_use is not None else None,
         }
 
 
@@ -106,7 +117,7 @@ class Driver(Protocol):
 
 @runtime_checkable
 class AllowsFormatting(Protocol):
-    def format_as_json(self) -> Any: ...
+    def format_as_json(self, spec: SpatialSpec | None = None) -> Any: ...
     def format_for_display(self) -> str: ...
 
 

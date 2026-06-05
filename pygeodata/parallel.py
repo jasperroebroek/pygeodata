@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from pygeodata.api import process
@@ -5,6 +7,13 @@ from pygeodata.artifact import Artifact
 from pygeodata.data import Data
 from pygeodata.extraction import extract_instances
 from pygeodata.types import SpatialSpec
+
+try:
+    from dask.delayed import delayed as dask_delayed
+
+    HAS_DASK = True
+except ImportError:
+    HAS_DASK = False
 
 if TYPE_CHECKING:
     from dask.delayed import Delayed
@@ -55,15 +64,15 @@ def build_dask_graph(
         graph = build_dask_graph(my_artifact, spec=my_spec)
         graph.compute()
     """
-    try:
-        from dask.delayed import delayed
-    except ImportError as err:
-        raise ImportError('Dask is required for parallel processing.') from err
+    if not HAS_DASK:
+        raise ImportError('Dask is required for parallel processing. Install it with: pip install pygeodata[parallel]')
+
+    delayed = dask_delayed
 
     if _cache is None:
         _cache = {}
 
-    node_id = artifact.get_state_hash()
+    node_id = artifact.get_state_hash(spec)
     if node_id in _cache:
         return _cache[node_id]
 

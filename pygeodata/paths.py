@@ -2,35 +2,51 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
-from pygeodata.config import get_config
+from pygeodata.config import JSONKeys, get_config
 from pygeodata.extraction import flatten_parameter_dict_for_path
 from pygeodata.hash import calculate_dict_hash
-from pygeodata.types import Shape, SpatialSpec
+from pygeodata.types import Shape, SpatialSpec, SpecKeys
 
 ARTIFACT_SUFFIXES = ('.hash.json', '.params.json', '.graph.png')
 
 
 def generate_path(
     base_dir: str | Path,
-    spec: SpatialSpec | None = None,
+    spec: SpatialSpec,
     name: str | None = None,
     max_path_param_depth: int | None = None,
     **kwargs,
 ) -> Path:
-    """Function that converts a path of the data to the processed data.
+    """Return the cache directory for an artifact given its spec, name, and params.
 
-    kwargs are expected to be parsed for the filesystem.
+    When ``human_readable_paths`` is False (the default), the layout is:
+        base_dir / name / hash(spec + params)
+
+    When ``human_readable_paths`` is True, the layout is:
+        base_dir / crs / shape_transform / name / param=val ...
     """
     config = get_config()
-    es = config.es
-    format_fn = config.format_path_fn
-    max_depth = max_path_param_depth if max_path_param_depth is not None else config.max_path_param_depth
-
     base_dir = Path(base_dir)
 
     flat_kwargs = flatten_parameter_dict_for_path(kwargs)
 
-    params = []
+    if not config.human_readable_paths:
+        parts: list[str] = []
+        if name is not None:
+            parts.append(name)
+        hash_input = {
+            SpecKeys.SPEC: spec.to_dict(),
+            JSONKeys.PARAMS: flat_kwargs,
+        }
+        parts.append(calculate_dict_hash(hash_input))
+        return Path(base_dir, *parts)
+
+    # Human-readable layout
+    es = config.es
+    format_fn = config.format_path_fn
+    max_depth = max_path_param_depth if max_path_param_depth is not None else config.max_path_param_depth
+
+    params: list[str] = []
     if kwargs:
         params = (
             [calculate_dict_hash(flat_kwargs)]
@@ -38,25 +54,16 @@ def generate_path(
             else [f'{k}{es}{v}' for k, v in flat_kwargs.items()]
         )
 
-    if spec is None:
-        geo_str = '*'
-    elif not spec.is_fully_defined:
-        geo_str = 'vector'
-    else:
-        geo_str = f'{format_fn(Shape(spec.shape))}_{format_fn(spec.transform)}'
+    geo_str = 'vector' if not spec.is_fully_defined else f'{format_fn(Shape(spec.shape))}_{format_fn(spec.transform)}'
 
-    crs_str = '*' if spec is None else format_fn(spec.crs)
+    crs_str = format_fn(spec.crs)
 
-    parts = [crs_str, geo_str]
+    path_parts = [crs_str, geo_str]
     if name is not None:
-        parts.append(name)
+        path_parts.append(name)
+    path_parts.extend(params)
 
-    parts.extend(params)
-
-    return Path(
-        base_dir,
-        *parts,
-    )
+    return Path(base_dir, *path_parts)
 
 
 @dataclass
@@ -118,9 +125,9 @@ class RegistryPathResolver:
     def from_directory(cls, directory: Path) -> 'RegistryPathResolver':
         return cls(
             registry_path=directory / 'source.json',
-            code_path=directory / 'code.py',
-            lock_path=directory / 'lock.json',
-            graph_path=directory / 'graph.pdf',
+            code_path=directory / 'source.py',
+            lock_path=directory / 'source.lock',
+            graph_path=directory / 'source.pdf',
         )
 
     def mkdir(self) -> None:

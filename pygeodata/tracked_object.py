@@ -14,6 +14,7 @@ from pygeodata.ast import (
     get_source_code,
 )
 from pygeodata.config import JSONKeys, get_config
+from pygeodata.graphs import plot_class_dependency_graph
 from pygeodata.hash import calculate_cls_source_hash, calculate_dict_hash
 from pygeodata.paths import RegistryPathResolver
 from pygeodata.types import ClassNode, DependencyGraph
@@ -219,8 +220,6 @@ class TrackedObject:
     @classmethod
     def write_registry(cls) -> None:
         """Saves the current AST hash and writes the source code for inspection."""
-        from pygeodata.graphs import plot_class_dependency_graph
-
         registry_paths = cls.resolve_registry_paths()
         registry_paths.mkdir()
 

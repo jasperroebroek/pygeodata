@@ -1,4 +1,3 @@
-import hashlib
 import json
 import re
 from abc import ABC, abstractmethod
@@ -12,10 +11,10 @@ from pygeodata.config import JSONKeys, get_config
 from pygeodata.extraction import extract_instances
 from pygeodata.formatting.json import format_json
 from pygeodata.graphs import plot_compact_execution_graph
-from pygeodata.hash import calculate_cls_source_hash
+from pygeodata.hash import calculate_cls_source_hash, calculate_dict_hash
 from pygeodata.paths import CachePathResolver, generate_path
 from pygeodata.tracked_object import TrackedObject
-from pygeodata.types import Processor, RuntimeDependencyGraph, RuntimeNode, RuntimeParamEdge, SpatialSpec
+from pygeodata.types import Processor, RuntimeDependencyGraph, RuntimeNode, RuntimeParamEdge, SpatialSpec, SpecKeys
 
 
 class Artifact(TrackedObject, ABC):
@@ -47,7 +46,7 @@ class Artifact(TrackedObject, ABC):
         s2 = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1)
         return s2.lower()
 
-    def get_filename(self, ext: str | None = None) -> str:
+    def get_filename(self, ext: str | None = None, spec: SpatialSpec | None = None) -> str:
         resolved_ext = ext or self.get_ext()
         return f'{self.get_file_stem()}.{resolved_ext}'
 
@@ -76,17 +75,20 @@ class Artifact(TrackedObject, ABC):
 
     def resolve_cache_paths(self, spec: SpatialSpec) -> CachePathResolver:
         spec = self.resolve_spec(spec)
-        return CachePathResolver.from_path(self.get_processed_dir(spec) / self.get_filename())
+        return CachePathResolver.from_path(self.get_processed_dir(spec) / self.get_filename(spec=spec))
 
     def format_for_display(self) -> str:
         return self.get_class_name()
 
-    def format_as_json(self) -> Any:
-        return {
-            'class_name': self.get_class_name(),
-            'params': format_json(self.get_params(exclude=False)),
-            'state_hash': self.get_state_hash(),
+    def format_as_json(self, spec: SpatialSpec | None = None) -> Any:
+        d = {
+            JSONKeys.CLASS_NAME: self.get_class_name(),
+            JSONKeys.PARAMS: format_json(self.get_params(exclude=False), spec=spec),
+            JSONKeys.INSTANCE_HASH: self.get_instance_hash(),
         }
+        if spec is not None:
+            d[JSONKeys.STATE_HASH] = self.get_state_hash(spec)
+        return d
 
     def resolve_spec(self, spec: SpatialSpec | None) -> SpatialSpec:
         """
@@ -149,9 +151,8 @@ class Artifact(TrackedObject, ABC):
             params.update({key: parsed_value})
         return params
 
-    def get_params_as_json(self, exclude: bool = True) -> dict[str, Any]:
-        d: dict[str, Any] = format_json(self.get_params(exclude=exclude))
-        return d
+    def get_params_as_json(self, exclude: bool = True, spec: SpatialSpec | None = None) -> dict[str, Any]:
+        return format_json(self.get_params(exclude=exclude), spec=spec)  # type: ignore[return-value]
 
     def get_src_path(self) -> Path:
         """
@@ -228,7 +229,7 @@ class Artifact(TrackedObject, ABC):
         path = self.resolve_cache_paths(spec).params_path
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open('w', encoding='utf-8') as f:
-            json.dump(self.get_params_as_json(exclude=False), f, indent=4)
+            json.dump(self.get_params_as_json(exclude=False, spec=spec), f, indent=4)
 
     def write_spec(self, spec: SpatialSpec) -> None:
         path = self.resolve_cache_paths(spec).spec_path
@@ -236,17 +237,24 @@ class Artifact(TrackedObject, ABC):
         with path.open('w', encoding='utf-8') as f:
             json.dump(spec.to_dict(), f, indent=4)
 
-    def get_state_hash(self) -> str:
-        """Recursively hashes the class code and all injected parameter artifacts."""
+    def get_instance_hash(self) -> str:
+        """Hash of class code and params — spec-independent. Stable identifier for this artifact instance."""
         state = {
-            'blueprint_hash': self.get_dependency_tree_hash(),
-            'params': {k: format_json(v) for k, v in self.get_params(exclude=False).items()},
+            JSONKeys.DEPENDENCY_TREE_HASH: self.get_dependency_tree_hash(),
+            JSONKeys.PARAMS: {k: format_json(v) for k, v in self.get_params(exclude=False).items()},
         }
-
         if self.processor:
-            state['processor_hash'] = calculate_cls_source_hash(self.processor.__class__)
+            state[JSONKeys.PROCESSOR_HASH] = calculate_cls_source_hash(self.processor.__class__)
+        return calculate_dict_hash(state)
 
-        return hashlib.sha256(json.dumps(state, sort_keys=True).encode()).hexdigest()
+    def get_state_hash(self, spec: SpatialSpec) -> str:
+        """Hash of instance identity combined with spec — unique per (artifact, spec) pair."""
+        return calculate_dict_hash(
+            {
+                JSONKeys.INSTANCE_HASH: self.get_instance_hash(),
+                SpecKeys.SPEC: spec.to_dict(),
+            },
+        )
 
     def get_state_hash_path(self, spec: SpatialSpec) -> Path:
         """
@@ -276,7 +284,7 @@ class Artifact(TrackedObject, ABC):
         """
         return self.resolve_cache_paths(spec).execution_graph_path
 
-    def write_state_hash(self, spec: SpatialSpec) -> None:
+    def write_cache_metadata(self, spec: SpatialSpec, co_outputs: tuple[str, ...] = ()) -> None:
         """
         Write the state hash and source hierarchy hash to the hash file.
 
@@ -286,6 +294,8 @@ class Artifact(TrackedObject, ABC):
         ----------
         spec : SpatialSpec
             The spatial specification for which to write the hash.
+        co_outputs : tuple[str, ...]
+            State hashes of artifacts produced in the same _process call.
         """
         hash_path = self.get_state_hash_path(spec)
         hash_path.parent.mkdir(parents=True, exist_ok=True)
@@ -293,8 +303,11 @@ class Artifact(TrackedObject, ABC):
             json.dump(
                 {
                     JSONKeys.CLASS_NAME: self.get_class_name(),
+                    JSONKeys.OBJECT_TYPE: self.object_type.get_class_name(),
                     JSONKeys.DEPENDENCY_TREE_HASH: self.get_dependency_tree_hash(),
-                    JSONKeys.STATE_HASH: self.get_state_hash(),
+                    JSONKeys.INSTANCE_HASH: self.get_instance_hash(),
+                    JSONKeys.STATE_HASH: self.get_state_hash(spec),
+                    JSONKeys.CO_OUTPUTS: list(co_outputs),
                 },
                 f,
                 indent=4,
@@ -346,14 +359,14 @@ class Artifact(TrackedObject, ABC):
         if saved_state_hash is None:
             return False
 
-        return saved_state_hash == self.get_state_hash()
+        return saved_state_hash == self.get_state_hash(spec)
 
     def get_runtime_dependency_graph(self, spec: SpatialSpec) -> RuntimeDependencyGraph:
         nodes: dict[str, RuntimeNode] = {}
         param_edges: set[RuntimeParamEdge] = set()
 
         def collect(artifact: Artifact) -> None:
-            node_id = artifact.get_state_hash()
+            node_id = artifact.get_instance_hash()
             if node_id in nodes:
                 return
 
@@ -373,7 +386,7 @@ class Artifact(TrackedObject, ABC):
 
             def walk(value: Any, name: str) -> None:
                 if isinstance(value, Artifact):
-                    dep_id = value.get_state_hash()
+                    dep_id = value.get_instance_hash()
                     param_edges.add(RuntimeParamEdge(src_id=dep_id, dst_id=node_id, param_name=name))
                     collect(value)
                     return
@@ -398,7 +411,7 @@ class Artifact(TrackedObject, ABC):
         graph_data = self.get_runtime_dependency_graph(spec)
         plot_compact_execution_graph(
             graph_data=graph_data,
-            root_id=self.get_state_hash(),
+            root_id=self.get_instance_hash(),
             path=self.get_execution_graph_path(spec),
             show_params=True,
             show_inheritance=True,
@@ -485,11 +498,15 @@ class Artifact(TrackedObject, ABC):
 
             produced = self._process(spec)
             artifacts = () if produced is None else tuple(produced)
-            for artifact in (*artifacts, self):
+            all_artifacts = (*artifacts, self)
+            all_hashes = [(a, a.get_state_hash(spec)) for a in all_artifacts]
+
+            for artifact in all_artifacts:
+                others = tuple(h for a, h in all_hashes if a is not artifact)
                 artifact.update_registry()
                 artifact.write_parameters(spec)
                 artifact.write_spec(spec)
-                artifact.write_state_hash(spec)
+                artifact.write_cache_metadata(spec, co_outputs=others)
 
                 if next(extract_instances(artifact.get_params(exclude=False), TrackedObject), None) is not None:
                     self.plot_runtime_execution_graph(spec)

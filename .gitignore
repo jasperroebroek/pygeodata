@@ -6,8 +6,8 @@
 /.vscode
 /data_processed
 /build
+/.source
 
 .DS_Store
 __pycache__
-test_*.py
 build

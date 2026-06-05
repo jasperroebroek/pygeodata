@@ -1,4 +1,3 @@
-import hashlib
 import json
 from pathlib import Path
 from typing import ClassVar
@@ -7,6 +6,7 @@ from pygeodata.artifact import Artifact
 from pygeodata.cache import handle_invalid, path_matches_hash
 from pygeodata.config import JSONKeys, get_config
 from pygeodata.extraction import flatten_parameter_dict_for_path
+from pygeodata.hash import calculate_dict_hash
 from pygeodata.paths import CachePathResolver, generate_path
 from pygeodata.types import SpatialSpec
 
@@ -87,25 +87,36 @@ class Figure(Artifact):
     color: ClassVar[str] = '#bda0bc'
     ext: ClassVar[str] = 'png'
 
-    def get_filename(self, ext: str | None = None) -> str:
+    def get_filename(self, ext: str | None = None, spec: SpatialSpec | None = None) -> str:
         resolved_ext = ext or self.get_ext()
-        params = self.get_params(exclude=False)
-        stem_part = self.get_file_stem()
         config = get_config()
 
+        if not config.human_readable_paths and config.flatten_figures:
+            if spec is None:
+                raise ValueError(
+                    f'{self.get_class_name()}.get_filename() requires spec '
+                    'when human_readable_paths=False and flatten_figures=True',
+                )
+            return f'{self.get_state_hash(spec)}.{resolved_ext}'
+
+        if not config.flatten_figures:
+            # directory carries all identification — plain stem suffices
+            return f'{self.get_file_stem()}.{resolved_ext}'
+
+        # flatten_figures=True, human_readable_paths=True: encode params in filename
+        params = self.get_params(exclude=False)
+        stem_part = self.get_file_stem()
         sep = '_' if config.filesystem_allows_punctuation else ' '
         es = '=' if config.filesystem_allows_punctuation else '-'
 
-        if len(params) == 0:
+        if not params:
             return f'{stem_part}.{resolved_ext}'
 
         flat_params = flatten_parameter_dict_for_path(params)
-
         if len(flat_params) <= config.max_file_param_depth:
             param_str = sep.join(f'{k}{es}{v}' for k, v in sorted(flat_params.items()))
         else:
-            json_params = json.dumps(flat_params, sort_keys=True)
-            param_str = hashlib.sha256(json_params.encode('utf-8')).hexdigest()
+            param_str = calculate_dict_hash(flat_params)
         return f'{stem_part}{sep}{param_str}.{resolved_ext}'
 
     @classmethod
@@ -119,14 +130,14 @@ class Figure(Artifact):
 
     @classmethod
     def get_cls_cache_pattern(cls) -> str:
-        root = cls.get_cache_root()
-        full_pattern = (
-            generate_path(
-                base_dir=root,
-            )
-            / f'*{cls.get_file_stem()}.*'
-        )
-        return str(full_pattern.relative_to(root))
+        config = get_config()
+        if config.flatten_figures and not config.human_readable_paths:
+            return f'*.{cls.ext}'
+        if config.flatten_figures:
+            return f'{cls.get_file_stem()}*.*'
+        if not config.human_readable_paths:
+            return str(Path(cls.get_class_name()) / '*')
+        return str(Path('*') / '*' / cls.get_class_name() / '*')
 
     @classmethod
     def purge_cls_cache(cls, dry_run: bool = True) -> None:
@@ -162,8 +173,15 @@ class Figure(Artifact):
             The output directory path.
         """
         spec = self.resolve_spec(spec)
+        config = get_config()
+        root = self.get_cache_root()
+
+        if config.flatten_figures:
+            return root
 
         return generate_path(
             spec=spec,
-            base_dir=self.get_cache_root(),
+            name=self.get_class_name(),
+            base_dir=root,
+            **self.get_params(exclude=True),
         )
