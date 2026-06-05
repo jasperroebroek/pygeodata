@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Registry</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/registry.css') }}">
+</head>
+<body>
+<nav class="topbar">
+  <div class="topbar-left">
+    <button class="topbar-logo" id="btn-diag">Registry</button>
+    <button class="ghost-btn back-btn" id="btn-back" title="Go back">&#8592;</button>
+    <button class="ghost-btn back-btn" id="btn-forward" title="Go forward">&#8594;</button>
+    <div class="topbar-screens">
+      <button class="screen-tab active" data-mode="compact">Compact</button>
+      <button class="screen-tab" data-mode="detailed">Detailed</button>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <span id="topbar-counts"></span>
+    <button class="ghost-btn topbar-reload-btn" id="btn-reload" title="Reimport from disk">↺ Reload</button>
+  </div>
+</nav>
+
+<div class="app-layout mode-compact">
+  <aside class="sidebar" id="entries-sidebar">
+    <div class="sb-section sb-section--kind">
+      <div class="kind-tabs" id="kind-tabs">
+        <button class="kind-tab active" data-kind="all">All</button>
+        <button class="kind-tab" data-kind="data">Data</button>
+        <button class="kind-tab" data-kind="figure">Figure</button>
+      </div>
+    </div>
+
+    <div class="sb-pills-row pills-empty" id="pills-row">
+      <div class="active-pills" id="active-pills"></div>
+      <button class="clear-all-btn hidden" id="btn-clear-all" title="Clear all filters">Clear all</button>
+    </div>
+
+    <div class="sb-section collapsible" id="sec-search">
+      <button class="sb-section-hd" data-target="sec-search">
+        <span class="sb-section-title">Search</span>
+        <span class="sb-chevron">▾</span>
+      </button>
+      <div class="sb-section-body">
+        <div class="logic-row">
+          <span class="sb-label">Mode</span>
+          <div class="seg" id="logic-seg">
+            <button class="seg-btn active" data-val="AND">AND</button>
+            <button class="seg-btn" data-val="OR">OR</button>
+            <button class="seg-btn" data-val="NOT">NOT</button>
+          </div>
+        </div>
+        <div id="filter-rows"></div>
+        <button class="add-row-btn" id="add-filter">＋ Add filter</button>
+      </div>
+    </div>
+
+    <div class="sb-section collapsible" id="sec-spec">
+      <button class="sb-section-hd" data-target="sec-spec">
+        <span class="sb-section-title">Spec filters</span>
+        <span class="sb-chevron">▾</span>
+      </button>
+      <div class="sb-section-body">
+        <div class="spec-grid-sidebar">
+          <div class="spec-group">
+            <div class="sb-label">CRS</div>
+            <div class="spec-pills" id="spec-crs"></div>
+          </div>
+          <div class="spec-group">
+            <div class="sb-label">Resolution</div>
+            <div class="spec-pills" id="spec-resolution"></div>
+          </div>
+          <div class="spec-group spec-group--wide">
+            <div class="sb-label">Bounds</div>
+            <div class="spec-pills" id="spec-bounds"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sb-section sb-section--classes" id="sec-classes">
+      <div class="sb-section-hd sb-section-hd--static" id="btn-classes-hd">
+        <span class="sb-section-title">Classes</span>
+        <span class="sb-section-meta" id="class-count-badge"></span>
+        <div class="class-list-toolbar">
+          <button class="toggle-btn" id="btn-show-empty">Show empty</button>
+          <button class="toggle-btn" id="btn-multi-select">Multi-select</button>
+        </div>
+      </div>
+      <div class="class-list" id="class-list"></div>
+    </div>
+  </aside>
+
+  <main class="main-pane" id="main-pane">
+    <div class="main-hd">
+      <div class="main-hd-left">
+        <span class="pane-title" id="main-pane-title">Entries</span>
+        <span class="count-chip" id="entry-count"></span>
+      </div>
+      <div class="main-hd-right" id="display-seg-wrap">
+        <span class="sb-label">Show</span>
+        <div class="seg" id="display-seg">
+          <button class="seg-btn" data-val="selected">Selected params</button>
+          <button class="seg-btn active" data-val="all">All params</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Compact view: pill list of entries -->
+    <div class="entry-pill-list" id="entry-pill-list"></div>
+
+    <!-- Detailed view: full param table -->
+    <div class="table-scroll" id="table-scroll-wrap">
+      <table>
+        <colgroup>
+          <col class="col-indent">
+          <col class="col-group">
+          <col class="col-param">
+          <col class="col-value">
+        </colgroup>
+        <thead><tr id="table-head"></tr></thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <div class="resize-handle" id="resize-handle"></div>
+  <aside class="detail-pane" id="detail-pane">
+    <div class="detail-hd"><span class="pane-title">Detail</span></div>
+    <div class="detail-scroll" id="entry-detail"></div>
+  </aside>
+</div>
+
+<div class="modal-backdrop" id="modal">
+  <div class="modal-card">
+    <div class="modal-bar"><span class="modal-title" id="modal-title"></span><button class="modal-close" id="modal-close">✕</button></div>
+    <div class="modal-content" id="modal-body"></div>
+  </div>
+</div>
+<div class="loading-overlay hidden" id="loading-overlay">
+  <div class="loading-box">
+    <div class="loading-label" id="loading-label">Loading…</div>
+    <div class="loading-bar-track"><div class="loading-bar-fill" id="loading-bar-fill"></div></div>
+    <div class="loading-sub" id="loading-sub"></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script type="module" src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
