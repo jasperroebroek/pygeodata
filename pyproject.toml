@@ -36,6 +36,9 @@ parallel = [
     "dask",
     "distributed",
 ]
+dashboard = [
+    "flask",
+]
 test = [
     "pytest",
     "pytest-mock",
@@ -50,6 +53,7 @@ documentation = [
 all = [
     "pygeodata[viz]",
     "pygeodata[parallel]",
+    "pygeodata[dashboard]",
     "pygeodata[test]",
     "pygeodata[documentation]",
 ]

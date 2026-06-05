@@ -72,7 +72,8 @@ def _(value: np.ndarray) -> str:
 @format_html_inline.register(Mapping)
 def _(value: Mapping[Any, Any]) -> str:
     inner = ', '.join(
-        f'{format_html_inline(k)}:{format_html_inline(v)}' for k, v in sorted(value.items(), key=lambda kv: repr(kv[0]))
+        f'{format_html_inline(k)}: {format_html_inline(v)}'
+        for k, v in sorted(value.items(), key=lambda kv: repr(kv[0]))
     )
     return _html('{') + inner + _html('}')
 

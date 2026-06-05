@@ -53,7 +53,7 @@ def handle_invalid(path: Path, dry_run: bool, hash_path: Path | None = None) -> 
         print(f'[dry_run] {label}: {path}')
         return
 
-    print(f'Deleting: {path}')
+    print(f'[Deleting] {label}: {path}')
     if path.is_dir():
         shutil.rmtree(path)
     else:
@@ -66,7 +66,7 @@ def prune_empty_dirs(root: Path) -> None:
             continue
         try:
             dirpath.rmdir()
-            print(f'Removing {dirpath}')
+            print(f'[Deleting] Empty dir: {dirpath}')
         except OSError:
             pass
 

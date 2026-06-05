@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -60,26 +61,50 @@ def generate_path(
 
 @dataclass
 class CachePathResolver:
-    processed_path: Path
-    params_path: Path
-    state_hash_path: Path
-    execution_graph_path: Path
+    directory: Path
+    stem: str
+    ext: str
 
     @classmethod
     def from_path(cls, path: Path) -> 'CachePathResolver':
         stem = path.name.removeprefix('.').split('.')[0]
         ext = ''.join(path.suffixes)
-        dir = path.parent
+        directory = path.parent
 
-        return CachePathResolver(
-            processed_path=dir / f'{stem}{ext}',
-            params_path=dir / f'.{stem}.params.json',
-            state_hash_path=dir / f'.{stem}.hash.json',
-            execution_graph_path=dir / f'.{stem}.graph.pdf',
+        return cls(
+            directory=directory,
+            stem=stem,
+            ext=ext,
         )
+
+    def get_processed_path(self, ext: str | None = None) -> Path:
+        return self.directory / f'{self.stem}.{ext or self.ext}'
+
+    @property
+    def processed_path(self) -> Path:
+        return self.directory / f'{self.stem}{self.ext}'
+
+    @property
+    def params_path(self) -> Path:
+        return self.directory / f'.{self.stem}.params.json'
+
+    @property
+    def state_hash_path(self) -> Path:
+        return self.directory / f'.{self.stem}.hash.json'
+
+    @property
+    def execution_graph_path(self) -> Path:
+        return self.directory / f'.{self.stem}.graph.pdf'
+
+    @property
+    def spec_path(self) -> Path:
+        return self.directory / f'.{self.stem}.spec.json'
 
     def mkdir(self) -> None:
         self.processed_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def glob_cache(self) -> Iterable[Path]:
+        return self.directory.glob(f'{self.stem}.*')
 
 
 @dataclass
@@ -91,7 +116,7 @@ class RegistryPathResolver:
 
     @classmethod
     def from_directory(cls, directory: Path) -> 'RegistryPathResolver':
-        return RegistryPathResolver(
+        return cls(
             registry_path=directory / 'source.json',
             code_path=directory / 'code.py',
             lock_path=directory / 'lock.json',

@@ -219,20 +219,28 @@ class Artifact(TrackedObject, ABC):
         """
         return self.resolve_cache_paths(spec).processed_path
 
-    def get_params_path(self, spec: SpatialSpec) -> Path:
-        return self.resolve_cache_paths(spec).params_path
+    def ensure_processed_path(self, spec: SpatialSpec) -> Path:
+        path = self.get_processed_path(spec)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
 
     def write_parameters(self, spec: SpatialSpec) -> None:
-        path = self.get_params_path(spec)
+        path = self.resolve_cache_paths(spec).params_path
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open('w', encoding='utf-8') as f:
             json.dump(self.get_params_as_json(exclude=False), f, indent=4)
+
+    def write_spec(self, spec: SpatialSpec) -> None:
+        path = self.resolve_cache_paths(spec).spec_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open('w', encoding='utf-8') as f:
+            json.dump(spec.to_dict(), f, indent=4)
 
     def get_state_hash(self) -> str:
         """Recursively hashes the class code and all injected parameter artifacts."""
         state = {
             'blueprint_hash': self.get_dependency_tree_hash(),
-            'params': {k: format_json(v) for k, v in self.get_params().items()},
+            'params': {k: format_json(v) for k, v in self.get_params(exclude=False).items()},
         }
 
         if self.processor:
@@ -480,6 +488,7 @@ class Artifact(TrackedObject, ABC):
             for artifact in (*artifacts, self):
                 artifact.update_registry()
                 artifact.write_parameters(spec)
+                artifact.write_spec(spec)
                 artifact.write_state_hash(spec)
 
                 if next(extract_instances(artifact.get_params(exclude=False), TrackedObject), None) is not None:

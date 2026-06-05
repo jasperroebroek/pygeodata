@@ -6,6 +6,7 @@ from typing import ClassVar
 from pygeodata.artifact import Artifact
 from pygeodata.cache import handle_invalid, path_matches_hash
 from pygeodata.config import JSONKeys, get_config
+from pygeodata.extraction import flatten_parameter_dict_for_path
 from pygeodata.paths import CachePathResolver, generate_path
 from pygeodata.types import SpatialSpec
 
@@ -88,7 +89,7 @@ class Figure(Artifact):
 
     def get_filename(self, ext: str | None = None) -> str:
         resolved_ext = ext or self.get_ext()
-        params = self.get_params(exclude=True)
+        params = self.get_params(exclude=False)
         stem_part = self.get_file_stem()
         config = get_config()
 
@@ -98,10 +99,12 @@ class Figure(Artifact):
         if len(params) == 0:
             return f'{stem_part}.{resolved_ext}'
 
-        if len(params) <= config.max_file_param_depth:
-            param_str = sep.join(f'{k}{es}{v}' for k, v in sorted(params.items()))
+        flat_params = flatten_parameter_dict_for_path(params)
+
+        if len(flat_params) <= config.max_file_param_depth:
+            param_str = sep.join(f'{k}{es}{v}' for k, v in sorted(flat_params.items()))
         else:
-            json_params = json.dumps(params, sort_keys=True)
+            json_params = json.dumps(flat_params, sort_keys=True)
             param_str = hashlib.sha256(json_params.encode('utf-8')).hexdigest()
         return f'{stem_part}{sep}{param_str}.{resolved_ext}'
 
@@ -121,7 +124,7 @@ class Figure(Artifact):
             generate_path(
                 base_dir=root,
             )
-            / f'*{cls.get_file_stem()}*'
+            / f'*{cls.get_file_stem()}.*'
         )
         return str(full_pattern.relative_to(root))
 

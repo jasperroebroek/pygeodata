@@ -161,11 +161,11 @@ class Data(Artifact, Generic[T]):
                 for dir in dirs:
                     path_dir = dirpath / dir
                     if next(path_dir.iterdir(), None) is None:
-                        print(f'Removing {path_dir}')
+                        print(f'[Deleting] Empty dir: {path_dir}')
                         path_dir.rmdir()
 
                 if next(dirpath.iterdir(), None) is None:
-                    print(f'Removing {dirpath}')
+                    print(f'[Deleting] Empty dir: {dirpath}')
                     dirpath.rmdir()
 
     @classmethod

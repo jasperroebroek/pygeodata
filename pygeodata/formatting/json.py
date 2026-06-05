@@ -28,7 +28,7 @@ def _(value: Enum) -> str:
 def _(value: str) -> Any:
     if isinstance(value, Enum):
         return format_json.dispatch(Enum)(value)
-    return repr(value)
+    return value
 
 
 @format_json.register

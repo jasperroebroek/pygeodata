@@ -71,6 +71,28 @@ class SpatialSpec:
         )
         return f'SpatialSpec(crs={self.crs.to_string()}, transform={transform_str}, shape={self.shape})'
 
+    def to_dict(self) -> dict[str, Any]:
+        transform_dict = (
+            None
+            if self.transform is None
+            else {
+                'a': self.transform.a,
+                'b': self.transform.b,
+                'c': self.transform.c,
+                'd': self.transform.d,
+                'e': self.transform.e,
+                'f': self.transform.f,
+            }
+        )
+
+        return {
+            'crs': self.crs.to_string(),
+            'transform': transform_dict,
+            'shape': self.shape,
+            'resolution': self.resolution,
+            'bounds': self.bounds,
+        }
+
 
 class Processor(Protocol):
     def __call__(self, dst_path: str | Path, spec: SpatialSpec) -> None: ...
