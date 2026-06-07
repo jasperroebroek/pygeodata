@@ -38,12 +38,6 @@ class Figure(Artifact):
         Parameter names excluded from all hashing, path generation, and serialization.
         These parameters are present for internal use only, such as the number of threads
         used.
-    _exclude_params_from_path : tuple[str]
-        Parameter names excluded from path generation only (still included in hashes).
-        This can be used for parameters that are used when overwriting get_processed_path,
-        as to not cause duplication of information. It can also be used to prevent parameters
-        that are only used in the meth:`load` method from being included in the path.
-
     Notes
     -----
     Subclasses that define ``__init__`` parameters should store them as instance
@@ -104,7 +98,7 @@ class Figure(Artifact):
             return f'{self.get_file_stem()}.{resolved_ext}'
 
         # flatten_figures=True, human_readable_paths=True: encode params in filename
-        params = self.get_params(exclude=False)
+        params = self.get_params()
         stem_part = self.get_file_stem()
         sep = '_' if config.filesystem_allows_punctuation else ' '
         es = '=' if config.filesystem_allows_punctuation else '-'
@@ -183,5 +177,5 @@ class Figure(Artifact):
             spec=spec,
             name=self.get_class_name(),
             base_dir=root,
-            **self.get_params(exclude=True),
+            **self.get_params(),
         )

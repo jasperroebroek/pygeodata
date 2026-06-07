@@ -221,7 +221,20 @@ man_pages = [('index')]
 # disable warnings
 warnings.filterwarnings('ignore')
 
-notebooks = [Path.cwd() / 'notebooks' / f'{file}.ipynb' for file in ('01_getting_started', '02_building_a_pipeline')]
+notebooks = [
+    Path.cwd() / 'notebooks' / f'{file}.ipynb'
+    for file in (
+        '01_getting_started',
+        '02_building_a_pipeline',
+        '03_reprojection',
+        '04_rasterization',
+        '05_custom_processing',
+        '06_custom_drivers',
+        '07_parallel_processing',
+        '08_visualisation_and_debugging',
+        '09_registry_browser',
+    )
+]
 
 print('\nBuilding notebooks:')
 for nb in notebooks:

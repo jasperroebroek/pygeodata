@@ -95,7 +95,7 @@ def test_figure_get_filename_flatten_human_readable_multiple_params() -> None:
         stem = fig.get_file_stem()
         sep = '_' if get_config().filesystem_allows_punctuation else ' '
         es = '=' if get_config().filesystem_allows_punctuation else '-'
-        params = flatten_parameter_dict_for_path(fig.get_params(exclude=True))
+        params = flatten_parameter_dict_for_path(fig.get_params())
         joined = sep.join(f'{k}{es}{v}' for k, v in params.items())
         assert fig.get_filename(ext='png') == f'{stem}{sep}{joined}.png'
 

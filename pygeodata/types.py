@@ -123,7 +123,7 @@ class AllowsFormatting(Protocol):
 
 @runtime_checkable
 class HasParameters(Protocol):
-    def get_params(self, exclude: bool = True) -> dict[str, Any]: ...
+    def get_params(self) -> dict[str, Any]: ...
 
 
 @dataclass(frozen=True)

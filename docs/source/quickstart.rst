@@ -1,55 +1,82 @@
 Quickstart
 ==========
 
-Install the package and point it at a processed-data directory:
+Installation and configuration
+-------------------------------
+
+Install pygeodata and point it at a cache directory:
 
 .. code-block:: python
 
    import pygeodata as pgd
 
-   pgd.set_config(path_data_processed='/path/to/cache')
+   pgd.get_config().update(path_cache='data/processed')
 
-Define a loader by subclassing :class:`~pygeodata.data.Data`:
+Use :func:`~pygeodata.config.set_config` as a context manager when you only
+want a setting to apply temporarily:
 
 .. code-block:: python
 
-   from pygeodata.data import Data
+   with pgd.set_config(human_readable_paths=True):
+       path = loader.get_processed_path(spec)
+
+Define a loader
+---------------
+
+Subclass :class:`~pygeodata.data.Data` and attach a ``processor``:
+
+.. code-block:: python
+
+   from dataclasses import dataclass
+   from pygeodata import Data
    from pygeodata.processors.reprojection import Reprojector
 
    @dataclass
-   class MyRaster(Data):
-       year: int
+   class ElevationLoader(Data):
+       src: str = 'data/elevation.tif'
 
        @property
        def processor(self):
-           return Reprojector(src_path=f'/data/{self.year}.tif')
+           return Reprojector(src_path=self.src)
 
-Process and load in one call:
+Process and load
+----------------
+
+:func:`~pygeodata.base.load` processes the data (if not already cached) and
+returns it via the loader's driver (default: ``xarray.DataArray``):
 
 .. code-block:: python
 
    spec = pgd.SpatialSpec.from_raster_file('reference.tif')
-   da = pgd.load(MyRaster(year=2020), spec)   # returns xarray.DataArray
+   da = pgd.load(ElevationLoader(), spec)
 
+Call :func:`~pygeodata.base.process` explicitly if you only want to populate
+the cache without loading the result into memory:
+
+.. code-block:: python
+
+   pgd.process(ElevationLoader(), spec)
+
+Both calls are idempotent — they skip work when the cache is still valid.
 
 Concepts
 --------
 
 Data and the caching model
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Every :class:`~pygeodata.data.Data` subclass represents a single
-deterministic processing step. The framework caches each output as a file on
-disk and skips reprocessing when the cache is still valid.
+Every :class:`~pygeodata.data.Data` subclass represents a deterministic
+processing step. The framework caches each output as a file on disk and skips
+reprocessing when the cache is still valid.
 
 Cache validity is determined by a **state hash** that combines:
 
-- A **source-hierarchy hash** — a SHA-256 of the AST dump of the class and all
-  its call and inheritance dependencies. Reformatting code without changing
-  logic does not invalidate the cache.
-- A **params hash** — a stable serialization of every constructor parameter,
-  including nested :class:`~pygeodata.data.Data` instances (represented
-  by their own state hashes).
+- A **dependency tree hash** — a SHA-256 of the AST of the class and all its
+  call and inheritance dependencies. Reformatting code without changing logic
+  does *not* invalidate the cache.
+- The serialised parameter values — including nested
+  :class:`~pygeodata.data.Data` instances, represented by their own state
+  hashes.
 
 The hash is written alongside the output as a ``.hash.json`` file. On the next
 :func:`~pygeodata.base.process` call the saved hash is compared with the live
@@ -69,19 +96,21 @@ A spec is *fully defined* when both ``transform`` and ``shape`` are set. Some
 loaders can resolve an underdefined spec (CRS only) by inspecting their source
 data via :meth:`~pygeodata.data.Data.resolve_spec`.
 
-Processors and Drivers
+Processors and drivers
 ~~~~~~~~~~~~~~~~~~~~~~
 
 A **processor** is any callable matching the :class:`~pygeodata.types.Processor`
 protocol — ``(dst_path, spec) -> None``. The two built-in processors are:
 
-- :class:`~pygeodata.processors.reprojection.Reprojector` — warps a raster to a target
-  grid using ``rasterio.warp``.
-- :class:`~pygeodata.processors.rasterizer.Rasterizer` — burns vector geometries to a
-  single-band raster using ``rasterio.features.rasterize``.
+- :class:`~pygeodata.processors.reprojection.Reprojector` — warps a raster to a
+  target grid using ``rasterio.warp``.
+- :class:`~pygeodata.processors.rasterizer.Rasterizer` — burns vector geometries
+  to a single-band raster using ``rasterio.features.rasterize``.
+
+Override ``_process(self, spec)`` directly for arbitrary logic.
 
 A **driver** is any callable matching the :class:`~pygeodata.types.Driver`
-protocol — ``(path) -> T``. Built-in drivers are:
+protocol — ``(path) -> T``. Built-in drivers:
 
 - :class:`~pygeodata.drivers.RioXArrayDriver` — loads a GeoTIFF as an
   :class:`xarray.DataArray` (default for raster loaders).
@@ -90,52 +119,52 @@ protocol — ``(path) -> T``. Built-in drivers are:
 - :class:`~pygeodata.drivers.GeoPandasParquetDriver` — loads a GeoParquet
   file as a :class:`geopandas.GeoDataFrame`.
 
-Parameter exclusion
-~~~~~~~~~~~~~~~~~~~
+Override ``_load(self, path)`` to return any Python object from a cached file.
 
-Three class-level tuples control which constructor parameters participate in
-hashing, path generation, and serialization:
+Excluding parameters
+~~~~~~~~~~~~~~~~~~~~
 
-.. list-table::
-   :header-rows: 1
-   :widths: 30 15 15 15
+``_exclude_params`` is a class-level tuple of parameter names that are
+excluded from the cache key entirely — the output path, the state hash, and
+the ``.params.json`` file. Use it for purely operational parameters that do
+not affect output content (e.g. thread counts, verbosity flags):
 
-   * - Attribute
-     - Hash
-     - Path
-     - params.json
-   * - ``_exclude_params``
-     - ✗
-     - ✗
-     - ✗
-   * - ``_exclude_params_from_path``
-     - ✗
-     - ✗
-     - ✓
+.. code-block:: python
 
-Use ``_exclude_params`` for purely operational parameters (e.g. thread counts)
-that do not affect output content. Use ``_exclude_params_from_path`` for
-parameters that are used when overwriting meth:`Data.get_processed_path`.
+   @dataclass
+   class ElevationLoader(Data):
+       src: str = 'data/elevation.tif'
+       n_jobs: int = 4
+
+       _exclude_params = ('n_jobs',)
+
+       @property
+       def processor(self):
+           return Reprojector(src_path=self.src)
+
+   # ElevationLoader(n_jobs=1) and ElevationLoader(n_jobs=8)
+   # share the same cache entry.
 
 Path generation
 ~~~~~~~~~~~~~~~
 
-Output paths are built by :func:`~pygeodata.paths.generate_path` and follow
-the structure::
+Output paths follow the structure::
 
-   <base_dir>/<crs>/<grid>/<ClassName>/<param=value ...>/<name>.<ext>
+   <path_cache>/<ClassName>/<hash(spec + params)>/<name>.<ext>
 
-When the number of parameters exceeds ``max_path_param_depth`` (default 5,
-configurable via :class:`~pygeodata.config.Config`), the parameter segment is
-replaced with a single SHA-256 digest to keep paths short. This can be adjusted
-in the configuration object.
+Set ``human_readable_paths=True`` in the config for a more browsable layout::
+
+   <path_cache>/<crs>/<shape_transform>/<ClassName>/<param=value ...>/<name>.<ext>
+
+When the number of parameters exceeds ``max_path_param_depth`` (default 5),
+the parameter segment is replaced with a single SHA-256 digest.
 
 Parallel execution
 ~~~~~~~~~~~~~~~~~~
 
 :func:`~pygeodata.parallel.build_dask_graph` converts a loader and its
-transitive parameter dependencies into a `Dask <https://dask.org>`_ delayed
-graph, enabling parallel or distributed execution:
+transitive dependencies into a `Dask <https://dask.org>`_ delayed graph,
+enabling parallel or distributed execution:
 
 .. code-block:: python
 
@@ -149,11 +178,13 @@ graph, enabling parallel or distributed execution:
 Cache management
 ~~~~~~~~~~~~~~~~
 
-:func:`~pygeodata.cache.clean_cache` scans the processed-data directory and
-removes files whose ``source_hierarchy_hash`` no longer matches the live code,
-keeping only outputs that are still valid:
+:func:`~pygeodata.cache.clean_cache` scans the cache directory and removes
+files whose state hash no longer matches the live code:
 
 .. code-block:: python
 
-   pgd.clean_cache(dry_run=True)   # preview deletions
-   pgd.clean_cache(dry_run=False)  # apply
+   pgd.clean_cache(dry_run=True)    # preview deletions
+   pgd.clean_cache(dry_run=False)   # apply
+
+:func:`~pygeodata.cache.purge_unregistered_cache` interactively offers to
+delete directories that do not belong to any currently imported loader class.

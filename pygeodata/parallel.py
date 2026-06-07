@@ -76,7 +76,7 @@ def build_dask_graph(
     if node_id in _cache:
         return _cache[node_id]
 
-    deps = list(extract_instances(artifact.get_params(exclude=False), Artifact))
+    deps = list(extract_instances(artifact.get_params(), Artifact))
 
     delayed_deps = [build_dask_graph(dep, spec, _cache) for dep in deps]
 

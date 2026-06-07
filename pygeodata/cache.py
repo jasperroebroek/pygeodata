@@ -71,29 +71,41 @@ def prune_empty_dirs(root: Path) -> None:
             pass
 
 
+def _is_system_path(path: Path) -> bool:
+    cfg = get_config()
+    return (
+        path.name in cfg.removable_system_files
+        or path.name.endswith(cfg.removable_system_suffixes)
+        or (path.name.startswith('.') and not path.name.endswith(ARTIFACT_SUFFIXES))
+    )
+
+
+def _contains_registered_hash(path: Path, registered_names: set[str]) -> bool:
+    """Return True if the directory contains a .hash.json belonging to a registered class."""
+    for hash_file in path.rglob('*.hash.json'):
+        with hash_file.open(encoding='utf-8') as f:
+            if json.load(f).get(JSONKeys.CLASS_NAME) in registered_names:
+                return True
+    return False
+
+
 def purge_unregistered_cache(dry_run: bool = True) -> None:
     registered: list[type[Artifact]] = Artifact.get_registered_objects()
     registered_names = {a.get_class_name() for a in registered}
 
     for family in Artifact.__subclasses__():
         root = family.get_cache_root()
-        pattern = family.get_general_cache_pattern()
 
-        for path in root.glob(pattern):
-            if (
-                path.name in get_config().removable_system_files
-                or path.name.endswith(get_config().removable_system_suffixes)
-                or (path.name.startswith('.') and not path.name.endswith(ARTIFACT_SUFFIXES))
-            ):
+        for path in root.glob(family.get_general_cache_pattern()):
+            if _is_system_path(path):
                 if not dry_run:
                     handle_invalid(path, dry_run)
                 continue
 
-            class_name = read_cache_class_name(path)
-            if class_name is not None and class_name in registered_names:
+            if any(artifact.matches_cache_path(path) for artifact in registered):
                 continue
 
-            if any(artifact.matches_cache_path(path) for artifact in registered):
+            if path.is_dir() and _contains_registered_hash(path, registered_names):
                 continue
 
             if dry_run:

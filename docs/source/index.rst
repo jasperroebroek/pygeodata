@@ -11,7 +11,7 @@ change, enabling reproducible, incremental pipelines.
 
    import pygeodata as pgd
 
-   pgd.set_config(path_data_processed='data_processed')
+   pgd.get_config().update(path_cache='data/processed')
 
    spec = pgd.SpatialSpec.from_raster_file('reference.tif')
    data = pgd.load(MyLoader(year=2020), spec)
@@ -21,9 +21,9 @@ change, enabling reproducible, incremental pipelines.
    :caption: Contents
 
    installation
+   quickstart
    api
    whats_new
-   quickstart
 
 .. toctree::
    :maxdepth: 2
@@ -31,3 +31,10 @@ change, enabling reproducible, incremental pipelines.
 
    notebooks/01_getting_started
    notebooks/02_building_a_pipeline
+   notebooks/03_reprojection
+   notebooks/04_rasterization
+   notebooks/05_custom_processing
+   notebooks/06_custom_drivers
+   notebooks/07_parallel_processing
+   notebooks/08_visualisation_and_debugging
+   notebooks/09_registry_browser

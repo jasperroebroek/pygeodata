@@ -18,7 +18,7 @@ def use_both_filesystem_representations(request):
 
 def test_exclude_and_private_params() -> None:
     loader = LoaderC(target='deforestation', n_jobs=8, _private_state=True)
-    flat_params = flatten_parameter_dict_for_path(loader.get_params(exclude=True))
+    flat_params = flatten_parameter_dict_for_path(loader.get_params())
     assert 'target' in flat_params
     assert 'n_jobs' not in flat_params
     assert '_private_state' not in flat_params
@@ -28,15 +28,15 @@ def test_deterministic_sorting() -> None:
     loader1 = LoaderB(features=[LoaderA(year=1990), LoaderA(year=2020)])
     loader2 = LoaderB(features=[LoaderA(year=2020), LoaderA(year=1990)])
 
-    flat_params_loader1 = flatten_parameter_dict_for_path(loader1.get_params(exclude=True))
-    flat_params_loader2 = flatten_parameter_dict_for_path(loader2.get_params(exclude=True))
+    flat_params_loader1 = flatten_parameter_dict_for_path(loader1.get_params())
+    flat_params_loader2 = flatten_parameter_dict_for_path(loader2.get_params())
 
     assert flat_params_loader1 == flat_params_loader2
 
 
 def test_nested_list_param_flattening() -> None:
     flat = flatten_parameter_dict_for_path(
-        LoaderB(features=[LoaderA(year=2050), LoaderA(year=2100)]).get_params(exclude=True),
+        LoaderB(features=[LoaderA(year=2050), LoaderA(year=2100)]).get_params(),
     )
     correct_string = '[LoaderA, LoaderA]' if get_config().filesystem_allows_punctuation else 'seq--LoaderA _ LoaderA--'
     assert flat['features'] == correct_string
@@ -45,7 +45,7 @@ def test_nested_list_param_flattening() -> None:
 
 
 def test_mixed_list_no_crash() -> None:
-    flat = flatten_parameter_dict_for_path(LoaderD(items=[LoaderA(year=2000), 'europe']).get_params(exclude=True))
+    flat = flatten_parameter_dict_for_path(LoaderD(items=[LoaderA(year=2000), 'europe']).get_params())
     assert 'items' in flat
 
 
@@ -72,13 +72,13 @@ def test_deeply_nested_flattening() -> None:
     inner = LoaderA(year=2000)
     middle = LoaderB(features=[inner])
     outer = LoaderB(features=[middle])
-    flat = flatten_parameter_dict_for_path(outer.get_params(exclude=True))
+    flat = flatten_parameter_dict_for_path(outer.get_params())
     assert 'features_0__features_0__year' in flat
 
 
 def test_dict_artifact_flattening() -> None:
     loader = DictLoader(mapping={'baseline': LoaderA(year=1990), 'current': LoaderA(year=2020)})
-    flat = flatten_parameter_dict_for_path(loader.get_params(exclude=True))
+    flat = flatten_parameter_dict_for_path(loader.get_params())
 
     # Ensure the dictionary is flattened deterministically
     assert 'mapping_baseline__year' in flat

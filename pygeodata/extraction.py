@@ -69,7 +69,7 @@ def flatten_parameter_value_for_path(prefix: str, value: Any) -> dict[str, Any]:
 
     if isinstance(value, HasParameters):
         flat[prefix] = value.__class__.__name__
-        for nk, nv in value.get_params(exclude=False).items():
+        for nk, nv in value.get_params().items():
             flat.update(flatten_parameter_value_for_path(f'{prefix}__{nk}', nv))
     elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         flat[prefix] = format_fn(value)

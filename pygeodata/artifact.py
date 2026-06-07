@@ -20,7 +20,6 @@ from pygeodata.types import Processor, RuntimeDependencyGraph, RuntimeNode, Runt
 class Artifact(TrackedObject, ABC):
     _sort_params: ClassVar[tuple[str]] = ()
     _exclude_params: ClassVar[tuple[str]] = ()
-    _exclude_params_from_path: ClassVar[tuple[str]] = ()
     ext: ClassVar[str | None] = None
     processor: ClassVar[Processor | None] = None
     color: ClassVar[str] = '#f8f9fa'
@@ -70,7 +69,7 @@ class Artifact(TrackedObject, ABC):
             spec=spec,
             name=self.get_class_name(),
             base_dir=self.get_cache_root(),
-            **self.get_params(exclude=True),
+            **self.get_params(),
         )
 
     def resolve_cache_paths(self, spec: SpatialSpec) -> CachePathResolver:
@@ -83,7 +82,7 @@ class Artifact(TrackedObject, ABC):
     def format_as_json(self, spec: SpatialSpec | None = None) -> Any:
         d = {
             JSONKeys.CLASS_NAME: self.get_class_name(),
-            JSONKeys.PARAMS: format_json(self.get_params(exclude=False), spec=spec),
+            JSONKeys.PARAMS: format_json(self.get_params(), spec=spec),
             JSONKeys.INSTANCE_HASH: self.get_instance_hash(),
         }
         if spec is not None:
@@ -115,17 +114,12 @@ class Artifact(TrackedObject, ABC):
         resolver = getattr(self.processor, 'resolve_spec', None)
         return resolver(spec) if resolver is not None else spec
 
-    def get_params(self, exclude: bool = True) -> dict[str, Any]:
+    def get_params(self) -> dict[str, Any]:
         """
         Return the instance parameters of the artifact.
 
         Inspects ``vars(self)`` and filters out private attributes, reserved names,
-        and any names listed in :attr:`_exclude_params` or :attr:`_exclude_params_from_path`.
-
-        Parameters
-        ----------
-        exclude : bool, default True
-            If ``True``, also excludes parameters listed in :attr:`_exclude_params_from_path`.
+        and any names listed in :attr:`_exclude_params`.
 
         Returns
         -------
@@ -140,8 +134,6 @@ class Artifact(TrackedObject, ABC):
                 continue
             if key in self._exclude_params:
                 continue
-            if key in self._exclude_params_from_path and exclude:
-                continue
 
             if key in self._sort_params and isinstance(value, (list, tuple)):
                 parsed_value = type(value)(sorted(value, key=repr))
@@ -151,8 +143,8 @@ class Artifact(TrackedObject, ABC):
             params.update({key: parsed_value})
         return params
 
-    def get_params_as_json(self, exclude: bool = True, spec: SpatialSpec | None = None) -> dict[str, Any]:
-        return format_json(self.get_params(exclude=exclude), spec=spec)  # type: ignore[return-value]
+    def get_params_as_json(self, spec: SpatialSpec | None = None) -> dict[str, Any]:
+        return format_json(self.get_params(), spec=spec)  # type: ignore[return-value]
 
     def get_src_path(self) -> Path:
         """
@@ -229,7 +221,7 @@ class Artifact(TrackedObject, ABC):
         path = self.resolve_cache_paths(spec).params_path
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open('w', encoding='utf-8') as f:
-            json.dump(self.get_params_as_json(exclude=False, spec=spec), f, indent=4)
+            json.dump(self.get_params_as_json(spec=spec), f, indent=4)
 
     def write_spec(self, spec: SpatialSpec) -> None:
         path = self.resolve_cache_paths(spec).spec_path
@@ -241,7 +233,7 @@ class Artifact(TrackedObject, ABC):
         """Hash of class code and params — spec-independent. Stable identifier for this artifact instance."""
         state = {
             JSONKeys.DEPENDENCY_TREE_HASH: self.get_dependency_tree_hash(),
-            JSONKeys.PARAMS: {k: format_json(v) for k, v in self.get_params(exclude=False).items()},
+            JSONKeys.PARAMS: {k: format_json(v) for k, v in self.get_params().items()},
         }
         if self.processor:
             state[JSONKeys.PROCESSOR_HASH] = calculate_cls_source_hash(self.processor.__class__)
@@ -370,7 +362,7 @@ class Artifact(TrackedObject, ABC):
             if node_id in nodes:
                 return
 
-            params = artifact.get_params(exclude=False)
+            params = artifact.get_params()
 
             call_deps = artifact.get_call_dependencies()
             inh_deps = artifact.get_inheritance_dependencies()
@@ -508,5 +500,5 @@ class Artifact(TrackedObject, ABC):
                 artifact.write_spec(spec)
                 artifact.write_cache_metadata(spec, co_outputs=others)
 
-                if next(extract_instances(artifact.get_params(exclude=False), TrackedObject), None) is not None:
+                if next(extract_instances(artifact.get_params(), TrackedObject), None) is not None:
                     self.plot_runtime_execution_graph(spec)

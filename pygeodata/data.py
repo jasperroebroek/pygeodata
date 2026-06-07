@@ -35,11 +35,6 @@ class Data(Artifact, Generic[T]):
         Parameter names excluded from all hashing, path generation, and serialization.
         These parameters are present for internal use only, such as the number of threads
         used.
-    _exclude_params_from_path : tuple[str]
-        Parameter names excluded from path generation only (still included in hashes).
-        This can be used for parameters that are used when overwriting get_processed_path,
-        as to not cause duplication of information. It can also be used to prevent parameters
-        that are only used in the meth:`load` method from being included in the path.
 
     Notes
     -----
@@ -199,7 +194,7 @@ class Data(Artifact, Generic[T]):
             spec=spec,
             name=self.get_class_name(),
             base_dir=self.get_cache_root(),
-            **self.get_params(exclude=True),
+            **self.get_params(),
         )
 
     def load(self, spec: SpatialSpec) -> T:
@@ -217,7 +212,7 @@ class Data(Artifact, Generic[T]):
         """
         spec = self.resolve_spec(spec)
         self.process(spec)
-        return self._load(spec)
+        return self._load(self.get_processed_path(spec))
 
-    def _load(self, spec: SpatialSpec) -> T:
-        return self.driver(self.get_processed_path(spec))
+    def _load(self, path: Path) -> T:
+        return self.driver(path)

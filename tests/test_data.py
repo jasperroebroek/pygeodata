@@ -70,7 +70,7 @@ def test_processed_dir_with_params_differs_by_param(sample_spatial_spec: Spatial
     assert p1 != p2
 
 
-def test_processed_dir_exclude_params_from_path(sample_spatial_spec: SpatialSpec) -> None:
+def test_processed_dir_exclude_params(sample_spatial_spec: SpatialSpec) -> None:
     with set_config(human_readable_paths=False):
         p_included = LoaderC(target='forest', n_jobs=1).get_processed_dir(sample_spatial_spec)
         p_excluded = LoaderC(target='forest', n_jobs=99).get_processed_dir(sample_spatial_spec)

@@ -23,6 +23,6 @@ def make_artifact(class_name: str, params: dict | None = None) -> Data:
     cls = type(
         class_name,
         (Data,),
-        {'get_params': lambda _self, _exclude=True: _params},
+        {'get_params': lambda _self: _params},
     )
     return cls()
