@@ -1,5 +1,31 @@
+from collections.abc import Generator
+from enum import Enum
+
+import pytest
+
+from pygeodata.data import Data
 from pygeodata.formatting.html import format_html_block, format_html_inline
-from tests.formatting.helpers import Color, make_artifact
+from pygeodata.tracked_object import TrackedObject
+
+
+@pytest.fixture(autouse=True)
+def restore_registry() -> Generator[None, None, None]:
+    saved = dict(TrackedObject._registry)
+    yield
+    TrackedObject._registry = saved
+    TrackedObject.clear_function_caches()
+
+
+class Color(Enum):
+    RED = 1
+    GREEN = 2
+
+
+def make_artifact(class_name: str, params: dict | None = None) -> Data:
+    _params = params or {}
+    Data._registry.pop(class_name, None)
+    cls = type(class_name, (Data,), {'get_params': lambda _self: _params})
+    return cls()
 
 
 def test_html_inline_int() -> None:

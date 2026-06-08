@@ -7,7 +7,7 @@ from typing import Any
 
 import numpy as np
 
-from pygeodata.formatting.shared import format_array, format_path_object
+from pygeodata.formatting.shared import format_array
 from pygeodata.types import AllowsFormatting
 
 
@@ -61,7 +61,7 @@ def _(value: bytearray) -> str:
 
 @format_html_inline.register
 def _(value: Path) -> str:
-    return _html(format_path_object(value))
+    return _html(str(value))
 
 
 @format_html_inline.register

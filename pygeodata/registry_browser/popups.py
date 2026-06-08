@@ -7,16 +7,14 @@ from pathlib import Path
 
 from pygeodata.ast import get_source_code
 from pygeodata.graphs import plot_class_dependency_graph
-from pygeodata.tracked_object import TrackedObject
-
 from pygeodata.registry_browser.io_utils import read_text
+from pygeodata.tracked_object import TrackedObject
 
 logger = logging.getLogger(__name__)
 
 
 def _linkify_class_names(escaped_source: str, known_classes: frozenset[str], current_class: str) -> str:
     """Replace occurrences of known class names in HTML-escaped source with clickable spans."""
-    # Sort longest first so e.g. "BioClimaticVariablesLoader" matches before "Loader"
     sorted_names = sorted(known_classes - {current_class}, key=len, reverse=True)
     if not sorted_names:
         return escaped_source
@@ -85,11 +83,7 @@ def _inject_graph_links(svg: str, known_classes: frozenset[str]) -> str:
         rest = m.group(3)
         if title in known_classes:
             merged_attrs = g_attrs.replace('class="node"', 'class="node graph-node-link"')
-            return (
-                f'<g {merged_attrs} data-cls="{html.escape(title)}">'
-                f'\n<title>{html.escape(title)}</title>'
-                f'{rest}'
-            )
+            return f'<g {merged_attrs} data-cls="{html.escape(title)}">\n<title>{html.escape(title)}</title>{rest}'
         return m.group(0)
 
     pattern = re.compile(

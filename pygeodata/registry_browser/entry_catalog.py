@@ -1,29 +1,30 @@
+import contextlib
 import dataclasses
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from pygeodata import Artifact
 from pygeodata.config import JSONKeys, get_config
-from pygeodata.paths import CachePathResolver
+from pygeodata.paths import CACHE_DIR_SUFFIXES, CACHE_META_SUFFIXES, CachePathResolver
+from pygeodata.registry_browser.class_catalog import source_info_from_disk
+from pygeodata.file_utils import classify_file
+from pygeodata.registry_browser.io_utils import existing_path_str, read_json_dict
+from pygeodata.registry_browser.models import (
+    EntryInfo,
+    FileRef,
+    GroupInfo,
+    LinkedEntry,
+    ParamRow,
+    ProcessResult,
+    SpecInfo,
+)
+from pygeodata.registry_browser.params_index import flatten_params
 from pygeodata.tracked_object import TrackedObject
 from pygeodata.types import SpecKeys
 
-from pygeodata.registry_browser.class_catalog import source_info_from_disk
-from pygeodata.registry_browser.io_utils import classify_file, existing_path_str, read_json_dict
-from pygeodata.registry_browser.models import EntryInfo, FileRef, GroupInfo, LinkedEntry, ParamRow, SpecInfo
-from pygeodata.registry_browser.params_index import flatten_params
-
 _log = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Disk cache for processed params — keyed by params file path, invalidated
-# by mtime changes on params + hash + spec files.
-# ---------------------------------------------------------------------------
 
 
 def _cache_file() -> Path:
@@ -35,10 +36,8 @@ def _cache_mtime_key(params_path: Path) -> float:
     resolver = CachePathResolver.from_path(params_path)
     total = 0.0
     for p in (params_path, resolver.state_hash_path, resolver.spec_path):
-        try:
+        with contextlib.suppress(OSError):
             total += p.stat().st_mtime
-        except OSError:
-            pass
     return total
 
 
@@ -50,7 +49,7 @@ def _load_disk_cache() -> tuple[dict[str, dict], dict[str, float]]:
     try:
         data = json.loads(path.read_text(encoding='utf-8'))
         return data.get('results', {}), data.get('mtimes', {})
-    except Exception:
+    except (OSError, json.JSONDecodeError):
         return {}, {}
 
 
@@ -61,35 +60,8 @@ def _save_disk_cache(results: dict[str, dict], mtimes: dict[str, float]) -> None
             json.dumps({'results': results, 'mtimes': mtimes}, separators=(',', ':')),
             encoding='utf-8',
         )
-    except Exception:
+    except OSError:
         pass
-
-
-# ---------------------------------------------------------------------------
-# ProcessResult — typed return value from _process_params_path
-# ---------------------------------------------------------------------------
-
-
-@dataclass(slots=True)
-class ProcessResult:
-    class_name: str
-    object_type: str
-    params_path_str: str
-    spec_path: str | None
-    state_hash_path: str | None
-    execution_graph_path: str | None
-    state_hash: str | None
-    instance_hash: str | None
-    stored_dep_hash: str | None
-    co_output_hashes: list[str]
-    params: dict[str, Any]
-    spec: SpecInfo
-    rows: list[ParamRow]
-    linked_entries: list[LinkedEntry]
-    primary_file: FileRef | None
-    warnings: list[str]
-    derived: bool
-    error: str | None = None  # set when resolver fails; other fields will be defaults
 
 
 # ---------------------------------------------------------------------------
@@ -126,34 +98,26 @@ def _deserialise_result(data: dict) -> ProcessResult:
 # ---------------------------------------------------------------------------
 
 
-def _object_type_from_class_name(class_name: str) -> tuple[str, list[str]]:
-    warnings: list[str] = []
+def _object_type_from_class_name(class_name: str) -> str | None:
     cls = TrackedObject.find_object_class(class_name)
     if cls is not None:
         object_type = getattr(cls, 'object_type', None)
         if object_type is None:
-            warnings.append('Class has no object_type')
-            return 'unknown', warnings
+            return None
         getter = getattr(object_type, 'get_class_name', None)
-        return (str(getter()).lower() if callable(getter) else str(object_type).lower()), warnings
-
-    object_type, _, _, _, _, _ = source_info_from_disk(class_name)
-    return object_type, warnings
-
-
-_CACHE_META_SUFFIXES = frozenset({'.params.json', '.hash.json', '.spec.json', '.graph.pdf'})
-_DIR_SUFFIXES = frozenset({'.zarr'})
+        return str(getter()) if callable(getter) else str(object_type)
+    return source_info_from_disk(class_name).object_type
 
 
 def _is_output_file(path: Path) -> bool:
     name = path.name
     if name.startswith('.'):
         return False
-    for suffix in _CACHE_META_SUFFIXES:
+    for suffix in CACHE_META_SUFFIXES:
         if name.endswith(suffix):
             return False
     if path.is_dir():
-        return path.suffix.lower() in _DIR_SUFFIXES
+        return path.suffix.lower() in CACHE_DIR_SUFFIXES
     return path.is_file()
 
 
@@ -181,36 +145,12 @@ def _unique_record_id(state_hash: str | None, params_path_str: str, taken: set[s
     return params_path_str, False
 
 
-_EMPTY_PROCESS_RESULT = ProcessResult(
-    class_name='',
-    object_type='',
-    params_path_str='',
-    spec_path=None,
-    state_hash_path=None,
-    execution_graph_path=None,
-    state_hash=None,
-    instance_hash=None,
-    stored_dep_hash=None,
-    co_output_hashes=[],
-    params={},
-    spec=SpecInfo(),
-    rows=[],
-    linked_entries=[],
-    primary_file=None,
-    warnings=[],
-    derived=False,
-)
-
-
 def _process_params_path(params_path: Path) -> ProcessResult:
     """Process one params file into a ProcessResult. Never raises."""
     params_path_str = str(params_path.resolve())
     warnings: list[str] = []
 
-    try:
-        resolver = CachePathResolver.from_path(params_path)
-    except Exception as exc:
-        return dataclasses.replace(_EMPTY_PROCESS_RESULT, params_path_str=params_path_str, error=str(exc))
+    resolver = CachePathResolver.from_path(params_path)
 
     params = read_json_dict(params_path)
     state = read_json_dict(resolver.state_hash_path)
@@ -231,8 +171,7 @@ def _process_params_path(params_path: Path) -> ProcessResult:
     stored_dep_hash = state.get(JSONKeys.DEPENDENCY_TREE_HASH)
     co_output_hashes = state.get(JSONKeys.CO_OUTPUTS, [])
 
-    object_type, object_warnings = _object_type_from_class_name(class_name)
-    warnings.extend(object_warnings)
+    object_type = _object_type_from_class_name(class_name)
 
     primary_file = _find_primary_file(resolver)
 
@@ -357,10 +296,7 @@ def discover_entries(
         if result.stored_dep_hash:
             cls = TrackedObject.find_object_class(class_name)
             if cls is not None:
-                try:
-                    dep_hash_stale = cls.get_dependency_tree_hash() != result.stored_dep_hash
-                except Exception:
-                    pass
+                dep_hash_stale = cls.get_dependency_tree_hash() != result.stored_dep_hash
 
         entries[record_id] = EntryInfo(
             record_id=record_id,

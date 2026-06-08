@@ -2,7 +2,6 @@ from typing import Any
 
 from pygeodata.config import JSONKeys
 from pygeodata.formatting.json import format_json
-
 from pygeodata.registry_browser.models import LinkedEntry, ParamRow
 
 HIDDEN_KEYS = frozenset(key.value for key in JSONKeys)

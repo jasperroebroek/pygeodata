@@ -6,10 +6,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pygeodata.formatting.html import format_html_block
-from pygeodata.types import DependencyGraph, RuntimeDependencyGraph
 
 if TYPE_CHECKING:
     from graphviz import Digraph
+
+    from pygeodata.types import DependencyGraph, RuntimeDependencyGraph
 
 try:
     from graphviz import Digraph as _Digraph

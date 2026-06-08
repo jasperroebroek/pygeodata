@@ -1139,6 +1139,17 @@ tr.row-param.active td.col-indent::after {
 
 /* ---- KV rows: no separator lines, spacing only ---- */
 
+.kv-dep-block {
+  padding: 6px 0;
+}
+
+.dcard-hd-type {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
 .kv-row {
   display: flex;
   align-items: center;
@@ -1216,8 +1227,6 @@ tr.row-param.active td.col-indent::after {
 .spec-kv-label {
   font-size: 10px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: .05em;
   color: var(--faint);
 }
 

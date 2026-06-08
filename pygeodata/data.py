@@ -2,9 +2,7 @@ from pathlib import Path
 from typing import ClassVar, Generic
 
 from pygeodata.artifact import Artifact
-from pygeodata.cache import handle_invalid, is_zarr_root, path_matches_hash
 from pygeodata.config import get_config
-from pygeodata.paths import CachePathResolver, generate_path
 from pygeodata.types import Driver, SpatialSpec, T
 
 
@@ -31,10 +29,6 @@ class Data(Artifact, Generic[T]):
     _sort_params : tuple[str]
         Parameter names whose list/tuple values should be sorted before hashing and
         path generation, ensuring order-independence.
-    _exclude_params : tuple[str]
-        Parameter names excluded from all hashing, path generation, and serialization.
-        These parameters are present for internal use only, such as the number of threads
-        used.
 
     Notes
     -----
@@ -123,79 +117,6 @@ class Data(Artifact, Generic[T]):
     @classmethod
     def get_cache_root(cls) -> Path:
         return get_config().path_cache
-
-    @classmethod
-    def get_general_cache_pattern(cls) -> str:
-        parts = ('*',) * len(Path(cls.get_cls_cache_pattern()).parts)
-        return str(Path(*parts))
-
-    @classmethod
-    def purge_cls_cache(cls, dry_run: bool = True) -> None:
-        dependency_tree_hash = cls.get_dependency_tree_hash()
-        root = cls.get_cache_root()
-        pattern = cls.get_cls_cache_pattern()
-
-        for path in root.glob(pattern):
-            for dirpath, dirs, files in path.walk(top_down=True, follow_symlinks=True):
-                if dirpath != path and is_zarr_root(dirpath):
-                    dirs.clear()
-                    hash_path = CachePathResolver.from_path(dirpath).state_hash_path
-                    if not path_matches_hash(hash_path, dependency_tree_hash):
-                        handle_invalid(dirpath, dry_run=dry_run, hash_path=hash_path)
-                    continue
-
-                for file in files:
-                    file_path = dirpath / file
-                    hash_path = CachePathResolver.from_path(file_path).state_hash_path
-                    if not path_matches_hash(hash_path, dependency_tree_hash):
-                        handle_invalid(file_path, dry_run=dry_run, hash_path=hash_path)
-
-                if dry_run:
-                    continue
-
-                for dir in dirs:
-                    path_dir = dirpath / dir
-                    if next(path_dir.iterdir(), None) is None:
-                        print(f'[Deleting] Empty dir: {path_dir}')
-                        path_dir.rmdir()
-
-                if next(dirpath.iterdir(), None) is None:
-                    print(f'[Deleting] Empty dir: {dirpath}')
-                    dirpath.rmdir()
-
-    @classmethod
-    def get_cls_cache_pattern(cls) -> str:
-        if not get_config().human_readable_paths:
-            return str(Path(cls.get_class_name()) / '*')
-        # readable layout: crs / shape_transform / ClassName
-        return str(Path('*') / '*' / cls.get_class_name())
-
-    @classmethod
-    def matches_cache_path(cls, path: Path) -> bool:
-        return path.name == cls.get_class_name()
-
-    def get_processed_dir(self, spec: SpatialSpec) -> Path:
-        """
-        Return the directory where this class' output is stored for the given spec.
-
-        Parameters
-        ----------
-        spec : SpatialSpec
-            The spatial specification.
-
-        Returns
-        -------
-        Path
-            The output directory path.
-        """
-        spec = self.resolve_spec(spec)
-
-        return generate_path(
-            spec=spec,
-            name=self.get_class_name(),
-            base_dir=self.get_cache_root(),
-            **self.get_params(),
-        )
 
     def load(self, spec: SpatialSpec) -> T:
         """

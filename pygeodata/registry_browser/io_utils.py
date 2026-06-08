@@ -58,8 +58,3 @@ def read_text(path: Path | str | None) -> str | None:
         return p.read_text(encoding='utf-8')
     except OSError as exc:
         logger.warning('Failed to read text file %s: %s', p, exc)
-
-
-from pygeodata.file_utils import classify_file
-
-__all__ = ['classify_file', 'existing_path_str', 'read_json_dict', 'read_text']

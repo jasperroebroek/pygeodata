@@ -47,7 +47,9 @@ function shortHash(value) {
 }
 
 function badge(text, cls = "badge-accent") {
-  return `<span class="badge ${cls}">${esc(text)}</span>`;
+  return text != null
+    ? `<span class="badge ${cls}">${esc(text)}</span>`
+    : `<span class="kv-nil">unknown</span>`;
 }
 
 /** Format a coordinate with N/S or E/W suffix. */
@@ -63,6 +65,9 @@ function boundsLatLonText(bl) {
   const ne = `${fmtCoord(latMax, "N", "S")}, ${fmtCoord(lonMax, "E", "W")}`;
   return `${sw} → ${ne}`;
 }
+
+const _RASTER_EXTS = new Set([".tif", ".tiff", ".nc", ".vrt", ".npy", ".zarr"]);
+const _fileExt = (p) => p.slice(p.lastIndexOf(".")).toLowerCase();
 
 /** Build a URL for the server-rendered bounds map. */
 function buildBoundsMapUrl(bl, crs) {
@@ -107,7 +112,7 @@ function toggleClass(cn, { navigate = false } = {}) {
   // When navigating via a link (dependency/json explorer), sync the kind filter
   if (navigate && state.selected_classes.includes(cn)) {
     const card = (lastDashboard?.class_cards ?? []).find((c) => c.class_name === cn);
-    if (card && state.kind_filter !== "all" && card.object_type.toLowerCase() !== state.kind_filter) {
+    if (card && state.kind_filter !== "all" && (card.object_type ?? "").toLowerCase() !== state.kind_filter) {
       state.kind_filter = "all";
       $$("#kind-tabs .kind-tab").forEach((t) =>
         t.classList.toggle("active", t.dataset.kind === "all")
@@ -143,7 +148,7 @@ function selectEntry(id, className = null) {
     // Switch kind filter if the owner class isn't visible under the current one
     if (state.kind_filter !== "all") {
       const card = (lastDashboard?.class_cards ?? []).find((c) => c.class_name === ownerClass);
-      if (card && card.object_type.toLowerCase() !== state.kind_filter) {
+      if (card && (card.object_type ?? "").toLowerCase() !== state.kind_filter) {
         state.kind_filter = "all";
         $$("#kind-tabs .kind-tab").forEach((t) =>
           t.classList.toggle("active", t.dataset.kind === "all")
@@ -810,7 +815,7 @@ function renderClassList(classCards) {
   const el = $("#class-list");
 
   const kindOk = (c) =>
-    state.kind_filter === "all" || c.object_type.toLowerCase() === state.kind_filter;
+    state.kind_filter === "all" || (c.object_type ?? "").toLowerCase() === state.kind_filter;
 
   const all = classCards.filter(kindOk);
   const visible = _showEmptyClasses
@@ -924,11 +929,11 @@ function renderDetail(detail) {
 }
 
 function buildClassCard(detail) {
-  const deps = (detail.dependency_names ?? []).length
-    ? (detail.dependency_names ?? [])
-        .map((n) => `<a href="#" class="jmp-cls" data-cls="${esc(n)}">${esc(n)}</a>`)
-        .join(", ")
-    : `<span class="kv-nil">None</span>`;
+  function depLinks(names) {
+    return (names ?? []).length
+      ? (names).map((n) => `<a href="#" class="jmp-cls" data-cls="${esc(n)}">${esc(n)}</a>`).join(", ")
+      : `<span class="kv-nil">None</span>`;
+  }
 
   const srcTitle = detail.loaded
     ? (detail.source_stale
@@ -956,12 +961,12 @@ function buildClassCard(detail) {
   ].join("");
 
   const rows = [
-    ["Type",         badge(detail.object_type)],
-    ["Dependencies", `<span class="kv-val">${deps}</span>`],
-  ].map(([k, v]) => `
-    <div class="kv-row">
-      <span class="kv-k">${k}</span>
-      <span class="kv-v">${v}</span>
+    ["Call dependencies",         depLinks(detail.call_dependency_names)],
+    ["Inheritance dependencies",  depLinks(detail.inheritance_dependency_names)],
+  ].map(([label, links]) => `
+    <div class="kv-dep-block">
+      <div class="spec-kv-label">${label}</div>
+      <div class="spec-kv-val">${links}</div>
     </div>`).join("");
 
   const statusBadges = [
@@ -971,11 +976,13 @@ function buildClassCard(detail) {
       ? `<span class="badge badge--sm badge-deps" title="An upstream dependency changed since last run — Source and Graph reflect current code, not the registry snapshot">stale</span>` : "",
   ].filter(Boolean).join("");
 
+  const typeBadge = detail.object_type ? `${badge(detail.object_type, "badge-neutral")}` : "";
+
   return `
     <div class="dcard">
       <div class="dcard-hd">
         <span class="dcard-hd-label">Class</span>
-        <span class="dcard-hd-title">${esc(detail.class_name)}</span>
+        <span class="dcard-hd-title">${esc(detail.class_name)}${typeBadge ? `<span class="dcard-hd-type">${typeBadge}</span>` : ""}</span>
         ${(statusBadges || actions) ? `<div class="dcard-hd-actions">${[statusBadges, actions].filter(Boolean).join('<span class="dcard-hd-sep"></span>')}</div>` : ""}
       </div>
       <div class="dcard-body">${rows}</div>
@@ -1011,8 +1018,6 @@ function buildEntryCard(entry) {
       ${specCell("Bounds",     bl ? `<button class="act-btn js-bounds-map" data-bounds="${esc(JSON.stringify(bl))}" data-crs="${esc(spec.crs ?? '')}">${esc(boundsLatLonText(bl))}</button>` : "")}
     </div>`;
 
-  const _RASTER_EXTS = new Set([".tif", ".tiff", ".nc", ".vrt", ".npy", ".zarr"]);
-  const _fileExt = (p) => p.slice(p.lastIndexOf(".")).toLowerCase();
   const fileRow = entry.primary_file
     ? `<div class="entry-file-row">
         <span class="entry-file-name">${esc(entry.primary_file.label)}</span>
@@ -1020,7 +1025,7 @@ function buildEntryCard(entry) {
           ? `<button class="act-btn js-open"   data-path="${esc(entry.primary_file.path)}">Open</button>`
           : ""}
         <button class="act-btn js-reveal" data-path="${esc(entry.primary_file.path)}">Reveal</button>
-        <button class="act-btn js-copy"   data-path="${esc(entry.primary_file.path)}">Copy</button>
+        <button class="act-btn js-copy"   data-path="${esc(entry.primary_file.path)}">Copy path</button>
       </div>`
     : "";
 
@@ -1154,8 +1159,11 @@ function buildCoOutputsCard(entry) {
     const fileRow = e.primary_file
       ? `<div class="entry-file-row" style="margin-top:4px">
            <span class="entry-file-name">${esc(e.primary_file.label)}</span>
+           ${!_RASTER_EXTS.has(_fileExt(e.primary_file.path))
+             ? `<button class="act-btn js-open" data-path="${esc(e.primary_file.path)}">Open</button>`
+             : ""}
            <button class="act-btn js-reveal" data-path="${esc(e.primary_file.path)}">Reveal</button>
-           <button class="act-btn js-copy"   data-path="${esc(e.primary_file.path)}">Copy</button>
+           <button class="act-btn js-copy"   data-path="${esc(e.primary_file.path)}">Copy path</button>
          </div>`
       : "";
     const diffHtml  = renderParamRows(e.diff_rows ?? []);
@@ -1201,8 +1209,11 @@ function buildSameSpecSiblingsCard(entry) {
     const fileRow = s.primary_file
       ? `<div class="entry-file-row" style="margin-top:4px">
            <span class="entry-file-name">${esc(s.primary_file.label)}</span>
+           ${!_RASTER_EXTS.has(_fileExt(s.primary_file.path))
+             ? `<button class="act-btn js-open" data-path="${esc(s.primary_file.path)}">Open</button>`
+             : ""}
            <button class="act-btn js-reveal" data-path="${esc(s.primary_file.path)}">Reveal</button>
-           <button class="act-btn js-copy"   data-path="${esc(s.primary_file.path)}">Copy</button>
+           <button class="act-btn js-copy"   data-path="${esc(s.primary_file.path)}">Copy path</button>
          </div>`
       : "";
     return `

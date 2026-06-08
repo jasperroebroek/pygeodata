@@ -43,6 +43,9 @@ test = [
     "pytest",
     "pytest-mock",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
 documentation = [
     "sphinx",
     "sphinx_rtd_theme",

@@ -11,7 +11,10 @@ from pygeodata.types import AllowsFormatting, SpatialSpec
 
 
 @singledispatch
-def format_json(value: Any, spec: SpatialSpec | None = None) -> float | int | str | bool | None | dict[str, Any] | list[Any]:
+def format_json(
+    value: Any,
+    spec: SpatialSpec | None = None,
+) -> float | int | str | bool | None | dict[str, Any] | list[Any]:
     if isinstance(value, JSON_SAFE_TYPES):
         return value
     if isinstance(value, AllowsFormatting):

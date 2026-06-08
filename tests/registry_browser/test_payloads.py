@@ -82,7 +82,8 @@ def make_class_info(class_name='MyLoader', object_type='data', loaded=True, sour
         class_name=class_name,
         object_type=object_type,
         loaded=loaded,
-        dependency_names=[],
+        call_dependency_names=[],
+        inheritance_dependency_names=[],
         source_stale=source_stale,
         deps_stale=deps_stale,
     )

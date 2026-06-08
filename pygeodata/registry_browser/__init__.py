@@ -5,8 +5,7 @@ except ImportError as _err:
 
     def open_registry_browser() -> None:
         raise ImportError(
-            f'The dashboard extra is required: pip install pygeodata[dashboard]. '
-            f'Original error: {_missing}'
+            f'The dashboard extra is required: pip install pygeodata[dashboard]. Original error: {_missing}',
         )
 
 

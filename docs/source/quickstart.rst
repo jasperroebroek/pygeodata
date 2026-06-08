@@ -17,8 +17,8 @@ want a setting to apply temporarily:
 
 .. code-block:: python
 
-   with pgd.set_config(human_readable_paths=True):
-       path = loader.get_processed_path(spec)
+   with pgd.set_config(num_threads=4):
+       pgd.process(loader, spec)
 
 Define a loader
 ---------------
@@ -152,12 +152,8 @@ Output paths follow the structure::
 
    <path_cache>/<ClassName>/<hash(spec + params)>/<name>.<ext>
 
-Set ``human_readable_paths=True`` in the config for a more browsable layout::
-
-   <path_cache>/<crs>/<shape_transform>/<ClassName>/<param=value ...>/<name>.<ext>
-
-When the number of parameters exceeds ``max_path_param_depth`` (default 5),
-the parameter segment is replaced with a single SHA-256 digest.
+Use the registry browser to navigate cached entries without needing
+human-readable paths — see :func:`~pygeodata.registry_browser.open_registry_browser`.
 
 Parallel execution
 ~~~~~~~~~~~~~~~~~~

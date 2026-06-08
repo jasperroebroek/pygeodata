@@ -108,7 +108,7 @@ class TrackedObject:
         return bool(cls.get_all_dependencies())
 
     @classmethod
-    def _get_dependency_tree_recursive(cls, visited: frozenset[type] | None = None) -> dict[str, Any] | str:
+    def _get_dependency_tree_recursive(cls, visited: frozenset[type] | None = None) -> dict[JSONKeys, Any] | str:
         if visited is None:
             visited = frozenset()
 
@@ -139,7 +139,7 @@ class TrackedObject:
 
     @classmethod
     @functools.cache
-    def get_dependency_tree(cls) -> dict[str, Any] | str:
+    def get_dependency_tree(cls) -> dict[JSONKeys, Any] | str:
         """
         Build a nested dict representing the full dependency tree of this class.
 

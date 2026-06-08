@@ -1,10 +1,9 @@
 from pygeodata.config import JSONKeys
 from pygeodata.formatting.json import format_json
-from pygeodata.types import SpecKeys
-
 from pygeodata.registry_browser.filters import Filter, entry_matches_filters, matching_rows, parse_filters
 from pygeodata.registry_browser.models import ClassInfo, EntryInfo, FileRef, LinkedEntry
 from pygeodata.registry_browser.state import AppState
+from pygeodata.types import SpecKeys
 
 # ---------------------------------------------------------------------------
 # Small serialisers — one responsibility each
@@ -90,14 +89,15 @@ def _entry_is_visible(
 ) -> bool:
     if selected_classes and class_name not in selected_classes:
         return False
-    if kind_filter != 'all' and entry.object_type != kind_filter:
-        if class_name not in selected_classes:
-            return False
+    if (
+        kind_filter != 'all'
+        and (entry.object_type or '').lower() != kind_filter
+        and class_name not in selected_classes
+    ):
+        return False
     if not _entry_matches_spec_filters(entry, spec_filters):
         return False
-    if not entry_matches_filters(class_name, entry, filters, logic_mode):
-        return False
-    return True
+    return entry_matches_filters(class_name, entry, filters, logic_mode)
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +115,7 @@ def _sidebar_counts(
 ) -> dict[str, int]:
     counts: dict[str, int] = {}
     for class_name, class_info in state.classes.items():
-        if kind_filter != 'all' and class_info.object_type.lower() != kind_filter:
+        if kind_filter != 'all' and (class_info.object_type or '').lower() != kind_filter:
             continue
         group = state.groups.get(class_name)
         record_ids = group.record_ids if group else []
@@ -149,9 +149,12 @@ def _build_visible_groups(
     visible_groups: list[tuple[str, list[EntryInfo]]] = []
 
     for class_name, class_info in sorted(state.classes.items()):
-        if kind_filter != 'all' and class_info.object_type.lower() != kind_filter:
-            if class_name not in selected_classes:
-                continue
+        if (
+            kind_filter != 'all'
+            and (class_info.object_type or '').lower() != kind_filter
+            and class_name not in selected_classes
+        ):
+            continue
 
         group = state.groups.get(class_name)
         record_ids = group.record_ids if group else []
@@ -195,7 +198,8 @@ def _build_class_cards(
                 'class_name': class_name,
                 'object_type': class_info.object_type,
                 'loaded': class_info.loaded,
-                'dependency_names': class_info.dependency_names,
+                'call_dependency_names': class_info.call_dependency_names,
+                'inheritance_dependency_names': class_info.inheritance_dependency_names,
                 'total_record_count': len(group.record_ids) if group else 0,
                 'visible_record_count': sidebar_counts.get(class_name, 0),
                 'selected': class_name in selected_classes,
@@ -261,7 +265,8 @@ def _class_detail_payload(class_info: ClassInfo) -> dict:
         'class_name': class_info.class_name,
         'object_type': class_info.object_type,
         'loaded': class_info.loaded,
-        'dependency_names': class_info.dependency_names,
+        'call_dependency_names': class_info.call_dependency_names,
+        'inheritance_dependency_names': class_info.inheritance_dependency_names,
         'source_available': bool(class_info.class_source_path),
         'graph_available': bool(class_info.class_graph_path),
         'class_source_path': class_info.class_source_path,
@@ -274,11 +279,7 @@ def _class_detail_payload(class_info: ClassInfo) -> dict:
 
 def _co_output_diff_rows(co_entry: EntryInfo, main_entry: EntryInfo) -> list[dict]:
     main_by_path = {r.path: r.value_text for r in main_entry.rows}
-    return [
-        _row_payload(r)
-        for r in co_entry.rows
-        if main_by_path.get(r.path) != r.value_text
-    ]
+    return [_row_payload(r) for r in co_entry.rows if main_by_path.get(r.path) != r.value_text]
 
 
 def _co_output_payload(entry: EntryInfo, main_entry: EntryInfo) -> dict:
@@ -350,7 +351,8 @@ def _build_detail_payload(
         if selected_entry_info.instance_hash:
             index = _build_instance_hash_index(state.entries)
             siblings = [
-                e for e in index.get(selected_entry_info.instance_hash, [])
+                e
+                for e in index.get(selected_entry_info.instance_hash, [])
                 if e.record_id != selected_entry_info.record_id
             ]
         return {

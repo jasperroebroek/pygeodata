@@ -3,8 +3,6 @@ from pathlib import Path
 import pytest
 
 from pygeodata.config import Config, get_config, set_config
-from pygeodata.formatting.path import format_path
-from pygeodata.formatting.path_simplified import format_path_simplified
 
 
 def test_temporary_override(tmp_path: Path) -> None:
@@ -70,26 +68,3 @@ def test_config_defaults() -> None:
     assert cfg.path_figures == Path('figures')
     assert cfg.path_registry == Path('.source')
     assert cfg.num_threads == 1
-    assert cfg.filesystem_allows_punctuation is True
-    assert cfg.human_readable_paths is False
-    assert cfg.flatten_figures is False
-
-
-def test_es_punctuation_on() -> None:
-    with set_config(filesystem_allows_punctuation=True):
-        assert get_config().es == '='
-
-
-def test_es_punctuation_off() -> None:
-    with set_config(filesystem_allows_punctuation=False):
-        assert get_config().es != '='
-
-
-def test_format_path_fn_punctuation_on() -> None:
-    with set_config(filesystem_allows_punctuation=True):
-        assert get_config().format_path_fn is format_path
-
-
-def test_format_path_fn_punctuation_off() -> None:
-    with set_config(filesystem_allows_punctuation=False):
-        assert get_config().format_path_fn is format_path_simplified

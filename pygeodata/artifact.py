@@ -12,14 +12,13 @@ from pygeodata.extraction import extract_instances
 from pygeodata.formatting.json import format_json
 from pygeodata.graphs import plot_compact_execution_graph
 from pygeodata.hash import calculate_cls_source_hash, calculate_dict_hash
-from pygeodata.paths import CachePathResolver, generate_path
+from pygeodata.paths import CachePathResolver
 from pygeodata.tracked_object import TrackedObject
 from pygeodata.types import Processor, RuntimeDependencyGraph, RuntimeNode, RuntimeParamEdge, SpatialSpec, SpecKeys
 
 
 class Artifact(TrackedObject, ABC):
     _sort_params: ClassVar[tuple[str]] = ()
-    _exclude_params: ClassVar[tuple[str]] = ()
     ext: ClassVar[str | None] = None
     processor: ClassVar[Processor | None] = None
     color: ClassVar[str] = '#f8f9fa'
@@ -64,13 +63,7 @@ class Artifact(TrackedObject, ABC):
             The output directory path.
         """
         spec = self.resolve_spec(spec)
-
-        return generate_path(
-            spec=spec,
-            name=self.get_class_name(),
-            base_dir=self.get_cache_root(),
-            **self.get_params(),
-        )
+        return self.get_cache_root() / self.get_state_hash(spec)
 
     def resolve_cache_paths(self, spec: SpatialSpec) -> CachePathResolver:
         spec = self.resolve_spec(spec)
@@ -132,8 +125,6 @@ class Artifact(TrackedObject, ABC):
                 continue
             if key.startswith('_'):
                 continue
-            if key in self._exclude_params:
-                continue
 
             if key in self._sort_params and isinstance(value, (list, tuple)):
                 parsed_value = type(value)(sorted(value, key=repr))
@@ -169,26 +160,6 @@ class Artifact(TrackedObject, ABC):
     @classmethod
     @abstractmethod
     def get_cache_root(cls) -> Path:
-        pass
-
-    @classmethod
-    @abstractmethod
-    def get_general_cache_pattern(cls) -> str:
-        pass
-
-    @classmethod
-    @abstractmethod
-    def get_cls_cache_pattern(cls) -> str:
-        pass
-
-    @classmethod
-    @abstractmethod
-    def matches_cache_path(cls, path: Path) -> bool:
-        pass
-
-    @classmethod
-    @abstractmethod
-    def purge_cls_cache(cls, dry_run: bool = True) -> None:
         pass
 
     def get_processed_path(self, spec: SpatialSpec) -> Path:
@@ -248,34 +219,6 @@ class Artifact(TrackedObject, ABC):
             },
         )
 
-    def get_state_hash_path(self, spec: SpatialSpec) -> Path:
-        """
-        Return the path to the hash file for the given spec.
-
-        Parameters
-        ----------
-        spec : SpatialSpec
-
-        Returns
-        -------
-        Path
-        """
-        return self.resolve_cache_paths(spec).state_hash_path
-
-    def get_execution_graph_path(self, spec: SpatialSpec) -> Path:
-        """
-        Return the path to the ``.graph.svg`` file for the given spec.
-
-        Parameters
-        ----------
-        spec : SpatialSpec
-
-        Returns
-        -------
-        Path
-        """
-        return self.resolve_cache_paths(spec).execution_graph_path
-
     def write_cache_metadata(self, spec: SpatialSpec, co_outputs: tuple[str, ...] = ()) -> None:
         """
         Write the state hash and source hierarchy hash to the hash file.
@@ -289,13 +232,14 @@ class Artifact(TrackedObject, ABC):
         co_outputs : tuple[str, ...]
             State hashes of artifacts produced in the same _process call.
         """
-        hash_path = self.get_state_hash_path(spec)
+        hash_path = self.resolve_cache_paths(spec).state_hash_path
         hash_path.parent.mkdir(parents=True, exist_ok=True)
         with Path.open(hash_path, 'w', encoding='utf-8') as f:
             json.dump(
                 {
                     JSONKeys.CLASS_NAME: self.get_class_name(),
                     JSONKeys.OBJECT_TYPE: self.object_type.get_class_name(),
+                    JSONKeys.SOURCE_HASH: calculate_cls_source_hash(self.__class__),
                     JSONKeys.DEPENDENCY_TREE_HASH: self.get_dependency_tree_hash(),
                     JSONKeys.INSTANCE_HASH: self.get_instance_hash(),
                     JSONKeys.STATE_HASH: self.get_state_hash(spec),
@@ -318,7 +262,7 @@ class Artifact(TrackedObject, ABC):
         str or None
             The state hash string, or ``None`` if the hash file does not exist.
         """
-        hash_path = self.get_state_hash_path(spec)
+        hash_path = self.resolve_cache_paths(spec).state_hash_path
         if not hash_path.exists():
             return None
         with Path.open(hash_path, encoding='utf-8') as f:
@@ -328,7 +272,7 @@ class Artifact(TrackedObject, ABC):
         return self.get_processed_path(spec).exists()
 
     def is_processed_hash_present(self, spec: SpatialSpec) -> bool:
-        return self.get_state_hash_path(spec).exists()
+        return self.resolve_cache_paths(spec).state_hash_path.exists()
 
     def is_cache_valid(self, spec: SpatialSpec) -> bool:
         """
@@ -343,7 +287,7 @@ class Artifact(TrackedObject, ABC):
         bool
             ``True`` if the hash file exists and matches :meth:`get_state_hash`.
         """
-        hash_file = self.get_state_hash_path(spec)
+        hash_file = self.resolve_cache_paths(spec).state_hash_path
         if not hash_file.exists():
             return False
 
@@ -401,10 +345,11 @@ class Artifact(TrackedObject, ABC):
 
     def plot_runtime_execution_graph(self, spec: SpatialSpec) -> None:
         graph_data = self.get_runtime_dependency_graph(spec)
+        graph_path = self.resolve_cache_paths(spec).execution_graph_path
         plot_compact_execution_graph(
             graph_data=graph_data,
             root_id=self.get_instance_hash(),
-            path=self.get_execution_graph_path(spec),
+            path=graph_path,
             show_params=True,
             show_inheritance=True,
             show_calls=True,

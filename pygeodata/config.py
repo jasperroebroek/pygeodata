@@ -1,14 +1,12 @@
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field, fields
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from pygeodata.formatting.path import format_path
-from pygeodata.formatting.path_simplified import format_path_simplified
 from pygeodata.rasters import RasterCreationOptions
-from pygeodata.types import SpatialSpec, SpecKeys
+from pygeodata.types import SpatialSpec
 
 
 @dataclass
@@ -20,11 +18,6 @@ class Config:
     warp_mem_limit: int = 0  # GDAL default, indicates 64 MB
     spec: SpatialSpec | None = None
     raster_creation_options: RasterCreationOptions = field(default_factory=RasterCreationOptions)
-    max_path_param_depth: int = 5
-    max_file_param_depth: int = 2
-    filesystem_allows_punctuation: bool = True
-    human_readable_paths: bool = False
-    flatten_figures: bool = False
     removable_system_files: tuple[str] = (
         '.DS_Store',
         'Thumbs.db',
@@ -35,14 +28,6 @@ class Config:
         '.tmp',
         '~',
     )
-
-    @property
-    def es(self) -> str:
-        return '=' if self.filesystem_allows_punctuation else '   '
-
-    @property
-    def format_path_fn(self) -> Callable[[Any], str]:
-        return format_path if self.filesystem_allows_punctuation else format_path_simplified
 
     def update(self, **kwargs) -> None:
         for key, value in kwargs.items():

@@ -1,10 +1,11 @@
+import functools
 import json
 import shutil
 from pathlib import Path
 
 from pygeodata.artifact import Artifact
 from pygeodata.config import JSONKeys, get_config
-from pygeodata.paths import ARTIFACT_SUFFIXES, CachePathResolver
+from pygeodata.paths import CachePathResolver
 from pygeodata.tracked_object import TrackedObject
 
 ZARR_MARKERS = (
@@ -23,22 +24,27 @@ def is_zarr_root(path: Path) -> bool:
     return any((path / marker).exists() for marker in ZARR_MARKERS)
 
 
-def path_matches_hash(path: Path, dependency_tree_hash: str) -> bool:
-    if not path.exists():
-        return False
-
-    with path.open(encoding='utf-8') as f:
-        saved_state = json.load(f)
-
-    return saved_state.get(JSONKeys.DEPENDENCY_TREE_HASH, None) == dependency_tree_hash
-
-
-def read_cache_class_name(path: Path) -> str | None:
-    hash_path = CachePathResolver.from_path(path).state_hash_path
+def read_cache_class_name(hash_path: Path) -> str | None:
     if not hash_path.exists():
         return None
     with hash_path.open(encoding='utf-8') as f:
         return json.load(f).get(JSONKeys.CLASS_NAME, None)
+
+
+def hash_matches_live(hash_path: Path) -> bool | None:
+    if not hash_path.exists():
+        return False
+
+    class_name = read_cache_class_name(hash_path)
+    class_object = TrackedObject.find_object_class(class_name)
+
+    if class_object is None:
+        return None
+
+    with hash_path.open(encoding='utf-8') as f:
+        saved_state = json.load(f)
+
+    return saved_state.get(JSONKeys.DEPENDENCY_TREE_HASH, None) == class_object.get_dependency_tree_hash()
 
 
 def handle_invalid(path: Path, dry_run: bool, hash_path: Path | None = None) -> None:
@@ -71,74 +77,106 @@ def prune_empty_dirs(root: Path) -> None:
             pass
 
 
-def _is_system_path(path: Path) -> bool:
-    cfg = get_config()
-    return (
-        path.name in cfg.removable_system_files
-        or path.name.endswith(cfg.removable_system_suffixes)
-        or (path.name.startswith('.') and not path.name.endswith(ARTIFACT_SUFFIXES))
-    )
+@functools.cache
+def _confirm_class_deletion(class_name: str) -> bool:
+    """Confirm with the user if a class can be deleted if not found in registry."""
+    answer = input(f'{class_name} not found in registry. Delete? [y/N] ')
+    return answer.lower() == 'y'
 
 
-def _contains_registered_hash(path: Path, registered_names: set[str]) -> bool:
-    """Return True if the directory contains a .hash.json belonging to a registered class."""
-    for hash_file in path.rglob('*.hash.json'):
-        with hash_file.open(encoding='utf-8') as f:
-            if json.load(f).get(JSONKeys.CLASS_NAME) in registered_names:
-                return True
+def _delete_manually(hash_path: Path, delete_unregistered: bool) -> bool:
+    """Confirm with the user if an entry can be deleted if not found in registry."""
+    if not delete_unregistered:
+        return False
+    class_name = read_cache_class_name(hash_path)
+    if class_name is None:
+        return True
+    if TrackedObject.find_object_class(class_name) is not None:
+        return False
+    return _confirm_class_deletion(class_name)
+
+
+def _find_hash_files(dirpath: Path, files: list[str]) -> list[Path]:
+    return [dirpath / f for f in files if f.startswith('.') and f.endswith('.hash.json')]
+
+
+def _stem_from_hash_file(hash_path: Path) -> str:
+    return hash_path.name.removeprefix('.').removesuffix('.hash.json')
+
+
+def _purge_dir(dirpath: Path, hash_files: list[Path], dry_run: bool, delete_unregistered: bool) -> bool:
+    """
+    Validate a single cache directory. Returns True if the directory was deleted.
+
+    No hash files   → delete as invalid.
+    One hash file   → validate; delete directory if stale or unregistered.
+    Two+ hash files → ask the user which entry to keep; delete the rest (or all).
+    """
+    if not hash_files:
+        data_files = [dirpath / f for f in dirpath.iterdir() if not f.name.startswith('.')]
+        expected_hash = CachePathResolver.from_path(data_files[0]).state_hash_path if len(data_files) == 1 else None
+        handle_invalid(dirpath, dry_run=dry_run, hash_path=expected_hash)
+        return True
+
+    if len(hash_files) > 1:
+        print(f'\nMultiple cache entries found in {dirpath}:')
+        for i, hp in enumerate(hash_files):
+            print(f'  [{i}] {hp.name}  (class: {read_cache_class_name(hp)})')
+        raw = input('Enter index to keep (or blank to delete all): ').strip()
+        if raw.isdigit() and int(raw) < len(hash_files):
+            keep = hash_files[int(raw)]
+            for hp in hash_files:
+                if hp == keep:
+                    continue
+                stem = _stem_from_hash_file(hp)
+                zarr_candidate = dirpath / f'{stem}.zarr'
+                data_path = zarr_candidate if zarr_candidate.exists() else dirpath / stem
+                handle_invalid(data_path, dry_run=dry_run, hash_path=hp)
+            return False
+        handle_invalid(dirpath, dry_run=dry_run)
+        return True
+
+    hash_path = hash_files[0]
+    valid = hash_matches_live(hash_path)
+
+    if valid is None and _delete_manually(hash_path, delete_unregistered):
+        valid = False
+
+    if not valid:
+        handle_invalid(dirpath, dry_run=dry_run, hash_path=hash_path)
+        return True
+
     return False
 
 
-def purge_unregistered_cache(dry_run: bool = True) -> None:
-    registered: list[type[Artifact]] = Artifact.get_registered_objects()
-    registered_names = {a.get_class_name() for a in registered}
-
+def _purge_cache(dry_run: bool = True, delete_unregistered: bool = True) -> None:
     for family in Artifact.__subclasses__():
         root = family.get_cache_root()
+        if not root.exists():
+            continue
 
-        for path in root.glob(family.get_general_cache_pattern()):
-            if _is_system_path(path):
-                if not dry_run:
-                    handle_invalid(path, dry_run)
+        for dirpath, dirs, files in root.walk(top_down=True, follow_symlinks=True):
+            if dirpath == root:
                 continue
 
-            if any(artifact.matches_cache_path(path) for artifact in registered):
-                continue
+            dirs[:] = [d for d in dirs if not is_zarr_root(dirpath / d)]
 
-            if path.is_dir() and _contains_registered_hash(path, registered_names):
+            hash_files = _find_hash_files(dirpath, files)
+            if dirs and not hash_files:
                 continue
-
-            if dry_run:
-                print(f'[dry_run] {path}')
-                continue
-
-            answer = input(f'Delete {path}? [y/N] ')
-            if answer.lower() == 'y':
-                handle_invalid(path, dry_run)
-            else:
-                print(f'Skipping {path}')
+            deleted = _purge_dir(dirpath, hash_files, dry_run=dry_run, delete_unregistered=delete_unregistered)
+            if deleted:
+                dirs.clear()
 
         if not dry_run:
-            print('Pruning empty directories')
             prune_empty_dirs(root)
 
 
 def clean_cache(
-    loader: type[Artifact] | Artifact | None = None,
     dry_run: bool = True,
+    delete_unregistered: bool = True,
 ) -> None:
-    artifacts: set[type[Artifact]]
-    if loader is None:
-        artifacts = Artifact.get_registered_objects()
-    else:
-        artifacts = loader.get_all_dependencies()
-        artifacts.add(loader)
-
-    for artifact in artifacts:
-        artifact.purge_cls_cache(dry_run=dry_run)
-
-    if loader is None and not dry_run:
-        purge_unregistered_cache(dry_run=dry_run)
+    return _purge_cache(dry_run=dry_run, delete_unregistered=delete_unregistered)
 
 
 def rebuild_registry() -> None:

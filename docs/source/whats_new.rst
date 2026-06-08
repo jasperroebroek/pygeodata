@@ -11,7 +11,7 @@ Initial release.
 - :class:`~pygeodata.data.Data` base class for defining cached geospatial
   loaders with automatic cache invalidation based on AST hashing.
 - :class:`~pygeodata.figure.Figure` base class for cached plot outputs, stored
-  separately under ``path_figures`` with optional ``flatten_figures`` layout.
+  separately under ``path_figures``.
 - :class:`~pygeodata.artifact.Artifact` base class providing the shared hashing
   and parameter serialisation machinery.
 - :class:`~pygeodata.types.SpatialSpec` — immutable raster grid descriptor
@@ -40,10 +40,7 @@ Initial release.
 
 **Caching and paths**
 
-- Dual path layout: compact hash-based (default) and human-readable
-  ``crs/shape_transform/ClassName/param=val`` via ``human_readable_paths``.
-- ``max_path_param_depth`` collapses long parameter lists to a single hash
-  segment to keep paths manageable.
+- Hash-based path layout: ``<path_cache>/<ClassName>/<hash(spec + params)>/<name>.<ext>``.
 - ``_exclude_params`` class attribute for omitting operational parameters from
   the cache key entirely.
 - Co-output pattern: ``_process`` can yield sibling loaders to write multiple

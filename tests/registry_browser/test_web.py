@@ -1,11 +1,12 @@
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
-from pygeodata.registry_browser.web import AppContext, _allowed_roots, _assert_allowed_path, create_app
 from pygeodata.config import set_config
+from pygeodata.registry_browser.state import AppContext
+from pygeodata.registry_browser.web import _allowed_roots, _assert_allowed_path, app as flask_app
 
 
 @pytest.fixture()
@@ -15,7 +16,6 @@ def app(tmp_path: Path):
         path_figures=tmp_path / 'figures',
         path_registry=tmp_path / '.source',
     ):
-        flask_app = create_app()
         flask_app.config['TESTING'] = True
         yield flask_app
 
@@ -65,9 +65,7 @@ def test_assert_allowed_path_within_root(tmp_path: Path) -> None:
     f = allowed / 'file.tif'
     f.touch()
     with set_config(path_cache=allowed, path_figures=tmp_path / 'figures', path_registry=tmp_path / '.source'):
-        from flask import Flask
-        test_app = Flask(__name__)
-        with test_app.test_request_context():
+        with flask_app.test_request_context():
             result = _assert_allowed_path(str(f))
     assert result is not None
 
@@ -81,9 +79,7 @@ def test_assert_allowed_path_outside_root_aborts(tmp_path: Path) -> None:
         path_figures=tmp_path / 'figures',
         path_registry=tmp_path / '.source',
     ):
-        from flask import Flask
-        test_app = Flask(__name__)
-        with test_app.test_request_context():
+        with flask_app.test_request_context():
             with pytest.raises(Exception):  # abort(403) raises werkzeug HTTPException
                 _assert_allowed_path(str(outside))
 

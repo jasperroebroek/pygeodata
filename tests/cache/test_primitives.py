@@ -3,42 +3,65 @@ from pathlib import Path
 
 import pytest
 
-from pygeodata.cache import handle_invalid, is_zarr_root, path_matches_hash, prune_empty_dirs
+from pygeodata.cache import handle_invalid, hash_matches_live, is_zarr_root, prune_empty_dirs
 from pygeodata.config import JSONKeys
 from pygeodata.paths import CachePathResolver
 from tests.fixtures.data import EmptyLoader
 
-
-def write_hash(path: Path, hash_value: str) -> None:
-    path.write_text(json.dumps({JSONKeys.DEPENDENCY_TREE_HASH: hash_value}))
+# --- hash_matches_live ---
 
 
-# --- path_matches_hash ---
-
-def test_path_matches_hash_true(tmp_path: Path) -> None:
-    source_hash = EmptyLoader.get_dependency_tree_hash()
+def test_hash_matches_live_true(tmp_path: Path) -> None:
     hash_file = tmp_path / '.dummy.hash.json'
-    write_hash(hash_file, source_hash)
-    assert path_matches_hash(hash_file, source_hash)
+    hash_file.write_text(
+        json.dumps(
+            {
+                JSONKeys.CLASS_NAME: EmptyLoader.get_class_name(),
+                JSONKeys.DEPENDENCY_TREE_HASH: EmptyLoader.get_dependency_tree_hash(),
+            },
+        ),
+    )
+    assert hash_matches_live(hash_file) is True
 
 
-def test_path_matches_hash_false_wrong_hash(tmp_path: Path) -> None:
+def test_hash_matches_live_false_wrong_hash(tmp_path: Path) -> None:
     hash_file = tmp_path / '.dummy.hash.json'
-    write_hash(hash_file, 'stale')
-    assert not path_matches_hash(hash_file, 'current')
+    hash_file.write_text(
+        json.dumps(
+            {
+                JSONKeys.CLASS_NAME: EmptyLoader.get_class_name(),
+                JSONKeys.DEPENDENCY_TREE_HASH: 'stale',
+            },
+        ),
+    )
+    assert hash_matches_live(hash_file) is False
 
 
-def test_path_matches_hash_false_missing(tmp_path: Path) -> None:
-    assert not path_matches_hash(tmp_path / 'nonexistent.hash.json', 'any')
+def test_hash_matches_live_false_when_missing(tmp_path: Path) -> None:
+    assert hash_matches_live(tmp_path / '.nonexistent.hash.json') is False
 
 
-def test_path_matches_hash_missing_key(tmp_path: Path) -> None:
+def test_hash_matches_live_missing_key(tmp_path: Path) -> None:
     hash_file = tmp_path / '.dummy.hash.json'
-    hash_file.write_text(json.dumps({'other_key': 'value'}))
-    assert not path_matches_hash(hash_file, 'value')
+    hash_file.write_text(json.dumps({JSONKeys.CLASS_NAME: EmptyLoader.get_class_name()}))
+    assert hash_matches_live(hash_file) is False
+
+
+def test_hash_matches_live_none_when_unregistered(tmp_path: Path) -> None:
+    hash_file = tmp_path / '.dummy.hash.json'
+    hash_file.write_text(
+        json.dumps(
+            {
+                JSONKeys.CLASS_NAME: 'NoSuchClass',
+                JSONKeys.DEPENDENCY_TREE_HASH: 'abc',
+            },
+        ),
+    )
+    assert hash_matches_live(hash_file) is None
 
 
 # --- CachePathResolver hash paths ---
+
 
 def test_get_hash_path_regular_file(tmp_path: Path) -> None:
     assert CachePathResolver.from_path(tmp_path / 'data.tif').state_hash_path == tmp_path / '.data.hash.json'
@@ -57,6 +80,7 @@ def test_get_hash_path_multi_extension(tmp_path: Path) -> None:
 
 
 # --- is_zarr_root ---
+
 
 def test_is_zarr_root_by_suffix(tmp_path: Path) -> None:
     zarr_dir = tmp_path / 'archive.zarr'
@@ -88,24 +112,21 @@ def test_is_zarr_root_false(tmp_path: Path) -> None:
 
 # --- handle_invalid ---
 
+
 def test_handle_invalid_dry_run_hash_missing(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
-    path = tmp_path / 'data.tif'
-    hash_path = tmp_path / '.data.hash.json'
-    handle_invalid(path, dry_run=True, hash_path=hash_path)
+    handle_invalid(tmp_path / 'data.tif', dry_run=True, hash_path=tmp_path / '.data.hash.json')
     assert 'Hash missing' in capsys.readouterr().out
 
 
 def test_handle_invalid_dry_run_hash_wrong(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
-    path = tmp_path / 'data.tif'
     hash_path = tmp_path / '.data.hash.json'
     hash_path.touch()
-    handle_invalid(path, dry_run=True, hash_path=hash_path)
+    handle_invalid(tmp_path / 'data.tif', dry_run=True, hash_path=hash_path)
     assert 'Hash wrong' in capsys.readouterr().out
 
 
-def test_handle_invalid_none_hash_path_labels_invalid(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
-    path = tmp_path / 'data.tif'
-    handle_invalid(path, dry_run=True, hash_path=None)
+def test_handle_invalid_no_hash_path_labels_invalid(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    handle_invalid(tmp_path / 'data.tif', dry_run=True, hash_path=None)
     assert 'Invalid' in capsys.readouterr().out
 
 
@@ -116,11 +137,10 @@ def test_handle_invalid_non_dry_run_prints_deleting(tmp_path: Path, capsys: pyte
     assert 'Deleting' in capsys.readouterr().out
 
 
-def test_handle_invalid_deletes_file(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+def test_handle_invalid_deletes_file(tmp_path: Path) -> None:
     path = tmp_path / 'data.tif'
     path.touch()
-    hash_path = tmp_path / '.data.hash.json'
-    handle_invalid(path, dry_run=False, hash_path=hash_path)
+    handle_invalid(path, dry_run=False, hash_path=tmp_path / '.data.hash.json')
     assert not path.exists()
 
 
@@ -133,6 +153,7 @@ def test_handle_invalid_deletes_directory(tmp_path: Path) -> None:
 
 
 # --- prune_empty_dirs ---
+
 
 def test_prune_empty_dirs_removes_empty_subdirs(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     empty = tmp_path / 'sub' / 'empty'

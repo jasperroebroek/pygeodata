@@ -17,14 +17,7 @@ from tests.fixtures.data import (
 )
 
 
-@pytest.fixture(
-    params=[True, False],
-    autouse=True,
-    ids=['punctuation-on', 'punctuation-off'],
-)
-def use_both_filesystem_representations(request):
-    with set_config(filesystem_allows_punctuation=request.param):
-        yield
+
 
 
 def test_artifact_initialization() -> None:
@@ -109,7 +102,7 @@ def test_is_processed_false_hash_mismatch(sample_spatial_spec: SpatialSpec) -> N
     path = loader.get_processed_path(sample_spatial_spec)
     path.mkdir(parents=True, exist_ok=True)
     path.touch()
-    loader.get_state_hash_path(sample_spatial_spec).write_text(
+    loader.resolve_cache_paths(sample_spatial_spec).state_hash_path.write_text(
         json.dumps({JSONKeys.STATE_HASH: 'stale'}),
     )
     assert not loader.is_processed(sample_spatial_spec)
@@ -249,7 +242,7 @@ def test_get_src_path_returns_path(sample_geotiff: Path) -> None:
 def test_write_cache_metadata_content(sample_spatial_spec: SpatialSpec) -> None:
     loader = SimpleLoader()
     loader.write_cache_metadata(sample_spatial_spec)
-    data = json.loads(loader.get_state_hash_path(sample_spatial_spec).read_text())
+    data = json.loads(loader.resolve_cache_paths(sample_spatial_spec).state_hash_path.read_text())
     assert data[JSONKeys.STATE_HASH] == loader.get_state_hash(sample_spatial_spec)
     assert data[JSONKeys.DEPENDENCY_TREE_HASH] == loader.get_dependency_tree_hash()
     assert data[JSONKeys.INSTANCE_HASH] == loader.get_instance_hash()
@@ -260,14 +253,14 @@ def test_write_cache_metadata_content(sample_spatial_spec: SpatialSpec) -> None:
 def test_write_cache_metadata_co_outputs(sample_spatial_spec: SpatialSpec) -> None:
     loader = SimpleLoader()
     loader.write_cache_metadata(sample_spatial_spec, co_outputs=('abc123', 'def456'))
-    data = json.loads(loader.get_state_hash_path(sample_spatial_spec).read_text())
+    data = json.loads(loader.resolve_cache_paths(sample_spatial_spec).state_hash_path.read_text())
     assert data[JSONKeys.CO_OUTPUTS] == ['abc123', 'def456']
 
 
 def test_is_cache_valid_false_when_hash_key_missing(sample_spatial_spec: SpatialSpec) -> None:
     loader = SimpleLoader()
-    loader.get_state_hash_path(sample_spatial_spec).parent.mkdir(parents=True, exist_ok=True)
-    loader.get_state_hash_path(sample_spatial_spec).write_text(
+    loader.resolve_cache_paths(sample_spatial_spec).state_hash_path.parent.mkdir(parents=True, exist_ok=True)
+    loader.resolve_cache_paths(sample_spatial_spec).state_hash_path.write_text(
         json.dumps({JSONKeys.DEPENDENCY_TREE_HASH: 'something'}),
     )
     assert not loader.is_cache_valid(sample_spatial_spec)
@@ -289,7 +282,7 @@ def test_process_prints_cache_invalid_message(
     loader = SampleLoader(path=sample_geotiff)
     loader.process(sample_spatial_spec)
     # Overwrite hash file with a stale hash to simulate invalidation
-    loader.get_state_hash_path(sample_spatial_spec).write_text(
+    loader.resolve_cache_paths(sample_spatial_spec).state_hash_path.write_text(
         json.dumps({JSONKeys.STATE_HASH: 'stale', JSONKeys.DEPENDENCY_TREE_HASH: 'stale'}),
     )
     loader.process(sample_spatial_spec)

@@ -3,10 +3,22 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from pyproj import CRS as ProjCRS
-from pyproj import Transformer
+from pyproj import CRS, Transformer
+from pyproj.exceptions import CRSError, ProjError
 
 from pygeodata.types import SpecKeys
+
+
+@dataclass(slots=True)
+class RegistryClassInfo:
+    object_type: str | None = None
+    call_dependency_names: list[str] = field(default_factory=list)
+    inheritance_dependency_names: list[str] = field(default_factory=list)
+    stored_source_hash: str | None = None
+    stored_dependency_tree_hash: str | None = None
+    source_path: str | None = None
+    graph_path: str | None = None
+    registry_path: str | None = None
 
 
 @dataclass(slots=True)
@@ -25,7 +37,7 @@ class SpecInfo:
     bounds_latlon: tuple | None = None
 
     @classmethod
-    def from_spec_json(cls, spec: dict) -> 'SpecInfo':
+    def from_spec_json(cls, spec: dict) -> SpecInfo:
         """Build a SpecInfo from a raw .spec.json dict."""
         raw_crs = spec.get(SpecKeys.CRS)
         resolution = spec.get(SpecKeys.RESOLUTION)
@@ -53,7 +65,7 @@ class SpecInfo:
                         round(lat_max, 1),
                         round(lon_max, 1),
                     )
-            except Exception:
+            except ProjError:
                 pass
 
         return cls(
@@ -76,13 +88,13 @@ class SpecInfo:
             unit = 'm'
             if crs:
                 try:
-                    c = ProjCRS.from_user_input(crs)
+                    c = CRS.from_user_input(crs)
                     axis_unit = c.axis_info[0].unit_name.lower() if c.axis_info else ''
                     if 'degree' in axis_unit:
                         unit = '°'
                     elif 'foot' in axis_unit or 'feet' in axis_unit:
                         unit = 'ft'
-                except Exception:
+                except CRSError:
                     pass
 
             def fmt(v: Any) -> str:
@@ -93,7 +105,7 @@ class SpecInfo:
             if len(vals) >= 2:
                 return f'{fmt(vals[0])} × {fmt(vals[1])}{unit}'
             return f'{fmt(vals[0])}{unit}'
-        except Exception:
+        except (TypeError, ValueError):
             return str(resolution)
 
 
@@ -118,11 +130,33 @@ class LinkedEntry:
     params_summary: dict[str, str]  # plain-text key→value pairs
 
 
+@dataclass(slots=True)
+class ProcessResult:
+    class_name: str
+    object_type: str | None
+    params_path_str: str
+    spec_path: str | None
+    state_hash_path: str | None
+    execution_graph_path: str | None
+    state_hash: str | None
+    instance_hash: str | None
+    stored_dep_hash: str | None
+    co_output_hashes: list[str]
+    params: dict[str, Any]
+    spec: SpecInfo
+    rows: list[ParamRow]
+    linked_entries: list[LinkedEntry]
+    primary_file: FileRef | None
+    warnings: list[str]
+    derived: bool
+    error: str | None = None
+
+
 @dataclass
 class EntryInfo:
     record_id: str
     class_name: str
-    object_type: str
+    object_type: str | None
     params_path: str
     spec_path: str | None
     state_hash_path: str | None
@@ -144,16 +178,17 @@ class EntryInfo:
 @dataclass(slots=True)
 class GroupInfo:
     class_name: str
-    object_type: str
+    object_type: str | None
     record_ids: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
 class ClassInfo:
     class_name: str
-    object_type: str
+    object_type: str | None
     loaded: bool
-    dependency_names: list[str] = field(default_factory=list)
+    call_dependency_names: list[str] = field(default_factory=list)
+    inheritance_dependency_names: list[str] = field(default_factory=list)
     class_source_path: str | None = None
     class_graph_path: str | None = None
     class_registry_path: str | None = None

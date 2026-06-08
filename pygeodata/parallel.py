@@ -4,9 +4,7 @@ from typing import TYPE_CHECKING
 
 from pygeodata.api import process
 from pygeodata.artifact import Artifact
-from pygeodata.data import Data
 from pygeodata.extraction import extract_instances
-from pygeodata.types import SpatialSpec
 
 try:
     from dask.delayed import delayed as dask_delayed
@@ -17,6 +15,9 @@ except ImportError:
 
 if TYPE_CHECKING:
     from dask.delayed import Delayed
+
+    from pygeodata.data import Data
+    from pygeodata.types import SpatialSpec
 
 
 def build_dask_graph(
