@@ -108,51 +108,71 @@ class TrackedObject:
         return bool(cls.get_all_dependencies())
 
     @classmethod
-    def _get_dependency_tree_recursive(cls, visited: frozenset[type] | None = None) -> dict[JSONKeys, Any] | str:
+    def _build_topology_subtree(
+        cls,
+        visited: frozenset[type] | None = None,
+    ) -> tuple[dict, dict]:
+        """Recursively build the topology subtree and node metadata for this class.
+
+        Returns
+        -------
+        tuple[dict, dict]
+            A ``(nodes, subtree)`` pair where ``nodes`` is a flat dict mapping
+            ``class_name`` to ``{"hash": ..., "object_type": ...}`` for every class
+            reachable from this one, and ``subtree`` is the pure-topology dict with
+            ``call_dependencies`` and ``inheritance_dependencies`` keys (no metadata).
+            When a cycle is detected the subtree for the repeated class is returned
+            with empty dependency dicts to terminate the recursion.
+        """
         if visited is None:
             visited = frozenset()
 
-        if cls in visited:
-            return 'circular'
-
-        next_visited = visited | frozenset([cls])
-
-        tree = {
-            JSONKeys.CLASS_NAME: cls.get_class_name(),
-            JSONKeys.OBJECT_TYPE: cls.object_type.get_class_name(),
-            JSONKeys.SOURCE_HASH: calculate_cls_source_hash(cls),
-            JSONKeys.CALL_DEPENDENCIES: {},
-            JSONKeys.INHERITANCE_DEPENDENCIES: {},
+        nodes = {
+            cls.get_class_name(): {
+                'hash': calculate_cls_source_hash(cls),
+                'object_type': cls.object_type.get_class_name(),
+            }
         }
 
-        for dep_cls in cls.get_call_dependencies():
-            tree[JSONKeys.CALL_DEPENDENCIES][dep_cls.get_class_name()] = dep_cls._get_dependency_tree_recursive(
-                next_visited,
-            )
+        if cls in visited:
+            return nodes, {'call_dependencies': {}, 'inheritance_dependencies': {}}
 
-        for dep_cls in cls.get_inheritance_dependencies():
-            tree[JSONKeys.INHERITANCE_DEPENDENCIES][dep_cls.get_class_name()] = dep_cls._get_dependency_tree_recursive(
-                next_visited,
-            )
+        next_visited = visited | {cls}
 
-        return tree
+        call_deps = {}
+        for dep in cls.get_call_dependencies():
+            dep_nodes, dep_subtree = dep._build_topology_subtree(next_visited)
+            nodes.update(dep_nodes)
+            call_deps[dep.get_class_name()] = dep_subtree
+
+        inh_deps = {}
+        for dep in cls.get_inheritance_dependencies():
+            dep_nodes, dep_subtree = dep._build_topology_subtree(next_visited)
+            nodes.update(dep_nodes)
+            inh_deps[dep.get_class_name()] = dep_subtree
+
+        return nodes, {'call_dependencies': call_deps, 'inheritance_dependencies': inh_deps}
 
     @classmethod
     @functools.cache
-    def get_dependency_tree(cls) -> dict[JSONKeys, Any] | str:
-        """
-        Build a nested dict representing the full dependency tree of this class.
+    def get_dependency_tree(cls) -> dict:
+        """Build the full dependency tree for this class in ``{nodes, tree}`` format.
 
-        Cached via :func:`functools.cache`. Handles circular dependencies by substituting
-        ``"circular"`` for repeated nodes.
+        Separates node metadata from topology: ``nodes`` is a flat dict with one entry
+        per reachable class (no duplication), while ``tree`` is a fully-expanded nested
+        topology where shared dependencies appear at every occurrence.
+
+        Cached via :func:`functools.cache`. Any change in this class or any transitive
+        dependency will produce a different :meth:`get_dependency_tree_hash`.
 
         Returns
         -------
         dict
-            Nested structure with keys ``class_name``, ``object_type``, ``source_hash``,
-            ``call_dependencies``, and ``inheritance_dependencies``.
+            ``{"nodes": {class_name: {"hash": ..., "object_type": ...}, ...},
+            "tree": {class_name: {"call_dependencies": {...}, "inheritance_dependencies": {...}}}}``
         """
-        return cls._get_dependency_tree_recursive()
+        nodes, subtree = cls._build_topology_subtree()
+        return {'nodes': nodes, 'tree': {cls.get_class_name(): subtree}}
 
     @classmethod
     def get_dependency_graph(cls) -> DependencyGraph:

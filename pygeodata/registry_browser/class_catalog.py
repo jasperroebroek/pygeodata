@@ -10,6 +10,28 @@ from pygeodata.tracked_object import TrackedObject
 logger = logging.getLogger(__name__)
 
 
+def _extract_dep_names(tree_data: dict, dep_type: str) -> list[str]:
+    """Extract direct child names under ``dep_type`` from the tree root.
+
+    Parameters
+    ----------
+    tree_data:
+        The full ``{nodes, tree}`` dict as stored in ``source.json``.
+    dep_type:
+        Either ``"call_dependencies"`` or ``"inheritance_dependencies"``.
+
+    Returns
+    -------
+    list[str]
+        Sorted list of class names that are direct dependencies of the root node.
+    """
+    tree = tree_data.get(JSONKeys.TREE, {})
+    if not tree:
+        return []
+    root_node = next(iter(tree.values()), {})
+    return sorted(root_node.get(dep_type, {}).keys())
+
+
 def source_info_from_disk(class_name: str) -> RegistryClassInfo:
     """Read class metadata from source.json in the registry.
 
@@ -21,13 +43,12 @@ def source_info_from_disk(class_name: str) -> RegistryClassInfo:
     if candidate is None:
         return RegistryClassInfo()
     data = read_json_dict(candidate)
-    tree = data.get(JSONKeys.TREE, {})
     code_path = candidate.parent / 'source.py'
     graph_path = candidate.parent / 'source.pdf'
     return RegistryClassInfo(
         object_type=str(data[JSONKeys.OBJECT_TYPE]) if JSONKeys.OBJECT_TYPE in data else None,
-        call_dependency_names=sorted(tree.get(JSONKeys.CALL_DEPENDENCIES, {}).keys()),
-        inheritance_dependency_names=sorted(tree.get(JSONKeys.INHERITANCE_DEPENDENCIES, {}).keys()),
+        call_dependency_names=_extract_dep_names(data, 'call_dependencies'),
+        inheritance_dependency_names=_extract_dep_names(data, 'inheritance_dependencies'),
         stored_source_hash=data.get(JSONKeys.SOURCE_HASH),
         stored_dependency_tree_hash=data.get(JSONKeys.DEPENDENCY_TREE_HASH),
         source_path=str(code_path.resolve()) if code_path.exists() else None,

@@ -66,9 +66,10 @@ def test_initialize_registry_handles_real_call_cycle() -> None:
 
 
 def test_dependency_tree_no_self_inheritance(tmp_path: Path) -> None:
-    tree = TrackedChild.get_dependency_tree()
+    result = TrackedChild.get_dependency_tree()
 
-    inh = tree['inheritance_dependencies']
+    root_node = next(iter(result['tree'].values()))
+    inh = root_node['inheritance_dependencies']
     assert TrackedBase.get_class_name() in inh
     assert TrackedChild.get_class_name() not in inh
 
