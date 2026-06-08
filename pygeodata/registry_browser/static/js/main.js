@@ -1496,6 +1496,7 @@ function showDiagnostics() {
   const derivedCls     = (diag.derived_class_name  ?? []).length;
   const hashCollisions = (diag.hash_collisions     ?? []).length;
   const tracedToClass  = created - derivedCls;
+  const staleHidden    = diag.stale_hidden          ?? 0;
 
   const totalClasses   = counts.classes        ?? 0;
   const loadedClasses  = counts.classes_loaded ?? 0;
@@ -1528,6 +1529,7 @@ function showDiagnostics() {
          <tr class="diag-section-row"><td colspan="2">Entry quality</td></tr>
          ${row("Missing state hash",            missingHash,    true)}
          ${row("Hash collisions (disambiguated)", hashCollisions, true)}
+         ${staleHidden > 0 ? row("Stale entries hidden",       staleHidden,    false) : ""}
 
          <tr class="diag-section-row"><td colspan="2">Spec coverage (distinct values)</td></tr>
          ${row("CRS",        (opts.crs        ?? []).length)}
@@ -1668,6 +1670,16 @@ $("#btn-show-empty").onclick = (e) => {
   _showEmptyClasses = !_showEmptyClasses;
   $("#btn-show-empty").classList.toggle("active", _showEmptyClasses);
   if (lastDashboard) renderClassList(lastDashboard.class_cards ?? []);
+};
+
+// Hide stale toggle
+$("#btn-hide-stale").classList.toggle("active", state.hide_stale);
+$("#btn-hide-stale").onclick = (e) => {
+  e.stopPropagation();
+  state.hide_stale = !state.hide_stale;
+  localStorage.setItem("hide_stale", state.hide_stale);
+  $("#btn-hide-stale").classList.toggle("active", state.hide_stale);
+  loadEntries();
 };
 
 // Multi-select toggle — wired once to the static sidebar button

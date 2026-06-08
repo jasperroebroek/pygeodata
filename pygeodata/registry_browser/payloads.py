@@ -86,7 +86,10 @@ def _entry_is_visible(
     spec_filters: dict,
     filters: list[Filter],
     logic_mode: str,
+    hide_stale: bool = False,
 ) -> bool:
+    if hide_stale and entry.dep_hash_stale:
+        return False
     if selected_classes and class_name not in selected_classes:
         return False
     if (
@@ -112,6 +115,7 @@ def _sidebar_counts(
     spec_filters: dict,
     filters: list[Filter],
     logic_mode: str,
+    hide_stale: bool = False,
 ) -> dict[str, int]:
     counts: dict[str, int] = {}
     for class_name, class_info in state.classes.items():
@@ -130,6 +134,7 @@ def _sidebar_counts(
                 spec_filters=spec_filters,
                 filters=filters,
                 logic_mode=logic_mode,
+                hide_stale=hide_stale,
             )
         )
         if n:
@@ -145,6 +150,7 @@ def _build_visible_groups(
     spec_filters: dict,
     filters: list[Filter],
     logic_mode: str,
+    hide_stale: bool = False,
 ) -> list[tuple[str, list[EntryInfo]]]:
     visible_groups: list[tuple[str, list[EntryInfo]]] = []
 
@@ -170,6 +176,7 @@ def _build_visible_groups(
                 spec_filters=spec_filters,
                 filters=filters,
                 logic_mode=logic_mode,
+                hide_stale=hide_stale,
             )
         ]
 
@@ -386,6 +393,7 @@ def build_browser_payload(
     filters: list[dict],
     logic_mode: str,
     row_display: str,
+    hide_stale: bool = False,
 ) -> dict:
     parsed_filters = parse_filters(filters)
 
@@ -396,6 +404,7 @@ def build_browser_payload(
         spec_filters=spec_filters,
         filters=parsed_filters,
         logic_mode=logic_mode,
+        hide_stale=hide_stale,
     )
 
     sidebar_counts = _sidebar_counts(
@@ -404,6 +413,7 @@ def build_browser_payload(
         spec_filters=spec_filters,
         filters=parsed_filters,
         logic_mode=logic_mode,
+        hide_stale=hide_stale,
     )
 
     # Validate selected_entry is still visible
@@ -412,6 +422,9 @@ def build_browser_payload(
 
     visible_entry_ids = [e.record_id for _, entries in visible_groups for e in entries]
     selected_entry_info = state.entries.get(selected_entry) if selected_entry else None
+
+    stale_hidden = sum(1 for e in state.entries.values() if e.dep_hash_stale) if hide_stale else 0
+    diagnostics = {**state.diagnostics, 'stale_hidden': stale_hidden}
 
     return {
         'selected_classes': selected_classes,
@@ -430,7 +443,7 @@ def build_browser_payload(
             selected_entry_info=selected_entry_info,
             selected_classes=selected_classes,
         ),
-        'diagnostics': state.diagnostics,
+        'diagnostics': diagnostics,
         'spec_options': state.spec_options,
         'counts': {
             'classes': len(state.classes),

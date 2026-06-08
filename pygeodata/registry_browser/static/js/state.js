@@ -15,6 +15,7 @@ export const state = {
   kind_filter:  "all",     // "all" | "data" | "figure"
   logic_mode:   "AND",     // "AND" | "OR" | "NOT"
   row_display:  "all",     // "selected" | "all" | "none"
+  hide_stale:   false,     // when true, stale entries are excluded
 
   /** Spec pill filters.  Empty array = no filter. */
   spec_filters: {
@@ -29,6 +30,9 @@ export const state = {
    */
   filters: [{ target: "all", operator: "contains", value: "" }],
 };
+
+// Restore hide_stale preference from localStorage
+state.hide_stale = localStorage.getItem("hide_stale") === "true";
 
 
 // ---------------------------------------------------------------------------
@@ -123,6 +127,7 @@ export function buildPayload() {
     kind_filter:      state.kind_filter,
     logic_mode:       state.logic_mode,
     row_display:      state.row_display,
+    hide_stale:       state.hide_stale,
     spec_filters:     state.spec_filters,
     filters:          activeFilters,
   };

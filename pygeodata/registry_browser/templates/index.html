@@ -99,11 +99,13 @@
         <span class="pane-title" id="main-pane-title">Entries</span>
         <span class="count-chip" id="entry-count"></span>
       </div>
-      <div class="main-hd-right" id="display-seg-wrap">
-        <span class="sb-label">Show</span>
-        <div class="seg" id="display-seg">
-          <button class="seg-btn" data-val="selected">Selected params</button>
-          <button class="seg-btn active" data-val="all">All params</button>
+      <div class="main-hd-right">
+        <button class="seg-btn seg-btn--standalone" id="btn-hide-stale">Hide stale</button>
+        <div id="display-seg-wrap">
+          <div class="seg" id="display-seg">
+            <button class="seg-btn" data-val="selected">Selected params</button>
+            <button class="seg-btn active" data-val="all">All params</button>
+          </div>
         </div>
       </div>
     </div>

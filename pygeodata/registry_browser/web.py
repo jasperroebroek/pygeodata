@@ -131,6 +131,7 @@ def api_dashboard():
             filters=payload.get('filters', []),
             logic_mode=payload.get('logic_mode', 'AND'),
             row_display=payload.get('row_display', 'none'),
+            hide_stale=bool(payload.get('hide_stale', False)),
         ),
     )
 

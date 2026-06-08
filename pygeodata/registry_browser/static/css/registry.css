@@ -1588,6 +1588,12 @@ tr.row-entry + tr.row-entry td.cell-entry-hd {
   border-top: 6px solid var(--bg);
 }
 
+/* Standalone seg-style button (e.g. Hide stale — shown in both view modes) */
+.seg-btn--standalone {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
 /* Compact mode: show pill list, hide table; hide display seg and resize handle */
 .app-layout.mode-compact #display-seg-wrap { display: none; }
 .app-layout.mode-compact .table-scroll     { display: none; }
