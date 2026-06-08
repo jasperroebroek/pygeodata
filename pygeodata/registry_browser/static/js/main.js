@@ -699,6 +699,86 @@ function renderTableHead() {
 // Track the flat list of visible entry IDs for arrow-key navigation
 let _visibleEntryIds = [];
 
+// ---------------------------------------------------------------------------
+// Incremental table rendering — renders PAGE_ENTRIES entries at a time,
+// appending more as the user scrolls toward the bottom.
+// ---------------------------------------------------------------------------
+
+const PAGE_ENTRIES = 50;   // entries rendered per chunk
+let _tableRows = [];       // full flat row array from last fetch
+let _tableEntryCount = 0;  // number of header rows rendered so far
+
+function _buildRowsHtml(rows, start, maxEntries) {
+  const html = [];
+  let entriesSeen = 0;
+  for (let i = start; i < rows.length; i++) {
+    if (entriesSeen >= maxEntries) break;
+    const r = rows[i];
+    const next = rows[i + 1];
+    const isActive = r.record_id === state.selected_entry;
+
+    if (r.row_type === "header") {
+      entriesSeen++;
+      const spec = r.spec ?? {};
+      const bl = spec.bounds_latlon;
+      const specParts = [
+        spec.crs, spec.resolution, spec.shape,
+        bl ? boundsLatLonText(bl) : null,
+      ].filter(Boolean).map((s) => `<span class="tbl-spec-pill">${esc(s)}</span>`).join("");
+      const warns    = r.warning_count ? `<span class="badge badge--sm badge-warn">${r.warning_count}w</span>` : "";
+      const err      = r.error         ? `<span class="badge badge--sm badge-danger">!</span>` : "";
+      const staleness = r.dep_hash_stale
+        ? `<span class="badge badge--sm badge-warn" title="Dependencies changed — entry may be outdated">stale</span>` : "";
+      html.push(`
+        <tr class="row-entry ${isActive ? "active" : ""}" data-entry="${esc(r.record_id)}">
+          <td colspan="4" class="cell-entry-hd">
+            <div class="cell-entry-hd-inner">
+              <span class="cell-entry-left">
+                <a href="#" class="jmp-cls entry-cls" data-cls="${esc(r.class_name)}">${esc(r.class_name)}</a>
+                <span class="badge badge--sm badge-neutral">${esc(r.object_type)}</span>
+                ${staleness}${warns}${err}
+              </span>
+              <span class="cell-entry-spec">${specParts}</span>
+            </div>
+          </td>
+        </tr>`);
+    } else {
+      const isLast    = !next || next.row_type === "header";
+      const isRef     = r.value_type === "data_ref";
+      const scope     = r.group && r.group !== "---" ? r.group : "";
+      html.push(`
+        <tr class="row-param ${isActive ? "active" : ""} ${isLast ? "entry-last" : ""}" data-entry="${esc(r.record_id)}">
+          <td class="col-indent"></td>
+          <td class="col-scope">${esc(scope)}</td>
+          <td class="col-param">${esc(r.parameter ?? "")}</td>
+          <td class="col-value${isRef ? " col-value--ref" : ""}">${esc(r.value ?? "")}</td>
+        </tr>`);
+    }
+  }
+  return { html, entriesSeen };
+}
+
+function _appendTableRows(count = PAGE_ENTRIES) {
+  const tbody = $("#table-body");
+  if (!tbody || !_tableRows.length) return;
+
+  // Find the flat index where the next unrendered entry starts
+  let flatStart = _tableRows.length;  // assume all rendered
+  let headersSeen = 0;
+  for (let i = 0; i < _tableRows.length; i++) {
+    if (_tableRows[i].row_type === "header") {
+      if (headersSeen === _tableEntryCount) { flatStart = i; break; }
+      headersSeen++;
+    }
+  }
+  if (flatStart >= _tableRows.length) return;
+
+  const { html, entriesSeen } = _buildRowsHtml(_tableRows, flatStart, count);
+  if (!html.length) return;
+  tbody.insertAdjacentHTML("beforeend", html.join(""));
+  _tableEntryCount += entriesSeen;
+}
+
 function applyTableSelection() {
   if (_viewMode === "compact") {
     $("#entry-pill-list")?.querySelectorAll(".entry-pill").forEach((pill) => {
@@ -718,8 +798,10 @@ function applyTableSelection() {
 
 function renderTableBody(rows) {
   const tbody = $("#table-body");
+  _tableRows = rows ?? [];
+  _tableEntryCount = 0;
 
-  if (!rows?.length) {
+  if (!_tableRows.length) {
     tbody.innerHTML = `
       <tr>
         <td colspan="4" class="detail-empty" style="padding:14px">
@@ -730,62 +812,8 @@ function renderTableBody(rows) {
     return;
   }
 
-  // Build HTML — mark the last param row of each entry group for visual separation
-  const html = [];
-  for (let i = 0; i < rows.length; i++) {
-    const r = rows[i];
-    const next = rows[i + 1];
-    const isActive = r.record_id === state.selected_entry;
-
-    if (r.row_type === "header") {
-      const spec = r.spec ?? {};
-      const bl = spec.bounds_latlon;
-      const specParts = [
-        spec.crs,
-        spec.resolution,
-        spec.shape,
-        bl ? boundsLatLonText(bl) : null,
-      ].filter(Boolean).map((s) => `<span class="tbl-spec-pill">${esc(s)}</span>`).join("");
-      const warns = r.warning_count
-        ? `<span class="badge badge--sm badge-warn">${r.warning_count}w</span>`
-        : "";
-      const err = r.error
-        ? `<span class="badge badge--sm badge-danger">!</span>`
-        : "";
-      const staleness = r.dep_hash_stale
-        ? `<span class="badge badge--sm badge-warn" title="Dependencies changed — entry may be outdated">stale</span>`
-        : "";
-      html.push(`
-        <tr class="row-entry ${isActive ? "active" : ""}" data-entry="${esc(r.record_id)}">
-          <td colspan="4" class="cell-entry-hd">
-            <div class="cell-entry-hd-inner">
-              <span class="cell-entry-left">
-                <a href="#" class="jmp-cls entry-cls" data-cls="${esc(r.class_name)}">${esc(r.class_name)}</a>
-                <span class="badge badge--sm badge-neutral">${esc(r.object_type)}</span>
-                ${staleness}${warns}${err}
-              </span>
-              <span class="cell-entry-spec">${specParts}</span>
-            </div>
-          </td>
-        </tr>`);
-    } else {
-      const isLast = !next || next.row_type === "header";
-      const activeClass = isActive ? "active" : "";
-      const lastClass = isLast ? "entry-last" : "";
-
-      const isRef = r.value_type === "data_ref";
-      const valClass = isRef ? " col-value--ref" : "";
-      const scope = r.group && r.group !== "---" ? r.group : "";
-      html.push(`
-        <tr class="row-param ${activeClass} ${lastClass}" data-entry="${esc(r.record_id)}">
-          <td class="col-indent"></td>
-          <td class="col-scope">${esc(scope)}</td>
-          <td class="col-param">${esc(r.parameter ?? "")}</td>
-          <td class="col-value${valClass}">${esc(r.value ?? "")}</td>
-        </tr>`);
-    }
-  }
-  tbody.innerHTML = html.join("");
+  tbody.innerHTML = "";
+  _appendTableRows(PAGE_ENTRIES);
 
   // Single delegated listener on tbody — no per-row handlers
   tbody.onclick = (e) => {
@@ -1770,6 +1798,15 @@ $("#btn-clear-all").onclick = () => {
   });
 })();
 
+// Incremental scroll: append more table rows when near the bottom
+$("#table-scroll-wrap").addEventListener("scroll", () => {
+  if (_viewMode !== "detailed" || _tableEntryCount === 0) return;
+  const el = $("#table-scroll-wrap");
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 200) {
+    _appendTableRows(PAGE_ENTRIES);
+  }
+}, { passive: true });
+
 // ⌘[ / ⌘] — back / forward navigation
 document.addEventListener("keydown", (e) => {
   if (!e.metaKey) return;
@@ -1805,7 +1842,20 @@ document.addEventListener("keydown", (e) => {
     const activePill = $(`#entry-pill-list .entry-pill[data-entry="${CSS.escape(state.selected_entry)}"]`);
     activePill?.scrollIntoView({ block: "nearest" });
   } else {
-    const activeRow = $(`#table-body tr.row-entry[data-entry="${CSS.escape(state.selected_entry)}"]`);
+    // Ensure the target entry is rendered before scrolling to it
+    let activeRow = $(`#table-body tr.row-entry[data-entry="${CSS.escape(state.selected_entry)}"]`);
+    if (!activeRow) {
+      const targetIdx = _tableRows.findIndex(
+        (r) => r.row_type === "header" && r.record_id === state.selected_entry
+      );
+      if (targetIdx !== -1) {
+        // Count how many header rows precede it and render up to that point
+        const headersNeeded = _tableRows.slice(0, targetIdx + 1).filter((r) => r.row_type === "header").length;
+        while (_tableEntryCount < headersNeeded) _appendTableRows(PAGE_ENTRIES);
+        applyTableSelection();
+        activeRow = $(`#table-body tr.row-entry[data-entry="${CSS.escape(state.selected_entry)}"]`);
+      }
+    }
     activeRow?.scrollIntoView({ block: "nearest" });
   }
 
