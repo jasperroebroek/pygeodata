@@ -63,6 +63,7 @@ class JSONKeys(StrEnum):
     STATE_HASH = 'state_hash'
     DEPENDENCY_TREE_HASH = 'dependency_tree_hash'
     CO_OUTPUTS = 'co_outputs'
+    NODES = 'nodes'
     TREE = 'tree'
     CALL_DEPENDENCIES = 'call_dependencies'
     INHERITANCE_DEPENDENCIES = 'inheritance_dependencies'

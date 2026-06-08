@@ -10,6 +10,7 @@ from pygeodata.config import JSONKeys
 from pygeodata.data import Data
 from pygeodata.figure import Figure
 from pygeodata.hash import calculate_cls_source_hash
+from pygeodata.paths import CodeRegistryResolver, TreeRegistryResolver
 from tests.fixtures.data import Child, CircularLoader, HardcodedDependencyLoader, LoaderA, LoaderB, LoaderD, Parent
 
 
@@ -109,23 +110,17 @@ def test_code_state_invalid_when_no_file() -> None:
     assert not LoaderA.is_registry_valid()
 
 
-def test_code_state_invalid_when_hash_tampered() -> None:
+def test_code_state_invalid_when_tree_file_deleted() -> None:
     LoaderA.write_registry()
-    registry = LoaderA.get_registry_dir() / 'source.json'
-    data = json.loads(registry.read_text())
-    data[JSONKeys.DEPENDENCY_TREE_HASH] = 'tampered'
-    registry.write_text(json.dumps(data))
+    tree_resolver = TreeRegistryResolver.from_dep_tree_hash(LoaderA.get_dependency_tree_hash())
+    tree_resolver.tree_path.unlink()
     assert not LoaderA.is_registry_valid()
 
 
-def test_initialize_class_code_state_heals_tampered_file() -> None:
+def test_initialize_class_code_state_heals_missing_tree_file() -> None:
     LoaderA.write_registry()
-    registry = LoaderA.get_registry_dir() / 'source.json'
-
-    # Tamper the file
-    data = json.loads(registry.read_text())
-    data[JSONKeys.DEPENDENCY_TREE_HASH] = 'tampered'
-    registry.write_text(json.dumps(data))
+    tree_resolver = TreeRegistryResolver.from_dep_tree_hash(LoaderA.get_dependency_tree_hash())
+    tree_resolver.tree_path.unlink()
 
     assert not LoaderA.is_registry_valid()
 
@@ -239,19 +234,24 @@ def test_dependency_tree_hash_same_across_instances_with_different_params() -> N
 def test_write_registry_content() -> None:
     LoaderA.clear_function_caches()
     LoaderA.write_registry()
-    data = json.loads((LoaderA.get_registry_dir() / 'source.json').read_text())
+    from pygeodata.hash import calculate_cls_source_hash as _hash
+    code_resolver = CodeRegistryResolver.from_source_hash(_hash(LoaderA))
+    data = json.loads(code_resolver.meta_path.read_text())
     assert data[JSONKeys.CLASS_NAME] == 'LoaderA'
-    assert data[JSONKeys.DEPENDENCY_TREE_HASH] == LoaderA.get_dependency_tree_hash()
     assert JSONKeys.SOURCE_HASH in data
-    assert JSONKeys.TREE in data
+    tree_resolver = TreeRegistryResolver.from_dep_tree_hash(LoaderA.get_dependency_tree_hash())
+    tree_data = json.loads(tree_resolver.tree_path.read_text())
+    assert JSONKeys.NODES in tree_data
+    assert JSONKeys.TREE in tree_data
 
 
 def test_write_registry_writes_code_file() -> None:
     LoaderA.clear_function_caches()
     LoaderA.write_registry()
-    code_file = LoaderA.get_registry_dir() / 'source.py'
-    assert code_file.exists()
-    assert 'LoaderA' in code_file.read_text()
+    from pygeodata.hash import calculate_cls_source_hash as _hash
+    code_resolver = CodeRegistryResolver.from_source_hash(_hash(LoaderA))
+    assert code_resolver.source_path.exists()
+    assert 'LoaderA' in code_resolver.source_path.read_text()
 
 
 def test_get_registered_objects_returns_correct_type_family() -> None:

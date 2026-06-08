@@ -1,10 +1,10 @@
 import ast
 import functools
 import json
+import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, ClassVar
-
-from filelock import FileLock
 
 from pygeodata.ast import (
     build_symbol_tables,
@@ -16,8 +16,20 @@ from pygeodata.ast import (
 from pygeodata.config import JSONKeys, get_config
 from pygeodata.graphs import plot_class_dependency_graph
 from pygeodata.hash import calculate_cls_source_hash, calculate_dict_hash
-from pygeodata.paths import RegistryPathResolver
+from pygeodata.paths import CodeRegistryResolver, TreeRegistryResolver
 from pygeodata.types import ClassNode, DependencyGraph
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    tmp = path.with_suffix('.tmp')
+    tmp.write_text(text, encoding='utf-8')
+    os.replace(tmp, path)
+
+
+def _atomic_write_json(path: Path, data: dict) -> None:
+    tmp = path.with_suffix('.tmp')
+    tmp.write_text(json.dumps(data, indent=4), encoding='utf-8')
+    os.replace(tmp, path)
 
 
 class TrackedObject:
@@ -60,16 +72,6 @@ class TrackedObject:
     def get_registered_objects(cls) -> set[type['TrackedObject']]:
         base = TrackedObject if cls is TrackedObject else cls.object_type
         return {r for r in cls._registry.values() if issubclass(r, base)}
-
-    @classmethod
-    def get_registry_dir(cls) -> Path:
-        """Centralized storage: .source/module/path/ClassName/."""
-        module_path_parts = cls.__module__.split('.')
-        return Path(get_config().path_registry, *module_path_parts, cls.get_class_name())
-
-    @classmethod
-    def resolve_registry_paths(cls) -> RegistryPathResolver:
-        return RegistryPathResolver.from_directory(cls.get_registry_dir())
 
     @classmethod
     def get_source_ast_tree(cls) -> ast.AST:
@@ -238,63 +240,98 @@ class TrackedObject:
         return calculate_dict_hash(tree)
 
     @classmethod
-    def write_registry(cls) -> None:
-        """Saves the current AST hash and writes the source code for inspection."""
-        registry_paths = cls.resolve_registry_paths()
-        registry_paths.mkdir()
+    def _write_code_registry(cls) -> None:
+        """Write source code and metadata to ``.source/code/{source_hash}/``.
 
-        json_path = registry_paths.registry_path
-        code_lock_path = registry_paths.lock_path
+        Idempotent: skips writing only when both ``source.py`` and ``source.json`` are present.
+        Checking both guards against partial writes from an interrupted previous run — if either
+        file is missing the whole snapshot is rewritten. Both files are written atomically via
+        a temp file and ``os.replace``, so concurrent callers writing the same content race
+        harmlessly.
+        """
+        source_hash = calculate_cls_source_hash(cls)
+        resolver = CodeRegistryResolver.from_source_hash(source_hash)
+        resolver.directory.mkdir(parents=True, exist_ok=True)
+        if not (resolver.source_path.exists() and resolver.meta_path.exists()):
+            _atomic_write_text(resolver.source_path, get_source_code(cls))
+            _atomic_write_json(resolver.meta_path, {
+                JSONKeys.CLASS_NAME: cls.get_class_name(),
+                JSONKeys.OBJECT_TYPE: cls.object_type.get_class_name(),
+                JSONKeys.SOURCE_HASH: source_hash,
+                'mtime': datetime.now(timezone.utc).isoformat(),
+            })
 
-        with FileLock(code_lock_path, timeout=60):
-            with Path.open(json_path, 'w', encoding='utf-8') as f:
-                json.dump(
-                    {
-                        JSONKeys.CLASS_NAME: cls.get_class_name(),
-                        JSONKeys.OBJECT_TYPE: cls.object_type.get_class_name(),
-                        JSONKeys.SOURCE_HASH: calculate_cls_source_hash(cls),
-                        JSONKeys.DEPENDENCY_TREE_HASH: cls.get_dependency_tree_hash(),
-                        JSONKeys.TREE: cls.get_dependency_tree(),
-                    },
-                    f,
-                    indent=4,
-                )
+    @classmethod
+    def _write_tree_registry(cls) -> None:
+        """Write the dependency tree and graph to ``.source/snapshots/{dep_tree_hash}/``.
 
-            code_path = registry_paths.code_path
-            with Path.open(code_path, 'w', encoding='utf-8') as f:
-                f.write(get_source_code(cls))
-
-            if cls.has_dependencies():
+        Idempotent: skips writing only when all expected files are present — ``tree.json``
+        always, and ``graph.pdf`` when the class has dependencies. Checking all expected
+        files guards against partial writes from an interrupted previous run. ``tree.json``
+        is written atomically via a temp file and ``os.replace``.
+        """
+        dep_tree_hash = cls.get_dependency_tree_hash()
+        resolver = TreeRegistryResolver.from_dep_tree_hash(dep_tree_hash)
+        has_deps = cls.has_dependencies()
+        resolver.directory.mkdir(parents=True, exist_ok=True)
+        complete = resolver.tree_path.exists() and (not has_deps or resolver.graph_path.exists())
+        if not complete:
+            _atomic_write_json(resolver.tree_path, cls.get_dependency_tree())
+            if has_deps:
                 plot_class_dependency_graph(
                     cls_name=cls.get_class_name(),
                     graph_data=cls.get_dependency_graph(),
-                    path=registry_paths.graph_path,
+                    path=resolver.graph_path,
                     view=False,
                 )
 
     @classmethod
+    def write_registry(cls) -> None:
+        """Write both the source code snapshot and the dependency tree snapshot to disk.
+
+        Delegates to :meth:`_write_code_registry` and :meth:`_write_tree_registry`. Both
+        stores are content-addressed and append-only — existing entries are never overwritten.
+        """
+        cls._write_code_registry()
+        cls._write_tree_registry()
+
+    @classmethod
     def read_registry(cls) -> dict[str, Any]:
-        registry_file = cls.resolve_registry_paths().registry_path
-        with Path.open(registry_file, encoding='utf-8') as f:
+        """Read the dependency tree snapshot for this class from disk.
+
+        Returns
+        -------
+        dict
+            The ``{nodes, tree}`` dict stored in ``.source/snapshots/{dep_tree_hash}/tree.json``.
+
+        Raises
+        ------
+        FileNotFoundError
+            If the snapshot has not been written yet.
+        """
+        tree_path = TreeRegistryResolver.from_dep_tree_hash(cls.get_dependency_tree_hash()).tree_path
+        with tree_path.open(encoding='utf-8') as f:
             return json.load(f)
 
     @classmethod
     def is_registry_valid(cls) -> bool:
-        """
-        Check whether the on-disk source registry matches the current class.
+        """Check whether the on-disk registry is complete for the current class state.
 
-        Compares the ``dependency_tree_hash`` stored in ``.source/.../source.json``
-        against :meth:`get_dependency_tree_hash`.
+        Returns ``True`` when both ``_write_code_registry`` and ``_write_tree_registry``
+        would be no-ops — i.e. all expected files exist for the current source hash and
+        dependency tree hash.
 
         Returns
         -------
         bool
         """
-        registry_file = cls.resolve_registry_paths().registry_path
-        if not registry_file.exists():
+        source_hash = calculate_cls_source_hash(cls)
+        code_resolver = CodeRegistryResolver.from_source_hash(source_hash)
+        if not (code_resolver.source_path.exists() and code_resolver.meta_path.exists()):
             return False
-        registry = cls.read_registry()
-        return registry.get(JSONKeys.DEPENDENCY_TREE_HASH) == cls.get_dependency_tree_hash()
+        tree_resolver = TreeRegistryResolver.from_dep_tree_hash(cls.get_dependency_tree_hash())
+        has_deps = cls.has_dependencies()
+        return tree_resolver.tree_path.exists() and (not has_deps or tree_resolver.graph_path.exists())
 
     @classmethod
     def update_registry(cls, visited: frozenset[type] | None = None) -> None:

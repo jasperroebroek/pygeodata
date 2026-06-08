@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+from pygeodata.config import get_config
+
 CACHE_META_SUFFIXES = frozenset({'.params.json', '.hash.json', '.spec.json', '.graph.pdf', '.graph.png'})
 CACHE_DIR_SUFFIXES = frozenset({'.zarr'})
 
@@ -51,20 +53,40 @@ class CachePathResolver:
 
 
 @dataclass
-class RegistryPathResolver:
-    registry_path: Path
-    code_path: Path
-    lock_path: Path
-    graph_path: Path
+class CodeRegistryResolver:
+    directory: Path
 
     @classmethod
-    def from_directory(cls, directory: Path) -> 'RegistryPathResolver':
-        return cls(
-            registry_path=directory / 'source.json',
-            code_path=directory / 'source.py',
-            lock_path=directory / 'source.lock',
-            graph_path=directory / 'source.pdf',
-        )
+    def from_source_hash(cls, source_hash: str) -> 'CodeRegistryResolver':
+        return cls(Path(get_config().path_registry) / 'code' / source_hash)
 
-    def mkdir(self) -> None:
-        self.registry_path.parent.mkdir(parents=True, exist_ok=True)
+    @property
+    def source_path(self) -> Path:
+        return self.directory / 'source.py'
+
+    @property
+    def meta_path(self) -> Path:
+        return self.directory / 'source.json'
+
+    def exists(self) -> bool:
+        return self.directory.exists()
+
+
+@dataclass
+class TreeRegistryResolver:
+    directory: Path
+
+    @classmethod
+    def from_dep_tree_hash(cls, dep_tree_hash: str) -> 'TreeRegistryResolver':
+        return cls(Path(get_config().path_registry) / 'snapshots' / dep_tree_hash)
+
+    @property
+    def tree_path(self) -> Path:
+        return self.directory / 'tree.json'
+
+    @property
+    def graph_path(self) -> Path:
+        return self.directory / 'graph.pdf'
+
+    def exists(self) -> bool:
+        return self.directory.exists()
