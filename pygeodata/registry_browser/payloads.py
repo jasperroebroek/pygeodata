@@ -2,7 +2,7 @@ from pygeodata.config import JSONKeys
 from pygeodata.formatting.json import format_json
 from pygeodata.registry_browser.filters import Filter, entry_matches_filters, matching_rows, parse_filters
 from pygeodata.registry_browser.models import ClassInfo, EntryInfo, FileRef, LinkedEntry
-from pygeodata.registry_browser.state import AppState
+from pygeodata.registry_browser.state import AppState, build_version_groups
 from pygeodata.types import SpecKeys
 
 # ---------------------------------------------------------------------------
@@ -87,16 +87,15 @@ def _entry_is_visible(
     filters: list[Filter],
     logic_mode: str,
     hide_stale: bool = False,
+    snapshot_filter: list[str] | None = None,
 ) -> bool:
     if hide_stale and entry.dep_hash_stale:
         return False
+    if snapshot_filter and entry.dep_hash not in snapshot_filter:  # snapshot_filter is a resolved set of dep_hashes
+        return False
     if selected_classes and class_name not in selected_classes:
         return False
-    if (
-        kind_filter != 'all'
-        and (entry.object_type or '').lower() != kind_filter
-        and class_name not in selected_classes
-    ):
+    if kind_filter != 'all' and (entry.object_type or '').lower() != kind_filter and class_name not in selected_classes:
         return False
     if not _entry_matches_spec_filters(entry, spec_filters):
         return False
@@ -116,6 +115,7 @@ def _sidebar_counts(
     filters: list[Filter],
     logic_mode: str,
     hide_stale: bool = False,
+    snapshot_filter: list[str] | None = None,
 ) -> dict[str, int]:
     counts: dict[str, int] = {}
     for class_name, class_info in state.classes.items():
@@ -135,6 +135,7 @@ def _sidebar_counts(
                 filters=filters,
                 logic_mode=logic_mode,
                 hide_stale=hide_stale,
+                snapshot_filter=snapshot_filter,
             )
         )
         if n:
@@ -151,6 +152,7 @@ def _build_visible_groups(
     filters: list[Filter],
     logic_mode: str,
     hide_stale: bool = False,
+    snapshot_filter: list[str] | None = None,
 ) -> list[tuple[str, list[EntryInfo]]]:
     visible_groups: list[tuple[str, list[EntryInfo]]] = []
 
@@ -177,6 +179,7 @@ def _build_visible_groups(
                 filters=filters,
                 logic_mode=logic_mode,
                 hide_stale=hide_stale,
+                snapshot_filter=snapshot_filter,
             )
         ]
 
@@ -196,10 +199,25 @@ def _build_class_cards(
     *,
     sidebar_counts: dict[str, int],
     selected_classes: list[str],
+    snapshot_dep_hashes: set[str] | None = None,
 ) -> list[dict]:
+    # When a snapshot filter is active, derive stale status from the visible entries:
+    # a class is stale if any of its snapshot entries have dep_hash_stale=True.
+    snapshot_stale_classes: set[str] = set()
+    if snapshot_dep_hashes is not None:
+        for entry in state.entries.values():
+            if entry.dep_hash in snapshot_dep_hashes and entry.dep_hash_stale:
+                snapshot_stale_classes.add(entry.class_name)
+
     class_cards = []
     for class_name, class_info in sorted(state.classes.items()):
         group = state.groups.get(class_name)
+        if snapshot_dep_hashes is not None:
+            source_stale = class_name in snapshot_stale_classes
+            deps_stale = False
+        else:
+            source_stale = class_info.source_stale
+            deps_stale = class_info.deps_stale
         class_cards.append(
             {
                 'class_name': class_name,
@@ -210,8 +228,8 @@ def _build_class_cards(
                 'total_record_count': len(group.record_ids) if group else 0,
                 'visible_record_count': sidebar_counts.get(class_name, 0),
                 'selected': class_name in selected_classes,
-                'source_stale': class_info.source_stale,
-                'deps_stale': class_info.deps_stale,
+                'source_stale': source_stale,
+                'deps_stale': deps_stale,
             },
         )
     return class_cards
@@ -244,6 +262,7 @@ def _build_table_rows(
                     'focused': entry.record_id == selected_entry,
                     'source_stale': ci.source_stale if ci else False,
                     'dep_hash_stale': entry.dep_hash_stale,
+                    'dep_hash': entry.dep_hash,
                 },
             )
 
@@ -279,6 +298,7 @@ def _class_detail_payload(class_info: ClassInfo) -> dict:
         'class_source_path': class_info.class_source_path,
         'class_graph_path': class_info.class_graph_path,
         'class_registry_path': class_info.class_registry_path,
+        'class_tree_path': class_info.class_tree_path,
         'source_stale': class_info.source_stale,
         'deps_stale': class_info.deps_stale,
     }
@@ -320,6 +340,7 @@ def _entry_detail_payload(entry: EntryInfo, same_instance_runs: list[EntryInfo] 
         JSONKeys.OBJECT_TYPE: entry.object_type,
         'warnings': entry.warnings,
         'dep_hash_stale': entry.dep_hash_stale,
+        'dep_hash': entry.dep_hash,
         'params_path': entry.params_path,
         'state_hash_path': entry.state_hash_path,
         'execution_graph_path': entry.execution_graph_path,
@@ -379,6 +400,16 @@ def _build_detail_payload(
 
 
 # ---------------------------------------------------------------------------
+# Dep-hash (snapshot) options
+# ---------------------------------------------------------------------------
+
+
+def _dep_hashes_for_version(state: 'AppState', version_mtime: str) -> set[str]:
+    """Return dep_hashes whose snapshot belongs to the selected version group."""
+    return {dep_hash for dep_hash, identity in state.snapshots.items() if identity == version_mtime}
+
+
+# ---------------------------------------------------------------------------
 # Top-level entry point
 # ---------------------------------------------------------------------------
 
@@ -394,8 +425,10 @@ def build_browser_payload(
     logic_mode: str,
     row_display: str,
     hide_stale: bool = False,
+    version_filter: str | None = None,  # mtime of the selected version, or None for all
 ) -> dict:
     parsed_filters = parse_filters(filters)
+    dep_hash_set = _dep_hashes_for_version(state, version_filter) if version_filter else None
 
     visible_groups = _build_visible_groups(
         state,
@@ -405,6 +438,7 @@ def build_browser_payload(
         filters=parsed_filters,
         logic_mode=logic_mode,
         hide_stale=hide_stale,
+        snapshot_filter=dep_hash_set,
     )
 
     sidebar_counts = _sidebar_counts(
@@ -414,6 +448,7 @@ def build_browser_payload(
         filters=parsed_filters,
         logic_mode=logic_mode,
         hide_stale=hide_stale,
+        snapshot_filter=dep_hash_set,
     )
 
     # Validate selected_entry is still visible
@@ -429,7 +464,9 @@ def build_browser_payload(
     return {
         'selected_classes': selected_classes,
         'selected_entry': selected_entry,
-        'class_cards': _build_class_cards(state, sidebar_counts=sidebar_counts, selected_classes=selected_classes),
+        'class_cards': _build_class_cards(
+            state, sidebar_counts=sidebar_counts, selected_classes=selected_classes, snapshot_dep_hashes=dep_hash_set
+        ),
         'table_rows': _build_table_rows(
             visible_groups=visible_groups,
             classes=state.classes,
@@ -445,6 +482,7 @@ def build_browser_payload(
         ),
         'diagnostics': diagnostics,
         'spec_options': state.spec_options,
+        'version_options': build_version_groups(state.versions, state.code_groups),
         'counts': {
             'classes': len(state.classes),
             'classes_loaded': sum(1 for c in state.classes.values() if c.loaded),

@@ -1,0 +1,144 @@
+/* ============================================================
+   code-view.css — Code view 3-pane layout and syntax highlighting
+   ============================================================ */
+
+/* ---------------------------------------------------------------
+   Code view — 3-pane layout
+   --------------------------------------------------------------- */
+
+.view-code {
+  display: flex;
+  height: calc(100vh - var(--topbar-h));
+  overflow: hidden;
+}
+
+/* Each pane shares the same column structure */
+.code-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+.code-pane:last-child { border-right: none; }
+
+.code-pane--versions { flex: 0 0 360px; background: var(--s2); }
+.code-pane--classes  { flex: 0 0 360px; }
+.code-pane--source   { flex: 1 1 0; }
+
+
+/* Thin filter row at top of code panes (replaces old header) */
+.code-pane-filter-row {
+  padding: 6px 8px 4px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Source pane actions bar (replaces detail-hd) */
+.code-source-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 14px;
+  flex-shrink: 0;
+  min-height: 32px;
+}
+
+.code-filter {
+  flex: 1;
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  font-size: 12px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+  outline: none;
+  min-width: 0;
+}
+.code-filter:focus { border-color: var(--accent); }
+
+/* Version list */
+.code-version-list {
+  flex: 1 1 0;
+  overflow-y: auto;
+  padding: 6px 8px 10px;
+}
+
+.code-version-item {
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.code-version-item:hover  { background: var(--s3); color: var(--text); }
+.code-version-item.active { background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+
+/* Class list */
+.code-class-list {
+  flex: 1 1 0;
+  overflow-y: auto;
+  padding: 6px 8px 10px;
+}
+
+.code-class-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-bottom: 1px;
+}
+.code-class-item:hover  { background: var(--s3); }
+.code-class-item.active { background: var(--accent-bg); }
+
+.code-class-name {
+  font-size: 12px;
+  font-weight: 500;
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.code-class-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.code-class-item .stale-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn);
+  display: inline-block;
+  margin-left: 4px;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+/* Source panel */
+.code-source-panel {
+  flex: 1;
+  overflow: auto;
+  padding: 14px 18px;
+}
+
+.code-source-panel pre.code-popup {
+  font: 12px/1.6 ui-monospace, Menlo, monospace;
+  white-space: pre;
+  margin: 0;
+}

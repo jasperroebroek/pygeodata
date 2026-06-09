@@ -1,0 +1,505 @@
+/* ============================================================
+   detail.css — detail pane, entry cards, JSON explorer,
+   figure previews, files card, linked entries card, co-outputs.
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   Detail cards
+   ------------------------------------------------------------ */
+
+.dcard {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(0,0,0,.04);
+}
+
+.dcard-hd {
+  padding: 6px 14px 8px;
+  min-height: 42px;
+  background: var(--s2);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.dcard-hd-row { display: contents; }
+
+/* Card type label — small caps label top-left */
+.dcard-hd-label {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+/* Card title — the actual class/entry name, prominent */
+.dcard-hd-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  flex: 0 1 auto;
+  min-width: 80px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dcard-hd-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* Spacer pushes actions right on a single row; collapses to zero when actions wrap */
+.dcard-hd-spacer {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* Thin vertical rule between action groups in the card header */
+.dcard-hd-sep {
+  display: inline-block;
+  width: 1px;
+  height: 12px;
+  background: var(--border);
+  flex-shrink: 0;
+  margin: 0 2px;
+}
+
+.dcard-body {
+  padding: 10px 14px;
+}
+
+/* Horizontal rule separating spec from file in the entry card */
+.dcard-sep {
+  border: none;
+  border-top: 1px solid var(--border-s);
+  margin: 6px 0;
+}
+
+.entry-file-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.entry-file-name {
+  flex: 1 1 0;
+  min-width: 0;
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entry-warnings {
+  border-top: 1px solid var(--border);
+  padding: 8px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.entry-warning {
+  font-size: 11px;
+  color: var(--warn, #b45309);
+  line-height: 1.4;
+}
+
+/* CRS link */
+.spec-cell-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 12px;
+}
+
+.spec-cell-link:hover { text-decoration: underline; }
+
+/* Internal links row — subtle ghost buttons */
+.entry-internal-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+
+/* ---- KV rows: no separator lines, spacing only ---- */
+
+.kv-dep-block {
+  padding: 6px 0;
+}
+
+.dcard-hd-type {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.kv-row {
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+  gap: 12px;
+  padding: 2px 0;
+}
+
+.kv-k {
+  flex: 0 0 88px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kv-v {
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.kv-nil {
+  color: var(--faint);
+  font-size: 12px;
+}
+
+.hash-short {
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: default;
+}
+
+.kv-val {
+  font-size: 12px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kv-val--mono {
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Entry card spec 2×2 grid */
+.spec-kv-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+  padding: 4px 0 8px;
+}
+
+.spec-kv-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.spec-kv-cell--empty {
+  visibility: hidden;
+}
+
+.spec-kv-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--faint);
+}
+
+.spec-kv-val {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  min-width: 0;
+  font-size: 12px;
+}
+
+/* Bounds map button — looks like a value link, not a button */
+.act-btn.js-bounds-map {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--accent);
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline dotted;
+  white-space: normal;
+  line-height: 1.4;
+}
+
+.act-btn.js-bounds-map:hover {
+  text-decoration: underline;
+  background: none;
+}
+
+
+/* Figure previews */
+.dcard-body--fig {
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.fig-preview {
+  display: flex;
+  flex-direction: column;
+}
+
+.fig-main {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  background: #fff;
+  cursor: pointer;
+  display: block;
+}
+
+.fig-thumb {
+  width: 100%;
+  height: 90px;
+  object-fit: contain;
+  border-top: 1px solid var(--border-s);
+  background: #fff;
+  cursor: pointer;
+}
+
+/* Files card */
+.dcard-body--files {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border-s);
+}
+
+.file-row:last-child {
+  border-bottom: none;
+}
+
+.file-name {
+  flex: 1;
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.file-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* Linked / associated entries card */
+.dcard-body--links {
+  padding: 0;
+}
+
+.link-row {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border-s);
+}
+
+.link-row:last-child {
+  border-bottom: none;
+}
+
+.link-row-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+
+
+.link-entry-name {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+a.link-entry-name {
+  color: var(--accent);
+}
+
+.link-hash {
+  color: var(--faint);
+  font-size: 10px;
+  font-family: monospace;
+  margin-left: auto;
+}
+
+.link-param-name {
+  font-size: 10px;
+  color: var(--faint);
+  background: var(--s3);
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--border-s);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.link-params,
+.co-params {
+  margin-top: 4px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border-s);
+  margin-left: 2px;
+}
+
+.co-params-diff:empty,
+.co-params-all:empty {
+  display: none !important;
+}
+
+.link-param-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 1px 0;
+  font-size: 11px;
+}
+
+.link-param-key {
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.link-param-val {
+  color: var(--muted);
+  font-family: monospace;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------
+   JSON explorer — params card + JSON file popups
+   ------------------------------------------------------------ */
+
+.dcard-body--params {
+  padding: 10px 14px;
+}
+
+
+.jx-popup-wrap {
+  padding: 14px 18px;
+  overflow: auto;
+  max-height: 74vh;
+}
+
+.jx-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 12px;
+  font-family: monospace;
+}
+
+.jx-list .jx-list {
+  padding-left: 18px;
+  border-left: 2px solid var(--border-s);
+  margin-left: 6px;
+}
+
+.jx-item {
+  margin: 0;
+  padding: 0;
+}
+
+.jx-row {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 2px 0;
+  line-height: 1.6;
+  min-height: 22px;
+}
+
+.jx-toggle {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--faint);
+  font-size: 10px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+}
+
+.jx-toggle:hover { background: var(--border-s); color: var(--text); }
+
+.jx-toggle::before { content: "▾"; }
+.jx-toggle:not(.jx-open)::before { content: "▸"; }
+
+.jx-leaf-dot {
+  flex-shrink: 0;
+  width: 14px;
+  display: inline-block;
+}
+
+.jx-key {
+  color: var(--text);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.jx-sep {
+  color: var(--faint);
+  flex-shrink: 0;
+}
+
+.jx-val {
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.jx-cls {
+  color: var(--accent);
+  font-style: italic;
+}
+
+.jx-dim {
+  color: var(--faint);
+  font-size: 10px;
+}

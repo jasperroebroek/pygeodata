@@ -1,0 +1,255 @@
+/* ============================================================
+   layout.css — top-level layout: topbar, app-layout grid,
+   sidebar/main/detail pane sizing, view-entries/view-code panes.
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   Shared transitions
+   ------------------------------------------------------------ */
+
+.kind-tab,
+.seg-btn,
+.act-btn,
+.add-row-btn,
+.rm-filter-btn,
+.spec-pill,
+.modal-close,
+.sb-section-hd,
+.class-card,
+.ghost-btn,
+tr.row-entry {
+  transition: .12s;
+}
+
+
+/* ------------------------------------------------------------
+   Top bar
+   ------------------------------------------------------------ */
+
+.topbar {
+  height: var(--topbar-h);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  gap: 12px;
+}
+
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+/* Topbar icon buttons (ⓘ, ↺) */
+.topbar-icon-btn {
+  font-size: 15px;
+  padding: 0 4px;
+  line-height: 1;
+  color: var(--muted);
+}
+.topbar-icon-btn:hover { color: var(--accent); }
+.topbar-icon-btn:disabled { opacity: 0.4; }
+
+/* View tabs (Entries / Code) — plain text with underline active state */
+.view-tabs { display: flex; gap: 2px; }
+.view-tab {
+  padding: 0 10px;
+  height: var(--topbar-h);
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  border-radius: 0;
+  margin-bottom: -1px;
+}
+.view-tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+.view-tab:hover:not(.active) {
+  color: var(--text);
+}
+
+/* .view-entries wraps the full app-layout — no extra styles needed */
+
+
+/* Thin vertical rule separating view-tabs from toolbar controls */
+.topbar-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  flex-shrink: 0;
+  margin: 0 4px;
+}
+
+/* Toolbar section inside topbar — groups of controls that show/hide per view */
+.topbar-toolbar-section {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+
+/* ------------------------------------------------------------
+   App layout  (single layout, replaces old .screen system)
+   ------------------------------------------------------------ */
+
+.app-layout {
+  height: calc(100vh - var(--topbar-h));
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+.app-layout .sidebar {
+  flex: 0 0 var(--sidebar-w);
+  min-width: var(--sidebar-w);
+}
+
+/* Compact mode: main pane matches sidebar width */
+.app-layout.mode-compact .main-pane {
+  flex: 0 0 var(--sidebar-w);
+  min-width: 160px;
+}
+
+/* Detailed mode: main pane takes remaining space */
+.app-layout.mode-detailed .main-pane {
+  flex: 1 1 0;
+  min-width: 340px;
+}
+
+.app-layout .detail-pane {
+  flex: 0 0 var(--detail-w);
+  min-width: 200px;
+  max-width: 80vw;
+}
+
+/* In compact mode the detail pane fills remaining space instead */
+.app-layout.mode-compact .detail-pane {
+  flex: 1 1 0;
+}
+
+.resize-handle {
+  flex: 0 0 5px;
+  cursor: col-resize;
+  background: var(--border);
+  transition: background 0.15s;
+  z-index: 10;
+}
+
+.app-layout.mode-compact .resize-handle {
+  display: none;
+}
+
+.resize-handle:hover,
+.resize-handle.dragging {
+  background: var(--accent);
+}
+
+.sidebar,
+.main-pane,
+.detail-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.sidebar {
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.detail-pane {
+  border-left: 1px solid var(--border);
+}
+
+
+/* ------------------------------------------------------------
+   Pane headers
+   ------------------------------------------------------------ */
+
+.main-hd,
+.detail-hd {
+  padding: 0 14px;
+  height: 42px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  background: var(--surface);
+}
+
+.main-hd {
+  gap: 8px;
+}
+
+.main-hd-spacer { flex: 1; }
+
+.pane-title {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.main-hd-spacer { flex: 1; }
+
+.count-chip {
+  font-size: 10px;
+  background: var(--s3);
+  color: var(--muted);
+  padding: 1px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+
+/* ------------------------------------------------------------
+   Scrollable pane bodies
+   ------------------------------------------------------------ */
+
+.table-scroll {
+  flex: 1 1 0;
+  overflow: auto;
+  padding: 0;
+}
+
+.detail-scroll {
+  flex: 1 1 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Cards must not shrink and are capped at a readable width */
+.detail-scroll > .dcard {
+  flex-shrink: 0;
+  max-width: 680px;
+}
+
+
+.detail-empty,
+.empty-list {
+  font-size: 12px;
+  color: var(--faint);
+  padding: 8px 2px;
+}

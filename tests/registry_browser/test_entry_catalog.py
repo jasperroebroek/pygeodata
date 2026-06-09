@@ -158,7 +158,6 @@ def make_process_result(**kwargs):
         linked_entries=[],
         primary_file=None,
         warnings=[],
-        derived=False,
         error=None,
     )
     defaults.update(kwargs)
@@ -273,15 +272,6 @@ def test_process_params_path_basic(tmp_path):
     assert result.params == {'year': 2020}
 
 
-def test_process_params_path_missing_class_name_warns(tmp_path):
-    d = tmp_path / 'data_processed' / 'MyLoader'
-    params_path = write_cache_entry(
-        d, 'abc',
-        state={JSONKeys.STATE_HASH: 'abc'},  # no CLASS_NAME
-    )
-    result = _process_params_path(params_path)
-    assert result.derived is True
-    assert any('derived' in w.lower() or 'class name' in w.lower() for w in result.warnings)
 
 
 def test_process_params_path_missing_state_hash_warns(tmp_path):
@@ -432,12 +422,6 @@ def test_discover_entries_missing_state_hash_diagnostic(tmp_path):
     _, _, diag = discover_entries()
     assert len(diag['missing_state_hash']) == 1
 
-
-def test_discover_entries_derived_class_name_diagnostic(tmp_path):
-    d = tmp_path / 'data_processed' / 'MyLoader'
-    write_cache_entry(d, 'abc', state={JSONKeys.STATE_HASH: 'abc'})  # no CLASS_NAME
-    _, _, diag = discover_entries()
-    assert len(diag['derived_class_name']) == 1
 
 
 def test_discover_entries_hash_collision_diagnostic(tmp_path):

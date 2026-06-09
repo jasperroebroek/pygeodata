@@ -435,11 +435,16 @@ class Artifact(TrackedObject, ABC):
 
             produced = self._process(spec)
             artifacts = () if produced is None else tuple(produced)
-            all_artifacts = (*artifacts, self)
-            all_hashes = [(a, a.get_state_hash(spec)) for a in all_artifacts]
 
-            for artifact in all_artifacts:
-                others = tuple(h for a, h in all_hashes if a is not artifact)
+            # Deduplicate by state hash; self appended last so yielded artifacts take precedence
+            seen: dict[str, Artifact] = {}
+            for a in (*artifacts, self):
+                h = a.get_state_hash(spec)
+                if h not in seen:
+                    seen[h] = a
+
+            for state_hash, artifact in seen.items():
+                others = tuple(h for h in seen if h != state_hash)
                 artifact.update_registry()
                 artifact.write_parameters(spec)
                 artifact.write_spec(spec)

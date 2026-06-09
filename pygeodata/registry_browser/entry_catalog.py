@@ -7,9 +7,9 @@ from pathlib import Path
 
 from pygeodata import Artifact
 from pygeodata.config import JSONKeys, get_config
+from pygeodata.file_utils import classify_file
 from pygeodata.paths import CACHE_DIR_SUFFIXES, CACHE_META_SUFFIXES, CachePathResolver
 from pygeodata.registry_browser.class_catalog import source_info_from_disk
-from pygeodata.file_utils import classify_file
 from pygeodata.registry_browser.io_utils import existing_path_str, read_json_dict
 from pygeodata.registry_browser.models import (
     EntryInfo,
@@ -156,12 +156,7 @@ def _process_params_path(params_path: Path) -> ProcessResult:
     state = read_json_dict(resolver.state_hash_path)
     spec = read_json_dict(resolver.spec_path)
 
-    class_name = state.get(JSONKeys.CLASS_NAME)
-    derived = False
-    if not class_name:
-        class_name = resolver.stem
-        warnings.append('Class name derived from params path (hash.json had no class_name)')
-        derived = True
+    class_name = state.get(JSONKeys.CLASS_NAME) or resolver.stem
 
     state_hash = state.get(JSONKeys.STATE_HASH)
     if not state_hash:
@@ -195,7 +190,6 @@ def _process_params_path(params_path: Path) -> ProcessResult:
         linked_entries=linked_entries,
         primary_file=primary_file,
         warnings=warnings,
-        derived=derived,
     )
 
 
@@ -229,7 +223,6 @@ def discover_entries(
     diagnostics: dict = {
         'resolver_failures': [],
         'missing_state_hash': [],
-        'derived_class_name': [],
         'hash_collisions': [],
         'scanned_params_paths': len(params_paths),
         'created_entries': 0,
@@ -276,8 +269,6 @@ def discover_entries(
 
         if not result.state_hash:
             diagnostics['missing_state_hash'].append(result.params_path_str)
-        if result.derived:
-            diagnostics['derived_class_name'].append(result.params_path_str)
 
         record_id, collision = _unique_record_id(result.state_hash, result.params_path_str, set(entries))
         warnings = result.warnings
@@ -316,6 +307,7 @@ def discover_entries(
             primary_file=result.primary_file,
             warnings=warnings,
             dep_hash_stale=dep_hash_stale,
+            dep_hash=result.stored_dep_hash,
         )
         groups.setdefault(
             class_name,

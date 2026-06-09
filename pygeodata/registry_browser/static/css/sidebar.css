@@ -1,0 +1,396 @@
+/* ============================================================
+   sidebar.css — sidebar sections, collapsible sections, sb-section,
+   kind tabs, pills row, class list, class cards, spec pills,
+   version select, filter rows, toggle buttons.
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   Sidebar sections
+   ------------------------------------------------------------ */
+
+.sb-section {
+  flex-shrink: 0;
+  background: var(--surface);
+  margin: 0 8px;
+  border-radius: 8px;
+  overflow: hidden;
+  outline: 1px solid var(--border-s);
+}
+
+.sb-section + .sb-section {
+  margin-top: 8px;
+}
+
+
+/* Count row — always visible above filter pills */
+.sb-count-row {
+  padding: 10px 14px 4px;
+  flex-shrink: 0;
+}
+
+/* Active pills row */
+.sb-pills-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 14px 12px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  min-height: 0;
+}
+
+/* When no filters: hide pills, show the "no filters" hint */
+.sb-pills-row.pills-empty .active-pills { display: none; }
+.sb-pills-row.pills-empty .clear-all-btn { display: none !important; }
+.sb-no-filters {
+  font-size: 11px;
+  color: var(--faint);
+  font-style: italic;
+}
+.sb-pills-row:not(.pills-empty) .sb-no-filters { display: none; }
+
+.sb-section-hd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 36px;
+  padding: 0 14px;
+  background: var(--s2);
+  border: none;
+  cursor: default;
+  text-align: left;
+}
+
+/* Only collapsible section headers respond to hover */
+.collapsible .sb-section-hd:hover {
+  background: var(--s3);
+  cursor: pointer;
+}
+
+.class-list-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.class-filter-row {
+  padding: 10px 12px 2px;
+}
+.class-filter-row .code-filter {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 11px;
+  padding: 2px 6px;
+}
+
+.sb-section-title {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--faint);
+  flex: 1;
+}
+
+.sb-section-meta,
+.sb-chevron,
+.sb-label {
+  font-size: 10px;
+  color: var(--faint);
+}
+
+.display-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.display-row--snapshot {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.version-select {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 12px;
+  color: var(--text);
+  outline: none;
+  cursor: pointer;
+}
+.version-select:focus { border-color: var(--accent); }
+
+/* Collapsible body */
+.collapsible .sb-section-body {
+  display: none;
+  padding: 10px 12px 12px;
+  background: var(--surface);
+}
+
+.collapsible.open .sb-section-body {
+  display: block;
+}
+
+.collapsible.open .sb-chevron {
+  transform: rotate(180deg);
+}
+
+/* Classes section grows to fill remaining sidebar space */
+.sb-section--classes {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-bottom: none;
+  margin-bottom: 8px;
+}
+
+.sb-section--classes .class-list {
+  flex: 1 1 0;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 6px 10px 10px;
+}
+
+
+/* ------------------------------------------------------------
+   Kind tabs — pill/chip style
+   ------------------------------------------------------------ */
+
+/* Grouped tabs: shared background container makes the group read as one unit */
+.kind-group {
+  display: flex;
+  gap: 2px;
+  background: var(--s2);
+  border-radius: 999px;
+  padding: 2px;
+}
+
+/* Standalone tabs (no grouping background) */
+.kind-tabs {
+  display: flex;
+  gap: 3px;
+}
+
+.kind-tab {
+  padding: 2px 10px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.kind-tab.active {
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.kind-tab:hover:not(.active) {
+  background: var(--s3);
+  color: var(--text);
+}
+
+
+/* ------------------------------------------------------------
+   Sidebar inputs, selects, filter rows
+   ------------------------------------------------------------ */
+
+.sb-input,
+.sb-select,
+.filter-row select,
+.filter-row input {
+  padding: 5px 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 12px;
+  outline: none;
+}
+
+.sb-select:focus,
+.filter-row select:focus,
+.filter-row input:focus {
+  border-color: var(--accent);
+}
+
+.logic-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 7px;
+  margin-top: 6px;
+}
+
+/* Filter rows */
+.filter-row {
+  display: grid;
+  grid-template-columns: 62px auto 1fr 22px;
+  gap: 3px;
+  margin-bottom: 4px;
+  align-items: center;
+}
+
+.filter-row select {
+  min-width: 0;
+  padding: 4px 4px;
+}
+
+.filter-row input {
+  min-width: 0;
+  width: 100%;
+}
+
+.rm-filter-btn {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--faint);
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rm-filter-btn:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.fr-clear:hover {
+  border-color: var(--muted);
+  color: var(--muted);
+}
+
+.add-row-btn {
+  margin-top: 5px;
+  width: 100%;
+  padding: 4px;
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.add-row-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Spec pill groups */
+.spec-grid-sidebar {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 12px;
+}
+
+.spec-group--wide {
+  grid-column: 1 / -1;
+}
+
+.spec-group .sb-label {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.spec-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.spec-pill {
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.spec-pill:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.spec-pill.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.spec-pill.active:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+
+/* ------------------------------------------------------------
+   Class cards
+   ------------------------------------------------------------ */
+
+.class-card {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  margin-bottom: 1px;
+}
+
+.class-card:hover {
+  background: var(--s3);
+}
+
+.class-card--dim {
+  opacity: 0.35;
+}
+
+.class-card.filtered {
+  background: var(--accent-bg);
+}
+
+.class-card-name {
+  font-size: 12px;
+  font-weight: 500;
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+
+.class-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+
+.class-card-count {
+  font-size: 10px;
+  color: var(--faint);
+  white-space: nowrap;
+}

@@ -133,7 +133,7 @@ class TrackedObject:
             cls.get_class_name(): {
                 'hash': calculate_cls_source_hash(cls),
                 'object_type': cls.object_type.get_class_name(),
-            }
+            },
         }
 
         if cls in visited:
@@ -240,35 +240,64 @@ class TrackedObject:
         return calculate_dict_hash(tree)
 
     @classmethod
+    def _previously_active_source_hash(cls) -> str | None:
+        """Return the source_hash from the most-recent ``source.json`` for this class.
+
+        Scans ``.source/code/*/source.json`` for entries matching this class and returns
+        the hash of the entry with the greatest mtime.  Returns ``None`` if none exists.
+        """
+        code_root = Path(get_config().path_registry) / 'code'
+        if not code_root.exists():
+            return None
+        best_mtime = ''
+        best_hash: str | None = None
+        for meta_path in code_root.glob('*/source.json'):
+            try:
+                data = json.loads(meta_path.read_text(encoding='utf-8'))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if data.get(JSONKeys.CLASS_NAME) != cls.get_class_name():
+                continue
+            mtime = data.get(JSONKeys.REGISTERED_AT, '')
+            if mtime > best_mtime:
+                best_mtime = mtime
+                best_hash = data.get(JSONKeys.SOURCE_HASH)
+        return best_hash
+
+    @classmethod
     def _write_code_registry(cls) -> None:
         """Write source code and metadata to ``.source/code/{source_hash}/``.
 
-        Idempotent: skips writing only when both ``source.py`` and ``source.json`` are present.
-        Checking both guards against partial writes from an interrupted previous run — if either
-        file is missing the whole snapshot is rewritten. Both files are written atomically via
-        a temp file and ``os.replace``, so concurrent callers writing the same content race
-        harmlessly.
+        ``source.py`` is content-addressed and written once.  ``source.json`` is written
+        on first use and its mtime is refreshed whenever this hash is re-activated after
+        a different hash was active (i.e. a revert).  This keeps the mtime accurate for
+        version resolution in the Code browser.
         """
         source_hash = calculate_cls_source_hash(cls)
         resolver = CodeRegistryResolver.from_source_hash(source_hash)
         resolver.directory.mkdir(parents=True, exist_ok=True)
-        if not (resolver.source_path.exists() and resolver.meta_path.exists()):
+
+        if not resolver.source_path.exists():
             _atomic_write_text(resolver.source_path, get_source_code(cls))
-            _atomic_write_json(resolver.meta_path, {
-                JSONKeys.CLASS_NAME: cls.get_class_name(),
-                JSONKeys.OBJECT_TYPE: cls.object_type.get_class_name(),
-                JSONKeys.SOURCE_HASH: source_hash,
-                'mtime': datetime.now(timezone.utc).isoformat(),
-            })
+
+        now = datetime.now(timezone.utc).isoformat()
+        meta = {
+            JSONKeys.CLASS_NAME: cls.get_class_name(),
+            JSONKeys.OBJECT_TYPE: cls.object_type.get_class_name(),
+            JSONKeys.SOURCE_HASH: source_hash,
+            JSONKeys.REGISTERED_AT: now,
+        }
+
+        previously_active = cls._previously_active_source_hash()
+        if not resolver.meta_path.exists() or (previously_active is not None and previously_active != source_hash):
+            _atomic_write_json(resolver.meta_path, meta)
 
     @classmethod
     def _write_tree_registry(cls) -> None:
         """Write the dependency tree and graph to ``.source/snapshots/{dep_tree_hash}/``.
 
-        Idempotent: skips writing only when all expected files are present — ``tree.json``
-        always, and ``graph.pdf`` when the class has dependencies. Checking all expected
-        files guards against partial writes from an interrupted previous run. ``tree.json``
-        is written atomically via a temp file and ``os.replace``.
+        Skips writing only when all expected files are present — ``tree.json``
+        always, and ``graph.pdf`` when the class has dependencies.
         """
         dep_tree_hash = cls.get_dependency_tree_hash()
         resolver = TreeRegistryResolver.from_dep_tree_hash(dep_tree_hash)

@@ -9,33 +9,59 @@
 <body>
 <nav class="topbar">
   <div class="topbar-left">
-    <button class="topbar-logo" id="btn-diag">Registry</button>
-    <button class="ghost-btn back-btn" id="btn-back" title="Go back">&#8592;</button>
-    <button class="ghost-btn back-btn" id="btn-forward" title="Go forward">&#8594;</button>
-    <div class="topbar-screens">
-      <button class="screen-tab active" data-mode="compact">Compact</button>
-      <button class="screen-tab" data-mode="detailed">Detailed</button>
+    <div class="view-tabs">
+      <button class="view-tab active" data-view="entries">Entries</button>
+      <button class="view-tab" data-view="code">Code</button>
     </div>
-  </div>
-  <div class="topbar-right">
-    <span id="topbar-counts"></span>
-    <button class="ghost-btn topbar-reload-btn" id="btn-reload" title="Reimport from disk">↺ Reload</button>
-  </div>
-</nav>
-
-<div class="app-layout mode-compact">
-  <aside class="sidebar" id="entries-sidebar">
-    <div class="sb-section sb-section--kind">
-      <div class="kind-tabs" id="kind-tabs">
+    <div class="topbar-sep"></div>
+    <div id="entries-toolbar" class="topbar-toolbar-section">
+      <div class="kind-group" id="kind-tabs">
         <button class="kind-tab active" data-kind="all">All</button>
         <button class="kind-tab" data-kind="data">Data</button>
         <button class="kind-tab" data-kind="figure">Figure</button>
       </div>
     </div>
+    <div id="code-toolbar" class="topbar-toolbar-section" style="display:none">
+      <div class="kind-group" id="code-browse-tabs">
+        <button class="kind-tab active" data-browse="version">By version</button>
+        <button class="kind-tab" data-browse="class">By class</button>
+      </div>
+      <div class="kind-group" id="code-kind-tabs">
+        <button class="kind-tab active" data-code-kind="all">All</button>
+        <button class="kind-tab" data-code-kind="data">Data</button>
+        <button class="kind-tab" data-code-kind="figure">Figure</button>
+      </div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <div id="entries-toolbar-right" class="topbar-toolbar-section">
+      <div class="kind-group" id="entries-screen-tabs">
+        <button class="kind-tab active" data-mode="compact">Compact</button>
+        <button class="kind-tab" data-mode="detailed">Detailed</button>
+      </div>
+      <div class="kind-group" id="display-seg">
+        <button class="kind-tab" data-val="selected">Selected params</button>
+        <button class="kind-tab active" data-val="all">All params</button>
+      </div>
+      <div class="kind-group"><button class="kind-tab" id="btn-hide-stale">Hide stale</button></div>
+    </div>
+    <div id="code-toolbar-right" class="topbar-toolbar-section" style="display:none">
+    </div>
+    <button class="ghost-btn topbar-icon-btn" id="btn-diag" title="Diagnostics">ⓘ</button>
+    <button class="ghost-btn topbar-icon-btn" id="btn-reload" title="Reimport from disk">↺</button>
+  </div>
+</nav>
 
+<div class="view-entries">
+<div class="app-layout mode-compact">
+  <aside class="sidebar" id="entries-sidebar">
+    <div class="sb-count-row">
+      <span class="count-chip" id="entry-count"></span>
+    </div>
     <div class="sb-pills-row pills-empty" id="pills-row">
       <div class="active-pills" id="active-pills"></div>
       <button class="clear-all-btn hidden" id="btn-clear-all" title="Clear all filters">Clear all</button>
+      <span class="sb-no-filters">No filters active</span>
     </div>
 
     <div class="sb-section collapsible" id="sec-search">
@@ -46,10 +72,10 @@
       <div class="sb-section-body">
         <div class="logic-row">
           <span class="sb-label">Mode</span>
-          <div class="seg" id="logic-seg">
-            <button class="seg-btn active" data-val="AND">AND</button>
-            <button class="seg-btn" data-val="OR">OR</button>
-            <button class="seg-btn" data-val="NOT">NOT</button>
+          <div class="kind-tabs" id="logic-seg">
+            <button class="kind-tab active" data-val="AND">AND</button>
+            <button class="kind-tab" data-val="OR">OR</button>
+            <button class="kind-tab" data-val="NOT">NOT</button>
           </div>
         </div>
         <div id="filter-rows"></div>
@@ -80,6 +106,18 @@
       </div>
     </div>
 
+    <div class="sb-section collapsible" id="sec-display">
+      <button class="sb-section-hd" data-target="sec-display">
+        <span class="sb-section-title">Snapshots</span>
+        <span class="sb-chevron">▾</span>
+      </button>
+      <div class="sb-section-body">
+        <select class="version-select" id="version-select">
+          <option value="all">All snapshots</option>
+        </select>
+      </div>
+    </div>
+
     <div class="sb-section sb-section--classes" id="sec-classes">
       <div class="sb-section-hd sb-section-hd--static" id="btn-classes-hd">
         <span class="sb-section-title">Classes</span>
@@ -89,27 +127,14 @@
           <button class="toggle-btn" id="btn-multi-select">Multi-select</button>
         </div>
       </div>
+      <div class="class-filter-row">
+        <input class="code-filter" id="entry-class-filter" placeholder="Filter classes…">
+      </div>
       <div class="class-list" id="class-list"></div>
     </div>
   </aside>
 
   <main class="main-pane" id="main-pane">
-    <div class="main-hd">
-      <div class="main-hd-left">
-        <span class="pane-title" id="main-pane-title">Entries</span>
-        <span class="count-chip" id="entry-count"></span>
-      </div>
-      <div class="main-hd-right">
-        <button class="seg-btn seg-btn--standalone" id="btn-hide-stale">Hide stale</button>
-        <div id="display-seg-wrap">
-          <div class="seg" id="display-seg">
-            <button class="seg-btn" data-val="selected">Selected params</button>
-            <button class="seg-btn active" data-val="all">All params</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- Compact view: pill list of entries -->
     <div class="entry-pill-list" id="entry-pill-list"></div>
 
@@ -130,9 +155,33 @@
 
   <div class="resize-handle" id="resize-handle"></div>
   <aside class="detail-pane" id="detail-pane">
-    <div class="detail-hd"><span class="pane-title">Detail</span></div>
     <div class="detail-scroll" id="entry-detail"></div>
   </aside>
+</div>
+
+</div><!-- .view-entries -->
+
+<div class="view-code" style="display:none">
+  <div class="code-pane code-pane--versions">
+    <div class="code-pane-filter-row" id="code-versions-filter-row">
+      <input class="code-filter" id="code-filter-classes" placeholder="Filter classes…" style="display:none">
+    </div>
+    <div class="code-version-list" id="code-version-list"></div>
+  </div>
+  <div class="code-pane code-pane--classes">
+    <div class="code-pane-filter-row">
+      <input class="code-filter" id="code-filter" placeholder="Filter…">
+    </div>
+    <div class="code-class-list" id="code-class-list"></div>
+  </div>
+  <div class="code-pane code-pane--source">
+    <div class="code-source-actions" id="code-source-hd">
+      <span class="pane-title" id="code-source-title"></span>
+      <span class="main-hd-spacer"></span>
+      <button class="kind-tab" id="btn-find-in-entries" style="display:none">Find in entries</button>
+    </div>
+    <div class="code-source-panel" id="code-source-panel"></div>
+  </div>
 </div>
 
 <div class="modal-backdrop" id="modal">

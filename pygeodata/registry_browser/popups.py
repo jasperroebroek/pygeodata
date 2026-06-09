@@ -7,6 +7,7 @@ from pathlib import Path
 
 from pygeodata.ast import get_source_code
 from pygeodata.graphs import plot_class_dependency_graph
+from pygeodata.registry_browser.class_catalog import scan_code_snapshots
 from pygeodata.registry_browser.io_utils import read_text
 from pygeodata.tracked_object import TrackedObject
 
@@ -48,6 +49,12 @@ def build_json_popup(file_path: str) -> dict:
     }
 
 
+def render_source_html(source_text: str, known_classes: frozenset[str], current_class: str) -> str:
+    escaped = html.escape(source_text)
+    linked = _linkify_class_names(escaped, known_classes, current_class)
+    return f'<pre class="code-popup"><code>{linked}</code></pre>'
+
+
 def build_source_popup(class_name: str, source_path: str | None = None) -> dict[str, str]:
     cls = TrackedObject.find_object_class(class_name)
 
@@ -62,10 +69,9 @@ def build_source_popup(class_name: str, source_path: str | None = None) -> dict[
         logger.error('Cannot build source popup: class not in registry and no source_path: %s', class_name)
         raise KeyError(class_name)
 
-    known_classes = frozenset(TrackedObject._registry.keys())
-    escaped = _linkify_class_names(html.escape(source), known_classes, class_name)
-
-    body = f'<pre class="code-popup"><code>{escaped}</code></pre>'
+    groups = scan_code_snapshots()
+    known_classes = frozenset(TrackedObject._registry.keys()) | frozenset(groups.keys())
+    body = render_source_html(source, known_classes, class_name)
 
     return {
         'title': f'Source · {class_name}',

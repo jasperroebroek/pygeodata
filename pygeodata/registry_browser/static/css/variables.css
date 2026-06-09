@@ -1,0 +1,87 @@
+/* ============================================================
+   variables.css — CSS custom properties, reset, and base styles
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   Design tokens
+   ------------------------------------------------------------ */
+
+:root {
+  /* Backgrounds */
+  --bg:         #f0efeb;
+  --surface:    #fff;
+  --s2:         #f8f7f4;
+  --s3:         #edecea;
+
+  /* Borders */
+  --border:     #dbd8d1;
+  --border-s:   #e8e6e1;
+
+  /* Text */
+  --text:       #1e1f1b;
+  --muted:      #676960;
+  --faint:      #9a9c94;
+
+  /* Accent (teal) */
+  --accent:     #0b6668;
+  --accent-bg:  #d6e9e9;
+  --accent-bg2: #ecf5f5;
+  --accent-mid: #bad4d4;
+
+  /* Semantic colours */
+  --warn:       #8f5f20;
+  --warn-bg:    #f3e8d2;
+  --danger:     #8c3824;
+  --danger-bg:  #f2ddd6;
+
+  /* Layout */
+  --topbar-h:      42px;
+  --sidebar-w:      400px;
+  --detail-w:       700px;
+  --compact-pane-w: 320px;
+}
+
+
+/* ------------------------------------------------------------
+   Reset & base
+   ------------------------------------------------------------ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font: 13px/1.5 Inter, system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+.hidden {
+  display: none !important;
+}

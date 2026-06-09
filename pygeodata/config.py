@@ -68,3 +68,4 @@ class JSONKeys(StrEnum):
     CALL_DEPENDENCIES = 'call_dependencies'
     INHERITANCE_DEPENDENCIES = 'inheritance_dependencies'
     DEPENDENCIES = 'dependencies'
+    REGISTERED_AT = 'registered_at'

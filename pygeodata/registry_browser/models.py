@@ -10,6 +10,12 @@ from pygeodata.types import SpecKeys
 
 
 @dataclass(slots=True)
+class VersionInfo:
+    mtime: str
+    class_name: str
+
+
+@dataclass(slots=True)
 class RegistryClassInfo:
     object_type: str | None = None
     call_dependency_names: list[str] = field(default_factory=list)
@@ -19,6 +25,7 @@ class RegistryClassInfo:
     source_path: str | None = None
     graph_path: str | None = None
     registry_path: str | None = None
+    tree_path: str | None = None
 
 
 @dataclass(slots=True)
@@ -148,7 +155,6 @@ class ProcessResult:
     linked_entries: list[LinkedEntry]
     primary_file: FileRef | None
     warnings: list[str]
-    derived: bool
     error: str | None = None
 
 
@@ -173,6 +179,7 @@ class EntryInfo:
     warnings: list[str] = field(default_factory=list)
     error: str | None = None
     dep_hash_stale: bool = False
+    dep_hash: str | None = None
 
 
 @dataclass(slots=True)
@@ -192,5 +199,6 @@ class ClassInfo:
     class_source_path: str | None = None
     class_graph_path: str | None = None
     class_registry_path: str | None = None
+    class_tree_path: str | None = None
     source_stale: bool = False  # live source hash ≠ stored source hash
     deps_stale: bool = False  # live dependency_tree_hash ≠ stored dependency_tree_hash

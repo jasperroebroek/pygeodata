@@ -35,6 +35,48 @@ def _extract_dep_names(tree_data: dict, dep_type: str) -> list[str]:
     return sorted(root_node.get(dep_type, {}).keys())
 
 
+def scan_code_snapshots() -> dict[str, list[dict]]:
+    """Scan ``.source/code/*/source.json`` and return all versions grouped by class_name.
+
+    Each entry includes ``{source_hash, mtime, object_type, is_version_change}`` where
+    ``mtime`` holds the ``registered_at`` value from ``source.json``.
+    ``is_version_change`` is ``True`` for all entries except the one with the oldest
+    ``registered_at`` per class (the initial registration).  Lists are unsorted.
+    """
+    code_root = Path(get_config().path_registry) / 'code'
+    groups: dict[str, list[dict]] = {}
+    if not code_root.exists():
+        return groups
+    for meta_path in code_root.glob('*/source.json'):
+        try:
+            data = json.loads(meta_path.read_text(encoding='utf-8'))
+        except (OSError, json.JSONDecodeError):
+            continue
+        cn = data.get(JSONKeys.CLASS_NAME)
+        if not cn:
+            continue
+        groups.setdefault(cn, []).append({
+            'source_hash': data.get(JSONKeys.SOURCE_HASH, ''),
+            'mtime': data.get(JSONKeys.REGISTERED_AT, ''),
+            'object_type': data.get(JSONKeys.OBJECT_TYPE, ''),
+        })
+
+    # is_version_change marks entries that represent a genuine code change (not the initial
+    # registration). Only entries 2..N for a class are changes; the oldest entry is the
+    # baseline and does not itself constitute a change event.
+    for entries in groups.values():
+        if len(entries) <= 1:
+            for e in entries:
+                e['is_version_change'] = False
+        else:
+            oldest_mtime = min(e['mtime'] for e in entries)
+            for e in entries:
+                e['is_version_change'] = e['mtime'] != oldest_mtime
+
+    return groups
+
+
+
 def source_info_from_disk(class_name: str) -> RegistryClassInfo:
     """Read class metadata from the content-addressed code registry.
 
@@ -56,7 +98,7 @@ def source_info_from_disk(class_name: str) -> RegistryClassInfo:
         except (OSError, json.JSONDecodeError):
             continue
         if data.get(JSONKeys.CLASS_NAME) == class_name:
-            candidates.append((data.get('mtime', ''), meta_path, data))
+            candidates.append((data.get(JSONKeys.REGISTERED_AT, ''), meta_path, data))
 
     if not candidates:
         return RegistryClassInfo()
@@ -68,6 +110,7 @@ def source_info_from_disk(class_name: str) -> RegistryClassInfo:
     call_dep_names: list[str] = []
     inh_dep_names: list[str] = []
     graph_path_str: str | None = None
+    tree_path_str: str | None = None
 
     snapshots_dir = Path(get_config().path_registry) / 'snapshots'
     if snapshots_dir.exists():
@@ -76,12 +119,12 @@ def source_info_from_disk(class_name: str) -> RegistryClassInfo:
                 tree_data = json.loads(tree_path.read_text(encoding='utf-8'))
             except (OSError, json.JSONDecodeError):
                 continue
-            tree = tree_data.get(JSONKeys.TREE, {})
-            if class_name in tree:
+            if class_name in tree_data.get(JSONKeys.TREE, {}):
                 call_dep_names = _extract_dep_names(tree_data, 'call_dependencies')
                 inh_dep_names = _extract_dep_names(tree_data, 'inheritance_dependencies')
                 graph_path_candidate = tree_path.parent / 'graph.pdf'
                 graph_path_str = str(graph_path_candidate.resolve()) if graph_path_candidate.exists() else None
+                tree_path_str = str(tree_path.resolve())
                 break
 
     return RegistryClassInfo(
@@ -93,13 +136,14 @@ def source_info_from_disk(class_name: str) -> RegistryClassInfo:
         source_path=str(code_resolver.source_path.resolve()) if code_resolver and code_resolver.source_path.exists() else None,
         graph_path=graph_path_str,
         registry_path=str(meta_path.resolve()),
+        tree_path=tree_path_str,
     )
 
 
 def discover_loaded_classes() -> dict[str, ClassInfo]:
     classes: dict[str, ClassInfo] = {}
 
-    for class_name, cls in sorted(TrackedObject._registry.items()):
+    for class_name, cls in TrackedObject._registry.items():
         call_dependency_names = sorted(dep.get_class_name() for dep in cls.get_call_dependencies())
         inheritance_dependency_names = sorted(dep.get_class_name() for dep in cls.get_inheritance_dependencies())
 
@@ -121,6 +165,7 @@ def discover_loaded_classes() -> dict[str, ClassInfo]:
             class_source_path=existing_path_str(code_resolver.source_path),
             class_graph_path=existing_path_str(tree_resolver.graph_path),
             class_registry_path=existing_path_str(code_resolver.meta_path),
+            class_tree_path=existing_path_str(tree_resolver.tree_path),
             source_stale=source_stale,
             deps_stale=deps_stale,
         )
@@ -152,6 +197,7 @@ def merge_unloaded_classes(
             class_source_path=info.source_path,
             class_graph_path=info.graph_path,
             class_registry_path=info.registry_path,
+            class_tree_path=info.tree_path,
         )
 
     return merged

@@ -1,0 +1,523 @@
+/* ============================================================
+   controls.css — shared interactive controls: seg, ghost-btn,
+   back-btn, badges, status dots, loading overlay, toast, modal.
+   ============================================================ */
+
+/* Shared ghost-button base — bordered, no fill, accent on hover */
+.ghost-btn {
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--muted);
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.ghost-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ghost-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.back-btn {
+  flex-shrink: 0;
+}
+
+/* Segmented control */
+.seg {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.seg-btn {
+  padding: 2px 7px;
+  background: var(--surface);
+  border: none;
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.seg-btn:last-child {
+  border-right: none;
+}
+
+.seg-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.seg-btn:hover {
+  background: var(--s3);
+  color: var(--text);
+}
+
+.seg-btn.active:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Standalone toggle that shares seg-btn visuals but sits outside a .seg container */
+.seg-btn--solo {
+  padding: 2px 7px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.seg-btn--solo:hover       { background: var(--s3); color: var(--text); }
+.seg-btn--solo.active      { background: var(--accent); border-color: var(--accent); color: #fff; }
+.seg-btn--solo.active:hover { background: var(--accent); color: #fff; }
+
+
+/* Active-filter pills — now lives in sidebar pills row */
+.active-pills {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--accent-bg);
+  color: var(--accent);
+  border: 1px solid var(--accent-mid);
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pill-filter {
+  background: var(--s3);
+  color: var(--muted);
+  border-color: var(--border);
+  font-weight: 400;
+}
+
+.pill-meta {
+  font-size: 10px;
+  opacity: .7;
+  white-space: nowrap;
+}
+
+.pill-rm {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  opacity: .65;
+  flex-shrink: 0;
+}
+
+.pill-rm:hover {
+  opacity: 1;
+}
+
+.toggle-btn {
+  padding: 2px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  font-size: 10px;
+  cursor: pointer;
+  color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+  line-height: 1.6;
+}
+
+.toggle-btn:hover {
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.toggle-btn.active {
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.clear-all-btn {
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  font-size: 10px;
+  cursor: pointer;
+  color: var(--faint);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.clear-all-btn:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+
+/* Action button — borderless at rest, accent fill on hover */
+.actions {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.act-btn {
+  padding: 3px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--muted);
+  white-space: nowrap;
+  line-height: 1.5;
+}
+
+.act-btn:hover {
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+
+/* Badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 5px;
+  border: 1px solid;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+  letter-spacing: .02em;
+  flex-shrink: 0;
+}
+
+/* Size modifier — compact badges used in table rows and card headers */
+.badge--sm {
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+/* Colour variants */
+.badge-accent   { border-color: var(--accent-mid); color: var(--accent); background: var(--accent-bg); }
+.badge-neutral  { border-color: var(--border);     color: var(--muted);  background: var(--s2); }
+.badge-warn     { border-color: #e0c48a;            color: var(--warn);   background: var(--warn-bg); }
+.badge-danger   { border-color: #d9a898;            color: var(--danger); background: var(--danger-bg); }
+.badge-cache    { border-color: var(--border);      color: var(--muted);  background: var(--s2); }
+.badge-deps     { border-color: #a0bdd0;            color: #4a7a9b;       background: #e8f0f5; }
+
+/* Inline status dot — used in class list cards and entry pill names */
+.status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  vertical-align: middle;
+  margin-left: 5px;
+  flex-shrink: 0;
+}
+.status-dot--cache  { background: var(--border); }
+.status-dot--source { background: var(--warn);   }
+.status-dot--deps   { background: #7a9ab5;       }
+
+
+/* ------------------------------------------------------------
+   Modal
+   ------------------------------------------------------------ */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .28);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.modal-backdrop.open {
+  display: flex;
+}
+
+.modal-card {
+  width: min(1200px, 94vw);
+  height: min(88vh, 960px);
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, .12);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Compact variant — for small informational modals like diagnostics */
+.modal-card--sm {
+  width: min(400px, 94vw);
+  height: auto;
+  max-height: min(88vh, 700px);
+}
+
+.modal-bar {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.modal-close {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.modal-close:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.modal-content {
+  flex: 1;
+  overflow: auto;
+  padding: 14px;
+  background: #fafaf8;
+}
+
+.code-block {
+  font: 12px/1.5 ui-monospace, Menlo, monospace;
+  white-space: pre;
+  overflow: auto;
+}
+
+/* Clickable class names inside source popups */
+.src-cls-link {
+  color: var(--accent);
+  text-decoration: underline dotted;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+.src-cls-link:hover {
+  background: var(--accent-bg);
+  text-decoration: underline;
+}
+
+/* Clickable nodes inside graph SVG popups */
+#modal-body svg .graph > polygon {
+  pointer-events: none;
+}
+
+.graph-node-link {
+  cursor: pointer;
+}
+
+.graph-node-link > path,
+.graph-node-link > polygon,
+.graph-node-link > ellipse {
+  transition: fill 0.12s, stroke 0.12s;
+}
+
+.graph-node-link.hovered > path,
+.graph-node-link.hovered > polygon,
+.graph-node-link.hovered > ellipse {
+  stroke: var(--accent) !important;
+  stroke-width: 2px;
+  fill-opacity: 0.8;
+}
+
+/* Graph SVG inside modal — zoomable wrapper */
+.svg-zoom-wrap {
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-height: 74vh;
+  min-height: 200px;
+  cursor: default;
+}
+
+.svg-zoom-wrap svg {
+  width: 100%;
+  height: auto;
+  max-height: 74vh;
+  display: block;
+  transform-origin: center center;
+}
+
+
+/* ------------------------------------------------------------
+   Diagnostics modal
+   ------------------------------------------------------------ */
+
+.diag-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+/* Section header rows — uppercase label spanning both columns */
+.diag-table tr.diag-section-row td {
+  padding: 18px 0 5px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--faint);
+  border-bottom: 1px solid var(--border-s);
+}
+
+.diag-table tr.diag-section-row:first-child td {
+  padding-top: 4px;
+}
+
+/* Data rows */
+.diag-table .diag-label {
+  padding: 6px 16px 6px 0;
+  color: var(--muted);
+  vertical-align: middle;
+}
+
+.diag-table .diag-val {
+  padding: 6px 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  vertical-align: middle;
+}
+
+/* Warning highlight — shown when a count is > 0 */
+.diag-table tr.diag-warn .diag-label,
+.diag-table tr.diag-warn .diag-val {
+  color: var(--warn);
+}
+
+
+/* ------------------------------------------------------------
+   Toast
+   ------------------------------------------------------------ */
+
+.toast {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  background: #1c1e1a;
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  opacity: 0;
+  transform: translateY(5px);
+  transition: opacity .15s, transform .15s;
+  pointer-events: none;
+  z-index: 60;
+}
+
+.toast.on {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+
+/* ------------------------------------------------------------
+   Scrollbar styling
+   ------------------------------------------------------------ */
+
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 99px;
+}
+
+
+/* ------------------------------------------------------------
+   Loading overlay
+   ------------------------------------------------------------ */
+
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(240, 239, 235, 0.88);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9000;
+}
+
+.loading-overlay.hidden { display: none; }
+
+.loading-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 28px 36px;
+  min-width: 280px;
+  box-shadow: 0 4px 24px rgba(0,0,0,.10);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.loading-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.loading-bar-track {
+  height: 5px;
+  background: var(--border);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.loading-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  border-radius: 99px;
+  transition: width .25s ease;
+}
+
+.loading-sub {
+  font-size: 11px;
+  color: var(--faint);
+}
