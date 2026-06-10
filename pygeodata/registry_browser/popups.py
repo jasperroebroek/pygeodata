@@ -50,9 +50,17 @@ def build_json_popup(file_path: str) -> dict:
 
 
 def render_source_html(source_text: str, known_classes: frozenset[str], current_class: str) -> str:
-    escaped = html.escape(source_text)
-    linked = _linkify_class_names(escaped, known_classes, current_class)
-    return f'<pre class="code-popup"><code>{linked}</code></pre>'
+    lines = source_text.splitlines()
+    rows = []
+    for i, line in enumerate(lines, 1):
+        escaped_line = _linkify_class_names(html.escape(line), known_classes, current_class)
+        rows.append(
+            f'<tr class="diff-ctx">'
+            f'<td class="diff-ln">{i}</td>'
+            f'<td class="diff-code">{escaped_line}</td>'
+            f'</tr>'
+        )
+    return f'<table class="diff-table diff-table--inline source-table">{"".join(rows)}</table>'
 
 
 def build_source_popup(class_name: str, source_path: str | None = None) -> dict[str, str]:

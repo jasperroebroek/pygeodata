@@ -4,7 +4,7 @@ import shutil
 from pathlib import Path
 
 from pygeodata.artifact import Artifact
-from pygeodata.config import JSONKeys, get_config
+from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config
 from pygeodata.paths import CachePathResolver
 from pygeodata.tracked_object import TrackedObject
 
@@ -31,6 +31,14 @@ def read_cache_class_name(hash_path: Path) -> str | None:
         return json.load(f).get(JSONKeys.CLASS_NAME, None)
 
 
+def format_version_matches(hash_path: Path) -> bool:
+    """Return False if the cache entry was written by a different format version."""
+    if not hash_path.exists():
+        return False
+    with hash_path.open(encoding='utf-8') as f:
+        return json.load(f).get(JSONKeys.FORMAT_VERSION) == FORMAT_VERSION
+
+
 def hash_matches_live(hash_path: Path) -> bool | None:
     if not hash_path.exists():
         return False
@@ -47,19 +55,12 @@ def hash_matches_live(hash_path: Path) -> bool | None:
     return saved_state.get(JSONKeys.DEPENDENCY_TREE_HASH, None) == class_object.get_dependency_tree_hash()
 
 
-def handle_invalid(path: Path, dry_run: bool, hash_path: Path | None = None) -> None:
-    if hash_path is None:
-        label = 'Invalid'
-    elif not hash_path.exists():
-        label = 'Hash missing'
-    else:
-        label = 'Hash wrong'
-
+def handle_invalid(path: Path, dry_run: bool, label: str, class_name: str | None = None) -> None:
+    suffix = f' ({class_name})' if class_name else ''
     if dry_run:
-        print(f'[dry_run] {label}: {path}')
+        print(f'[dry_run] {label}{suffix}: {path}')
         return
-
-    print(f'[Deleting] {label}: {path}')
+    print(f'[Deleting] {label}{suffix}: {path}')
     if path.is_dir():
         shutil.rmtree(path)
     else:
@@ -114,8 +115,12 @@ def _purge_dir(dirpath: Path, hash_files: list[Path], dry_run: bool, delete_unre
     """
     if not hash_files:
         data_files = [dirpath / f for f in dirpath.iterdir() if not f.name.startswith('.')]
-        expected_hash = CachePathResolver.from_path(data_files[0]).state_hash_path if len(data_files) == 1 else None
-        handle_invalid(dirpath, dry_run=dry_run, hash_path=expected_hash)
+        if not data_files:
+            label = 'Invalid (empty dir)'
+        else:
+            expected_hash = CachePathResolver.from_path(data_files[0]).state_hash_path if len(data_files) == 1 else None
+            label = 'Hash missing' if (expected_hash is not None and not expected_hash.exists()) else 'Invalid'
+        handle_invalid(dirpath, dry_run=dry_run, label=label)
         return True
 
     if len(hash_files) > 1:
@@ -131,19 +136,26 @@ def _purge_dir(dirpath: Path, hash_files: list[Path], dry_run: bool, delete_unre
                 stem = _stem_from_hash_file(hp)
                 zarr_candidate = dirpath / f'{stem}.zarr'
                 data_path = zarr_candidate if zarr_candidate.exists() else dirpath / stem
-                handle_invalid(data_path, dry_run=dry_run, hash_path=hp)
+                handle_invalid(data_path, dry_run=dry_run, label='Hash wrong', class_name=read_cache_class_name(hp))
             return False
-        handle_invalid(dirpath, dry_run=dry_run)
+        handle_invalid(dirpath, dry_run=dry_run, label='Invalid')
         return True
 
     hash_path = hash_files[0]
+    class_name = read_cache_class_name(hash_path)
+
+    if not format_version_matches(hash_path):
+        handle_invalid(dirpath, dry_run=dry_run, label='Format version mismatch', class_name=class_name)
+        return True
+
     valid = hash_matches_live(hash_path)
 
     if valid is None and _delete_manually(hash_path, delete_unregistered):
         valid = False
 
     if not valid:
-        handle_invalid(dirpath, dry_run=dry_run, hash_path=hash_path)
+        label = 'Hash missing' if not hash_path.exists() else 'Hash wrong'
+        handle_invalid(dirpath, dry_run=dry_run, label=label, class_name=class_name)
         return True
 
     return False
@@ -186,3 +198,24 @@ def rebuild_registry() -> None:
 
     for tracked_cls in TrackedObject.get_registered_objects():
         tracked_cls.write_registry()
+
+
+def clean_registry(dry_run: bool = True) -> None:
+    """Remove .source/ entries written by a different format version.
+
+    Walks ``code/`` and ``snapshots/`` under the registry root and deletes any
+    directory whose metadata JSON does not carry the current FORMAT_VERSION.
+    Missing or unreadable metadata is treated as a version mismatch.
+    """
+    root = get_config().path_registry
+    if not root.exists():
+        return
+
+    for meta_path in [*root.rglob('source.json'), *root.rglob('tree.json')]:
+        try:
+            data = json.loads(meta_path.read_text(encoding='utf-8'))
+            stale = data.get(JSONKeys.FORMAT_VERSION) != FORMAT_VERSION
+        except (OSError, json.JSONDecodeError):
+            stale = True
+        if stale:
+            handle_invalid(meta_path.parent, dry_run=dry_run, label='Format version mismatch')

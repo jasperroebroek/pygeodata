@@ -104,3 +104,63 @@ export function revealPath(path) {
 export function fileURL(path) {
   return `/api/file?path=${encodeURIComponent(path)}`;
 }
+
+
+// ---------------------------------------------------------------------------
+// Export (background job)
+// ---------------------------------------------------------------------------
+
+/** Fetch table rows for selected entries (for the export view). */
+export function fetchExportTable(recordIds) {
+  return postJSON('/api/export/table', { record_ids: recordIds });
+}
+
+/** Start an export job. Returns { job_id, total }. */
+export async function startExportJob(recordIds, includeSnapshots = true) {
+  const response = await fetch("/api/export/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ record_ids: recordIds, include_snapshots: includeSnapshots }),
+  });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
+/** Poll job status. Returns { status, done, total, error }. */
+export async function pollExportStatus(jobId) {
+  const response = await fetch(`/api/export/status/${encodeURIComponent(jobId)}`);
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
+/** Trigger browser download of completed job. */
+export function downloadExport(jobId) {
+  const a = document.createElement("a");
+  a.href = `/api/export/download/${encodeURIComponent(jobId)}`;
+  a.download = "pygeodata_export.tar";
+  a.click();
+}
+
+/** Trigger direct download of a single entry's data file (no sidecars). */
+export function downloadSingleEntry(recordId) {
+  const a = document.createElement("a");
+  a.href = `/api/export/single/${encodeURIComponent(recordId)}`;
+  a.click();
+}
+
+
+// ---------------------------------------------------------------------------
+// Cache management
+// ---------------------------------------------------------------------------
+
+/** Delete a single cache entry by record ID. */
+export async function deleteEntry(recordId) {
+  const r = await fetch(`/api/entry/${encodeURIComponent(recordId)}`, { method: "DELETE" });
+  if (!r.ok && r.status !== 202) throw new Error(await r.text());
+  return r.json();
+}
+
+/** Run clean-cache on the server. Returns { lines, dry_run }. */
+export function postCleanCache(dryRun = true) {
+  return postJSON("/api/clean-cache", { dry_run: dryRun });
+}

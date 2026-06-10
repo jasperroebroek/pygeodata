@@ -155,6 +155,7 @@ class ProcessResult:
     linked_entries: list[LinkedEntry]
     primary_file: FileRef | None
     warnings: list[str]
+    format_version_stale: bool = False
     error: str | None = None
 
 
@@ -180,6 +181,7 @@ class EntryInfo:
     error: str | None = None
     dep_hash_stale: bool = False
     dep_hash: str | None = None
+    format_version_stale: bool = False
 
 
 @dataclass(slots=True)

@@ -6,7 +6,7 @@
 
 import { $, esc, badge, boundsLatLonText, _RASTER_EXTS, _fileExt, buildBoundsMapUrl, toast, lastDashboard } from './utils.js';
 import { state, BOOLEAN_TARGETS } from './state.js';
-import { fileURL, fetchJsonPopup, fetchSourcePopup, fetchGraphPopup, openPath, revealPath } from './api.js';
+import { fileURL, fetchJsonPopup, fetchSourcePopup, fetchGraphPopup, openPath, revealPath, downloadSingleEntry, deleteEntry } from './api.js';
 
 // ---------------------------------------------------------------------------
 // JSON explorer — shared renderer for params card and JSON file popups
@@ -141,6 +141,7 @@ export function bindJxToggle(btn) {
 export function openModal(title, html, size = "", { codeNav = false } = {}) {
   const card = $("#modal").querySelector(".modal-card");
   card.classList.toggle("modal-card--sm", size === "sm");
+  card.classList.toggle("modal-card--md", size === "md");
   $("#modal-title").textContent = title;
   $("#modal-body").innerHTML = html;
   $("#modal-body").dataset.codeNav = codeNav ? "1" : "";
@@ -151,6 +152,8 @@ export function closeModal() {
   $("#modal").classList.remove("open");
   $("#modal-body").innerHTML = "";
   delete $("#modal-body").dataset.codeNav;
+  const card = $("#modal").querySelector(".modal-card");
+  card.classList.remove("modal-card--sm", "modal-card--md");
 }
 
 $("#modal-close").onclick = closeModal;
@@ -385,6 +388,23 @@ export function bindFileActions(root) {
 
   root.querySelectorAll(".js-src-nav").forEach((btn) => {
     btn.onclick = () => _navigateToCodeClass(btn.dataset.cls, btn.dataset.depHash || null);
+  });
+
+  root.querySelectorAll(".js-what-changed").forEach((btn) => {
+    btn.onclick = () => _showWhatChanged(btn.dataset.recordId);
+  });
+
+  root.querySelectorAll(".js-delete-entry").forEach((btn) => {
+    btn.onclick = async () => {
+      if (!confirm("Delete this cache entry from disk? This cannot be undone.")) return;
+      try {
+        await deleteEntry(btn.dataset.entry);
+        toast("Entry deleted — reloading…");
+        _onEntryDeleted();
+      } catch {
+        toast("Failed to delete entry");
+      }
+    };
   });
 
   root.querySelectorAll(".js-graph").forEach((btn) => {
@@ -625,13 +645,13 @@ function buildEntryCard(entry) {
     && Object.keys(entry.params_tree).some(k => !HIDDEN_JSON_KEYS.has(k));
 
   const internalBtns = [
-    hasVisibleParams               ? `<button class="act-btn act-btn--ghost js-popup" data-path="${esc(entry.params_path)}">Params</button>` : "",
-    entry.state_hash_path      ? `<button class="act-btn act-btn--ghost js-popup" data-path="${esc(entry.state_hash_path)}">Hash</button>` : "",
-    entry.execution_graph_path ? `<button class="act-btn act-btn--ghost js-popup" data-path="${esc(entry.execution_graph_path)}">Graph</button>` : "",
+    hasVisibleParams               ? `<button class="act-btn js-popup" data-path="${esc(entry.params_path)}">Params</button>` : "",
+    entry.state_hash_path      ? `<button class="act-btn js-popup" data-path="${esc(entry.state_hash_path)}">Hash</button>` : "",
+    entry.execution_graph_path ? `<button class="act-btn js-popup" data-path="${esc(entry.execution_graph_path)}">Graph</button>` : "",
   ].filter(Boolean).join("");
 
   const hashChip = hash
-    ? `<button class="act-btn js-copy-hash" data-hash="${esc(hash)}" title="${esc(hash)}">${esc(hashShort)}</button>`
+    ? `<button class="act-btn act-btn--mono js-copy-hash" data-hash="${esc(hash)}" title="${esc(hash)}">${esc(hashShort)}</button>`
     : "";
 
   const warnings = entry.warnings ?? [];
@@ -641,11 +661,21 @@ function buildEntryCard(entry) {
       ).join("")}</div>`
     : "";
 
-  const staleBadge = entry.dep_hash_stale
-    ? `<span class="badge badge--sm badge-warn" title="Dependencies changed since this entry was last computed — results may no longer match current code">stale</span>`
+  const staleIndicator = entry.format_version_stale
+    ? `<span class="entry-stale-indicator entry-stale-indicator--version" title="pygeodata version changed — entry must be regenerated">version mismatch</span>`
+    : entry.dep_hash_stale
+    ? `<span class="entry-stale-indicator entry-stale-indicator--deps" title="Dependencies changed since this entry was last computed — results may no longer match current code">stale</span>`
     : "";
 
-  const entryActionParts = [staleBadge, internalBtns, hashChip].filter(Boolean);
+  const whatChangedBtn = entry.dep_hash_stale && entry.record_id
+    ? `<button class="act-btn js-what-changed" data-record-id="${esc(entry.record_id)}">Show diff</button>`
+    : "";
+
+  const deleteBtn = entry.record_id
+    ? `<button class="act-btn act-btn--danger js-delete-entry" data-entry="${esc(entry.record_id)}" title="Delete this cache entry from disk">Delete</button>`
+    : "";
+
+  const entryActionParts = [whatChangedBtn, internalBtns, hashChip, deleteBtn].filter(Boolean);
   const entryActions = entryActionParts.length
     ? `<span class="dcard-hd-spacer"></span><div class="dcard-hd-actions">${entryActionParts.join('<span class="dcard-hd-sep"></span>')}</div>`
     : "";
@@ -653,7 +683,7 @@ function buildEntryCard(entry) {
   return `
     <div class="dcard">
       <div class="dcard-hd">
-        <span class="dcard-hd-label">Entry</span>
+        <span class="dcard-hd-label">Entry</span>${staleIndicator}
         ${entryActions}
       </div>
       <div class="dcard-body dcard-body--entry">
@@ -868,16 +898,22 @@ export function renderEntryPills(rows) {
 
   el.innerHTML = headers.map((r) => {
     const isActive = r.record_id === state.selected_entry;
+    const inCart = state.selected_entries.has(r.record_id);
     const tinyHash = r.record_id ? r.record_id.slice(0, 6) : "";
-    const staleDot = r.dep_hash_stale
-      ? `<span class="status-dot status-dot--source" title="Dependencies changed — entry may be outdated"></span>`
-      : "";
+    const staleDot = r.format_version_stale
+      ? `<span class="status-dot status-dot--version" title="pygeodata version changed — entry must be regenerated"></span>`
+      : r.dep_hash_stale
+        ? `<span class="status-dot status-dot--source" title="Dependencies changed — entry may be outdated"></span>`
+        : "";
     const flags = [
       r.warning_count ? `<span class="pill-flag pill-flag--warn">${r.warning_count}⚠</span>` : "",
       r.error         ? `<span class="pill-flag pill-flag--err">!</span>` : "",
     ].join("");
+    const cartBtn = `<button class="select-icon ${inCart ? "select-icon--in" : ""}" data-entry="${esc(r.record_id)}" title="${inCart ? "Remove from export" : "Add to export"}"></button>`;
+    const dlBtn = `<button class="dl-icon" data-entry="${esc(r.record_id)}" title="Download this entry"></button>`;
     return `
-      <div class="entry-pill ${isActive ? "active" : ""}" data-entry="${esc(r.record_id)}">
+      <div class="entry-pill ${isActive ? "active" : ""} ${inCart ? "selected-for-export" : ""}" data-entry="${esc(r.record_id)}">
+        ${cartBtn}${dlBtn}
         <span class="entry-pill-name">${esc(r.class_name)}${staleDot}</span>
         <span class="entry-pill-right">
           ${tinyHash ? `<span class="entry-pill-hash">${esc(tinyHash)}</span>` : ""}
@@ -888,6 +924,16 @@ export function renderEntryPills(rows) {
   }).join("");
 
   el.onclick = (e) => {
+    const btn = e.target.closest(".select-icon");
+    if (btn) {
+      _toggleCartEntry(btn.dataset.entry);
+      return;
+    }
+    const dlBtn = e.target.closest(".dl-icon");
+    if (dlBtn) {
+      downloadSingleEntry(dlBtn.dataset.entry);
+      return;
+    }
     const pill = e.target.closest(".entry-pill");
     if (pill) _selectEntry(pill.dataset.entry);
   };
@@ -904,9 +950,15 @@ function _knownClassSet() {
 let _navigateToCodeClass = () => {};
 let _selectEntry = () => {};
 let _toggleClass = () => {};
+let _showWhatChanged = () => {};
+let _toggleCartEntry = () => {};
+let _onEntryDeleted = () => {};
 
-export function setDetailActions(navigateToCodeClass, selectEntry, toggleClass) {
+export function setDetailActions(navigateToCodeClass, selectEntry, toggleClass, showWhatChanged, toggleCartEntry, onEntryDeleted) {
   _navigateToCodeClass = navigateToCodeClass;
   _selectEntry = selectEntry;
   _toggleClass = toggleClass;
+  _showWhatChanged = showWhatChanged ?? (() => {});
+  if (toggleCartEntry) _toggleCartEntry = toggleCartEntry;
+  if (onEntryDeleted) _onEntryDeleted = onEntryDeleted;
 }

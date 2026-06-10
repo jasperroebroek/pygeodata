@@ -9,3 +9,233 @@
 @import './controls.css';
 @import './table.css';
 @import './detail.css';
+
+/* ---------------------------------------------------------------
+   Select-mode + icon (shown in entries view when mode is active)
+   --------------------------------------------------------------- */
+
+/* Tab badge for Export count */
+.tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: 4px;
+  vertical-align: middle;
+  line-height: 1;
+}
+
+/* + / − select icon — hidden until select mode is active */
+.select-icon {
+  display: none;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  background: none;
+  cursor: pointer;
+  position: relative;
+  padding: 0;
+  transition: border-color 0.1s, background 0.1s;
+}
+
+/* + symbol via pseudo-elements */
+.select-icon::before,
+.select-icon::after {
+  content: '';
+  position: absolute;
+  background: var(--muted);
+  border-radius: 1px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+.select-icon::before { width: 8px; height: 1.5px; }
+.select-icon::after  { width: 1.5px; height: 8px; }
+
+.select-icon:hover {
+  border-color: var(--accent);
+}
+.select-icon:hover::before,
+.select-icon:hover::after {
+  background: var(--accent);
+}
+
+/* − state: solid filled circle, vertical bar hidden */
+.select-icon--in {
+  background: var(--accent-bg);
+  border-color: var(--accent-mid);
+}
+.select-icon--in::before { background: var(--accent); }
+.select-icon--in::after  { display: none; }
+
+.select-icon--in:hover {
+  background: var(--accent-bg2);
+  border-color: var(--accent);
+}
+
+/* Show icons only when select mode is active */
+body.select-mode .select-icon { display: inline-flex; align-items: center; justify-content: center; }
+
+/* Highlight selected entries */
+.row-entry.selected-for-export { background: var(--accent-bg2); }
+.entry-pill.selected-for-export { outline: 1.5px solid var(--accent-mid); outline-offset: -1px; }
+
+/* Icon placement in table header row */
+.cell-entry-hd-inner { position: relative; }
+.cell-entry-hd-inner .select-icon {
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+
+/* Icon placement in pills */
+.entry-pill .select-icon {
+  margin-right: 4px;
+}
+
+/* Download-single button — same size/shape, download arrow via pseudo-elements */
+.dl-icon {
+  display: none;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  background: none;
+  cursor: pointer;
+  position: relative;
+  padding: 0;
+  transition: border-color 0.1s;
+}
+/* vertical stem */
+.dl-icon::before {
+  content: '';
+  position: absolute;
+  background: var(--muted);
+  border-radius: 1px;
+  width: 1.5px;
+  height: 6px;
+  top: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+/* downward chevron */
+.dl-icon::after {
+  content: '';
+  position: absolute;
+  border-left: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  width: 5px;
+  height: 5px;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%) rotate(-45deg);
+}
+.dl-icon:hover { border-color: var(--accent); }
+.dl-icon:hover::before,
+.dl-icon:hover::after { border-color: var(--accent); background: var(--accent); }
+
+body.select-mode .dl-icon { display: inline-flex; align-items: center; justify-content: center; }
+
+.cell-entry-hd-inner .dl-icon { margin-right: 6px; }
+.entry-pill .dl-icon { margin-right: 4px; }
+
+
+/* ---------------------------------------------------------------
+   Export view (checkout page)
+   --------------------------------------------------------------- */
+
+.view-export {
+  display: flex;
+  justify-content: center;
+  height: calc(100vh - var(--topbar-h));
+  padding: 32px 24px;
+  box-sizing: border-box;
+}
+
+.export-card {
+  width: 100%;
+  max-width: 900px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  height: 100%;
+}
+
+.export-card-hd {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--s2);
+}
+
+.export-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.export-toolbar-count {
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.export-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 160px;
+}
+.export-progress.hidden { display: none; }
+
+.export-progress-track {
+  width: 120px;
+}
+
+.export-progress-label {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.export-card-body {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+}
+
+.export-empty {
+  padding: 20px 16px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.export-empty.hidden { display: none; }
+
+/* Export table body — white so cards float exactly like in entries view */
+#export-table-body,
+#export-table-scroll tr.row-entry td,
+#export-table-scroll tr.row-param td {
+  background: var(--surface);
+}
+
+/* Breathing room below the last card before the card border */
+#export-table-scroll table {
+  padding-bottom: 12px;
+}

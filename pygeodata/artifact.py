@@ -7,7 +7,7 @@ from typing import Any, ClassVar
 
 from filelock import FileLock
 
-from pygeodata.config import JSONKeys, get_config
+from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config
 from pygeodata.extraction import extract_instances
 from pygeodata.formatting.json import format_json
 from pygeodata.graphs import plot_compact_execution_graph
@@ -237,6 +237,7 @@ class Artifact(TrackedObject, ABC):
         with Path.open(hash_path, 'w', encoding='utf-8') as f:
             json.dump(
                 {
+                    JSONKeys.FORMAT_VERSION: FORMAT_VERSION,
                     JSONKeys.CLASS_NAME: self.get_class_name(),
                     JSONKeys.OBJECT_TYPE: self.object_type.get_class_name(),
                     JSONKeys.SOURCE_HASH: calculate_cls_source_hash(self.__class__),
@@ -290,6 +291,10 @@ class Artifact(TrackedObject, ABC):
         hash_file = self.resolve_cache_paths(spec).state_hash_path
         if not hash_file.exists():
             return False
+
+        with hash_file.open(encoding='utf-8') as _f:
+            if json.load(_f).get(JSONKeys.FORMAT_VERSION) != FORMAT_VERSION:
+                return False
 
         saved_state_hash = self.read_state_hash(spec)
         if saved_state_hash is None:
@@ -422,14 +427,14 @@ class Artifact(TrackedObject, ABC):
         """
         spec = self.resolve_spec(spec)
 
+        if self.is_processed(spec):
+            return
+
         processed_path = self.get_processed_path(spec)
         processed_path.parent.mkdir(parents=True, exist_ok=True)
         data_lock_path = processed_path.parent / 'process.lock'
 
         with FileLock(data_lock_path, timeout=3600):
-            if self.is_processed(spec):
-                return
-
             if self.is_processed_hash_present(spec) and not self.is_cache_valid(spec):
                 print(f'# Cache invalid for {self.get_class_name()}. Recomputing ...')
 

@@ -5,7 +5,7 @@
 
 /* Shared ghost-button base — bordered, no fill, accent on hover */
 .ghost-btn {
-  padding: 3px 9px;
+  padding: 4px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: none;
@@ -61,6 +61,12 @@
 .seg-btn:hover {
   background: var(--s3);
   color: var(--text);
+}
+
+/* Disabled state for any kind-group segment */
+.kind-group.seg-disabled {
+  opacity: 0.35;
+  pointer-events: none;
 }
 
 .seg-btn.active:hover {
@@ -139,9 +145,9 @@
 
 .toggle-btn {
   padding: 2px 8px;
-  border: none;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: none;
+  background: var(--surface);
   font-size: 10px;
   cursor: pointer;
   color: var(--muted);
@@ -202,6 +208,29 @@
   background: var(--accent-bg);
 }
 
+.act-btn--ghost {
+  opacity: 0.6;
+}
+
+.act-btn--ghost:hover {
+  opacity: 1;
+}
+
+.act-btn--danger {
+  color: #c0392b;
+}
+
+.act-btn--danger:hover {
+  color: #c0392b;
+  background: #fdecea;
+}
+
+.act-btn--mono {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: .03em;
+}
+
 /* Badges */
 .badge {
   display: inline-flex;
@@ -240,9 +269,10 @@
   margin-left: 5px;
   flex-shrink: 0;
 }
-.status-dot--cache  { background: var(--border); }
-.status-dot--source { background: var(--warn);   }
-.status-dot--deps   { background: #7a9ab5;       }
+.status-dot--cache   { background: var(--border); }
+.status-dot--source  { background: var(--warn);   }
+.status-dot--deps    { background: #7a9ab5;       }
+.status-dot--version { background: var(--danger); }
 
 
 /* ------------------------------------------------------------
@@ -281,9 +311,52 @@
   max-height: min(88vh, 700px);
 }
 
+/* Medium variant — wider compact modal, e.g. clean-cache terminal */
+.modal-card--md {
+  width: 65vw;
+  height: auto;
+}
+
+/* Clean-cache modal */
+.clean-cache-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.clean-cache-opt {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--fg);
+  cursor: pointer;
+  user-select: none;
+}
+
+.clean-cache-output {
+  margin: 0;
+  padding: 10px 12px;
+  background: #f2f2f2;
+  color: var(--muted);
+  border: 1px solid var(--border-s);
+  font: 12px/1.6 ui-monospace, Menlo, monospace;
+  border-radius: 6px;
+  height: 320px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.clean-cache-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .modal-bar {
   padding: 11px 14px;
   border-bottom: 1px solid var(--border);
+  background: #fafaf8;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -313,7 +386,7 @@
   flex: 1;
   overflow: auto;
   padding: 14px;
-  background: #fafaf8;
+  background: #fff;
 }
 
 .code-block {
@@ -423,6 +496,19 @@
 .diag-table tr.diag-warn .diag-label,
 .diag-table tr.diag-warn .diag-val {
   color: var(--warn);
+}
+
+.diag-footer {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.diag-clean-btn {
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
 }
 
 

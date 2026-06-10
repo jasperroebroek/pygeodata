@@ -47,16 +47,18 @@ export function renderClassList(classCards) {
         c.visible_record_count === 0 ? "class-card--dim" : "",
       ].filter(Boolean).join(" ");
 
-      // Single dot: source stale (amber) > deps stale (orange) > cache-only (grey).
+      // Single dot: version mismatch (red) > source stale (amber) > deps stale (blue) > cache-only (grey).
       // Stale dots only shown when the class has actually been run (has entries).
       const hasEntries = c.total_record_count > 0;
-      const dot = (hasEntries && c.source_stale)
-        ? `<span class="status-dot status-dot--source" title="Source code changed since last run — entries may be outdated"></span>`
-        : (hasEntries && c.deps_stale)
-          ? `<span class="status-dot status-dot--deps" title="An upstream dependency changed since last run — entries may be outdated"></span>`
-          : !c.loaded
-            ? `<span class="status-dot status-dot--cache" title="Cache-only — not loaded in Python registry"></span>`
-            : "";
+      const dot = (hasEntries && c.format_version_stale)
+        ? `<span class="status-dot status-dot--version" title="pygeodata version changed — entries must be regenerated"></span>`
+        : (hasEntries && c.source_stale)
+          ? `<span class="status-dot status-dot--source" title="Source code changed since last run — entries may be outdated"></span>`
+          : (hasEntries && c.deps_stale)
+            ? `<span class="status-dot status-dot--deps" title="An upstream dependency changed since last run — entries may be outdated"></span>`
+            : !c.loaded
+              ? `<span class="status-dot status-dot--cache" title="Cache-only — not loaded in Python registry"></span>`
+              : "";
 
       return `
         <div class="${cls}" data-cls="${esc(c.class_name)}" title="${esc(c.class_name)}">

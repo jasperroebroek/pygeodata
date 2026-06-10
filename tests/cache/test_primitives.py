@@ -114,33 +114,31 @@ def test_is_zarr_root_false(tmp_path: Path) -> None:
 
 
 def test_handle_invalid_dry_run_hash_missing(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
-    handle_invalid(tmp_path / 'data.tif', dry_run=True, hash_path=tmp_path / '.data.hash.json')
+    handle_invalid(tmp_path / 'data.tif', dry_run=True, label='Hash missing')
     assert 'Hash missing' in capsys.readouterr().out
 
 
 def test_handle_invalid_dry_run_hash_wrong(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
-    hash_path = tmp_path / '.data.hash.json'
-    hash_path.touch()
-    handle_invalid(tmp_path / 'data.tif', dry_run=True, hash_path=hash_path)
+    handle_invalid(tmp_path / 'data.tif', dry_run=True, label='Hash wrong')
     assert 'Hash wrong' in capsys.readouterr().out
 
 
 def test_handle_invalid_no_hash_path_labels_invalid(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
-    handle_invalid(tmp_path / 'data.tif', dry_run=True, hash_path=None)
+    handle_invalid(tmp_path / 'data.tif', dry_run=True, label='Invalid')
     assert 'Invalid' in capsys.readouterr().out
 
 
 def test_handle_invalid_non_dry_run_prints_deleting(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     path = tmp_path / 'data.tif'
     path.touch()
-    handle_invalid(path, dry_run=False, hash_path=tmp_path / '.data.hash.json')
+    handle_invalid(path, dry_run=False, label='Hash missing')
     assert 'Deleting' in capsys.readouterr().out
 
 
 def test_handle_invalid_deletes_file(tmp_path: Path) -> None:
     path = tmp_path / 'data.tif'
     path.touch()
-    handle_invalid(path, dry_run=False, hash_path=tmp_path / '.data.hash.json')
+    handle_invalid(path, dry_run=False, label='Hash missing')
     assert not path.exists()
 
 
@@ -148,7 +146,7 @@ def test_handle_invalid_deletes_directory(tmp_path: Path) -> None:
     directory = tmp_path / 'archive.zarr'
     directory.mkdir()
     (directory / 'zarr.json').touch()
-    handle_invalid(directory, dry_run=False, hash_path=tmp_path / '.archive.hash.json')
+    handle_invalid(directory, dry_run=False, label='Hash missing')
     assert not directory.exists()
 
 

@@ -17,7 +17,7 @@ import {
 } from './table.js';
 import { renderClassList, toggleClass, setClassListLoaders, setClassListDashboard, setClassListCodeState, _multiSelectEnabled as _clMultiSelect } from './class-list.js';
 import { renderDetail, renderEntryPills, setDetailActions, openModal as _openModal } from './detail.js';
-import { fetchDashboard } from './api.js';
+import { fetchDashboard, postCleanCache } from './api.js';
 
 
 // ---------------------------------------------------------------------------
@@ -288,9 +288,16 @@ export function showDiagnostics() {
          ${row("Hash collisions",      hashCollisions, true)}
          ${staleHidden > 0 ? row("Stale entries hidden", staleHidden, false) : ""}
        </tbody>
-     </table>`,
+     </table>
+     <div class="diag-footer">
+       <button class="act-btn diag-clean-btn" id="btn-open-clean-cache">Clean cache…</button>
+     </div>`,
     "sm"
   );
+
+  document.getElementById("btn-open-clean-cache")?.addEventListener("click", () => {
+    _openModal("Clean Cache", _buildCleanCacheModal(), "md");
+  });
 }
 
 
@@ -333,6 +340,45 @@ export function applyViewMode(mode, reload = true) {
 
 
 // ---------------------------------------------------------------------------
+// Export cart helpers
+// ---------------------------------------------------------------------------
+
+export function toggleCartEntry(id) {
+  if (state.selected_entries.has(id)) {
+    state.selected_entries.delete(id);
+  } else {
+    state.selected_entries.add(id);
+  }
+  const inCart = state.selected_entries.has(id);
+  // Update any rendered + / − buttons and row highlights for this entry
+  document.querySelectorAll(`.select-icon[data-entry="${CSS.escape(id)}"]`).forEach((btn) => {
+    btn.classList.toggle("select-icon--in", inCart);
+    btn.title = inCart ? "Remove from export" : "Add to export";
+  });
+  document.querySelectorAll(`[data-entry="${CSS.escape(id)}"].entry-pill, tr.row-entry[data-entry="${CSS.escape(id)}"]`).forEach((el) => {
+    el.classList.toggle("selected-for-export", inCart);
+  });
+  // Also sync the cart button in the table (text node)
+  document.querySelectorAll(`tr.row-entry[data-entry="${CSS.escape(id)}"] .select-icon`).forEach((btn) => {
+    btn.classList.toggle("select-icon--in", inCart);
+    btn.title = inCart ? "Remove from export" : "Add to export";
+  });
+  _updateCartTab();
+}
+
+// Lazy reference to cart tab badge updater — injected from export-view.js at boot time
+let _updateCartTab = () => {};
+export function setUpdateCartTab(fn) { _updateCartTab = fn; }
+
+export function toggleSelectMode() {
+  state.select_mode = !state.select_mode;
+  const btn = $("#btn-select-mode");
+  if (btn) btn.classList.toggle("active", state.select_mode);
+  document.body.classList.toggle("select-mode", state.select_mode);
+}
+
+
+// ---------------------------------------------------------------------------
 // Code-state getter (injected from code-view.js at boot time)
 // ---------------------------------------------------------------------------
 
@@ -344,10 +390,46 @@ export function setEntriesCodeState(getCodeState) {
 
 
 // ---------------------------------------------------------------------------
+// Clean-cache modal (launched from diagnostics)
+// ---------------------------------------------------------------------------
+
+export function _buildCleanCacheModal() {
+  return `
+    <div class="clean-cache-modal">
+      <label class="clean-cache-opt">
+        <input type="checkbox" id="clean-dry-run" checked>
+        Dry run (preview only — no files will be deleted)
+      </label>
+      <pre class="clean-cache-output" id="clean-cache-output">Press Run to start…</pre>
+      <div class="clean-cache-footer">
+        <button class="act-btn" id="btn-clean-run">Run</button>
+      </div>
+    </div>`;
+}
+
+export async function runCleanCache() {
+  const dryRun = document.getElementById("clean-dry-run").checked;
+  const output = document.getElementById("clean-cache-output");
+  const runBtn = document.getElementById("btn-clean-run");
+  runBtn.disabled = true;
+  output.textContent = "Running…";
+  try {
+    const result = await postCleanCache(dryRun);
+    output.textContent = result.lines.length ? result.lines.join("\n") : "(nothing to clean)";
+    if (!dryRun) loadEntries();
+  } catch (e) {
+    output.textContent = `Error: ${e}`;
+  } finally {
+    runBtn.disabled = false;
+  }
+}
+
+
+// ---------------------------------------------------------------------------
 // Wire up cross-module loaders at init time (called from boot.js)
 // ---------------------------------------------------------------------------
 
-export function initEntries(navigateToCodeClass, getCodeState) {
+export function initEntries(navigateToCodeClass, getCodeState, showWhatChanged) {
   _getCodeState = getCodeState;
 
   // Wire filters
@@ -363,8 +445,8 @@ export function initEntries(navigateToCodeClass, getCodeState) {
   setClassListCodeState(getCodeState);
 
   // Wire table
-  setTableActions(navigateToCodeClass, selectEntry);
+  setTableActions(navigateToCodeClass, selectEntry, toggleCartEntry);
 
   // Wire detail pane
-  setDetailActions(navigateToCodeClass, selectEntry, toggleClass);
+  setDetailActions(navigateToCodeClass, selectEntry, toggleClass, showWhatChanged ?? (() => {}), toggleCartEntry, loadEntries);
 }

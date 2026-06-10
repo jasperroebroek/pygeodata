@@ -7,6 +7,7 @@
 import { $, esc, softBreak, badge, boundsLatLonText } from './utils.js';
 import { state } from './state.js';
 import { _viewMode } from './nav.js';
+import { downloadSingleEntry } from './api.js';
 
 export const PAGE_ENTRIES = 50;   // entries rendered per chunk
 
@@ -45,12 +46,19 @@ export function _buildRowsHtml(rows, start, maxEntries) {
       ].filter(Boolean).map((s) => `<span class="tbl-spec-pill">${esc(s)}</span>`).join("");
       const warns    = r.warning_count ? `<span class="badge badge--sm badge-warn">${r.warning_count}w</span>` : "";
       const err      = r.error         ? `<span class="badge badge--sm badge-danger">!</span>` : "";
-      const staleness = r.dep_hash_stale
-        ? `<span class="badge badge--sm badge-warn" title="Dependencies changed — entry may be outdated">stale</span>` : "";
+      const staleness = r.format_version_stale
+        ? `<span class="badge badge--sm badge-danger" title="pygeodata version changed — entry must be regenerated">version</span>`
+        : r.dep_hash_stale
+          ? `<span class="badge badge--sm badge-warn" title="Dependencies changed — entry may be outdated">stale</span>`
+          : "";
+      const inCart = state.selected_entries.has(r.record_id);
+      const cartBtn = `<button class="select-icon ${inCart ? "select-icon--in" : ""}" data-entry="${esc(r.record_id)}" title="${inCart ? "Remove from export" : "Add to export"}"></button>`;
+      const dlBtn = `<button class="dl-icon" data-entry="${esc(r.record_id)}" title="Download this entry"></button>`;
       html.push(`
-        <tr class="row-entry ${isActive ? "active" : ""}" data-entry="${esc(r.record_id)}">
+        <tr class="row-entry ${isActive ? "active" : ""} ${inCart ? "selected-for-export" : ""}" data-entry="${esc(r.record_id)}">
           <td colspan="4" class="cell-entry-hd">
             <div class="cell-entry-hd-inner">
+              ${cartBtn}${dlBtn}
               <span class="cell-entry-left">
                 <span class="entry-cls">${esc(r.class_name)}</span>
                 <span class="badge badge--sm badge-neutral">${esc(r.object_type)}</span>
@@ -106,7 +114,15 @@ export function applyTableSelection() {
     const tbody = $("#table-body");
     if (!tbody) return;
     tbody.querySelectorAll("tr.row-entry").forEach((row) => {
-      row.classList.toggle("active", row.dataset.entry === state.selected_entry);
+      const id = row.dataset.entry;
+      row.classList.toggle("active", id === state.selected_entry);
+      const inCart = state.selected_entries.has(id);
+      row.classList.toggle("selected-for-export", inCart);
+      const btn = row.querySelector(".select-icon");
+      if (btn) {
+        btn.classList.toggle("select-icon--in", inCart);
+        btn.title = inCart ? "Remove from export" : "Add to export";
+      }
     });
     tbody.querySelectorAll("tr.row-param").forEach((row) => {
       row.classList.toggle("active", row.dataset.entry === state.selected_entry);
@@ -141,6 +157,16 @@ export function renderTableBody(rows) {
     if (clsLink) {
       e.preventDefault();
       _navigateToCodeClass(clsLink.dataset.cls, clsLink.dataset.depHash || null);
+      return;
+    }
+    const cartBtn = e.target.closest(".select-icon");
+    if (cartBtn) {
+      _toggleCartEntry(cartBtn.dataset.entry);
+      return;
+    }
+    const dlBtn = e.target.closest(".dl-icon");
+    if (dlBtn) {
+      downloadSingleEntry(dlBtn.dataset.entry);
       return;
     }
     const entryRow = e.target.closest("tr.row-entry");
@@ -183,8 +209,10 @@ function _clearGroupHover(tbody) {
 // Lazy references — set by entries.js and code-view.js at init time.
 let _navigateToCodeClass = () => {};
 let _selectEntry = () => {};
+let _toggleCartEntry = () => {};
 
-export function setTableActions(navigateToCodeClass, selectEntry) {
+export function setTableActions(navigateToCodeClass, selectEntry, toggleCartEntry) {
   _navigateToCodeClass = navigateToCodeClass;
-  _selectEntry = selectEntry;
+  _selectEntry         = selectEntry;
+  if (toggleCartEntry) _toggleCartEntry = toggleCartEntry;
 }

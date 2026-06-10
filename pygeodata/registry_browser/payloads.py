@@ -89,7 +89,7 @@ def _entry_is_visible(
     hide_stale: bool = False,
     snapshot_filter: list[str] | None = None,
 ) -> bool:
-    if hide_stale and entry.dep_hash_stale:
+    if hide_stale and (entry.dep_hash_stale or entry.format_version_stale):
         return False
     if snapshot_filter and entry.dep_hash not in snapshot_filter:  # snapshot_filter is a resolved set of dep_hashes
         return False
@@ -212,6 +212,10 @@ def _build_class_cards(
     class_cards = []
     for class_name, class_info in sorted(state.classes.items()):
         group = state.groups.get(class_name)
+        record_ids = group.record_ids if group else []
+        format_version_stale = any(
+            state.entries[rid].format_version_stale for rid in record_ids if rid in state.entries
+        )
         if snapshot_dep_hashes is not None:
             source_stale = class_name in snapshot_stale_classes
             deps_stale = False
@@ -225,11 +229,12 @@ def _build_class_cards(
                 'loaded': class_info.loaded,
                 'call_dependency_names': class_info.call_dependency_names,
                 'inheritance_dependency_names': class_info.inheritance_dependency_names,
-                'total_record_count': len(group.record_ids) if group else 0,
+                'total_record_count': len(record_ids),
                 'visible_record_count': sidebar_counts.get(class_name, 0),
                 'selected': class_name in selected_classes,
                 'source_stale': source_stale,
                 'deps_stale': deps_stale,
+                'format_version_stale': format_version_stale,
             },
         )
     return class_cards
@@ -262,6 +267,7 @@ def _build_table_rows(
                     'focused': entry.record_id == selected_entry,
                     'source_stale': ci.source_stale if ci else False,
                     'dep_hash_stale': entry.dep_hash_stale,
+                    'format_version_stale': entry.format_version_stale,
                     'dep_hash': entry.dep_hash,
                 },
             )
@@ -340,6 +346,7 @@ def _entry_detail_payload(entry: EntryInfo, same_instance_runs: list[EntryInfo] 
         JSONKeys.OBJECT_TYPE: entry.object_type,
         'warnings': entry.warnings,
         'dep_hash_stale': entry.dep_hash_stale,
+        'format_version_stale': entry.format_version_stale,
         'dep_hash': entry.dep_hash,
         'params_path': entry.params_path,
         'state_hash_path': entry.state_hash_path,

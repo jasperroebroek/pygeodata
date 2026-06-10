@@ -25,6 +25,9 @@ dependencies = [
     "filelock",
 ]
 
+[project.scripts]
+pygeodata = "pygeodata.cli:cli"
+
 [tool.setuptools.packages.find]
 include = ["pygeodata*"]
 
@@ -38,6 +41,7 @@ parallel = [
 ]
 dashboard = [
     "flask",
+    "click",
 ]
 test = [
     "pytest",

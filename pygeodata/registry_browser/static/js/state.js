@@ -10,6 +10,8 @@ export const state = {
   // --- selection -----------------------------------------------------------
   selected_classes: [],    // class_name string[]
   selected_entry:   null,  // record_id string  | null
+  selected_entries: new Set(),  // record_id strings selected for export
+  select_mode: false,           // whether + icons are visible in entries view
 
   // --- filters -------------------------------------------------------------
   kind_filter:  "all",     // "all" | "data" | "figure"

@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from pygeodata.cache import clean_cache, hash_matches_live, read_cache_class_name, rebuild_registry
-from pygeodata.config import JSONKeys
+from pygeodata.cache import clean_cache, clean_registry, format_version_matches, hash_matches_live, read_cache_class_name, rebuild_registry
+from pygeodata.config import FORMAT_VERSION, JSONKeys
 from pygeodata.types import SpatialSpec
 from tests.fixtures.data import Child, Parent, SimpleLoader
 
@@ -36,7 +36,7 @@ def make_zarr_archive(parent: Path, stem: str, hash_value: str | None = None) ->
     (zarr_dir / '0' / '0').mkdir(parents=True)
     if hash_value is not None:
         (parent / f'.{stem}.hash.json').write_text(
-            json.dumps({JSONKeys.CLASS_NAME: 'SimpleLoader', JSONKeys.DEPENDENCY_TREE_HASH: hash_value}),
+            json.dumps({JSONKeys.FORMAT_VERSION: FORMAT_VERSION, JSONKeys.CLASS_NAME: 'SimpleLoader', JSONKeys.DEPENDENCY_TREE_HASH: hash_value}),
         )
     return zarr_dir
 
@@ -47,7 +47,8 @@ def make_zarr_archive(parent: Path, stem: str, hash_value: str | None = None) ->
 def test_clean_cache_stale_hash_reported(sample_spatial_spec: SpatialSpec, capsys: pytest.CaptureFixture) -> None:
     process_touch(SimpleLoader(), sample_spatial_spec, stale=True)
     clean_cache(dry_run=True)
-    assert 'Hash wrong' in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert 'Hash wrong' in out or 'Format version mismatch' in out
 
 
 def test_clean_cache_stale_hash_dry_run_keeps_file(sample_spatial_spec: SpatialSpec) -> None:
@@ -182,6 +183,106 @@ def test_hash_matches_live_none_when_class_unregistered(tmp_path: Path) -> None:
         JSONKeys.DEPENDENCY_TREE_HASH: 'abc',
     }))
     assert hash_matches_live(hash_file) is None
+
+
+# --- format_version_matches ---
+
+
+def test_format_version_matches_true(sample_spatial_spec: SpatialSpec) -> None:
+    loader = SimpleLoader()
+    loader.write_cache_metadata(sample_spatial_spec)
+    hash_path = loader.resolve_cache_paths(sample_spatial_spec).state_hash_path
+    assert format_version_matches(hash_path) is True
+
+
+def test_format_version_matches_false_when_missing_key(tmp_path: Path) -> None:
+    hash_file = tmp_path / '.data.hash.json'
+    hash_file.write_text(json.dumps({JSONKeys.CLASS_NAME: 'SimpleLoader'}))
+    assert format_version_matches(hash_file) is False
+
+
+def test_format_version_matches_false_when_wrong_version(tmp_path: Path) -> None:
+    hash_file = tmp_path / '.data.hash.json'
+    hash_file.write_text(json.dumps({JSONKeys.FORMAT_VERSION: FORMAT_VERSION + 1}))
+    assert format_version_matches(hash_file) is False
+
+
+def test_format_version_matches_false_when_file_missing(tmp_path: Path) -> None:
+    assert format_version_matches(tmp_path / '.data.hash.json') is False
+
+
+def test_clean_cache_format_version_mismatch_reported(sample_spatial_spec: SpatialSpec, capsys: pytest.CaptureFixture) -> None:
+    process_touch(SimpleLoader(), sample_spatial_spec, stale=True)
+    clean_cache(dry_run=True)
+    assert 'Format version mismatch' in capsys.readouterr().out
+
+
+def test_clean_cache_format_version_mismatch_deletes(sample_spatial_spec: SpatialSpec) -> None:
+    process_touch(SimpleLoader(), sample_spatial_spec, stale=True)
+    entry_dir = SimpleLoader().get_processed_dir(sample_spatial_spec)
+    clean_cache(dry_run=False)
+    assert not entry_dir.exists()
+
+
+# --- clean_registry ---
+
+
+def test_clean_registry_removes_stale_code_entry(tmp_path: Path) -> None:
+    from pygeodata.config import set_config
+
+    with set_config(path_registry=tmp_path / '.source'):
+        code_dir = tmp_path / '.source' / 'code' / 'oldhash'
+        code_dir.mkdir(parents=True)
+        (code_dir / 'source.py').write_text('class Foo: pass')
+        (code_dir / 'source.json').write_text(json.dumps({JSONKeys.FORMAT_VERSION: FORMAT_VERSION + 1}))
+        clean_registry(dry_run=False)
+        assert not code_dir.exists()
+
+
+def test_clean_registry_keeps_current_code_entry(tmp_path: Path) -> None:
+    from pygeodata.config import set_config
+
+    with set_config(path_registry=tmp_path / '.source'):
+        code_dir = tmp_path / '.source' / 'code' / 'currenthash'
+        code_dir.mkdir(parents=True)
+        (code_dir / 'source.py').write_text('class Foo: pass')
+        (code_dir / 'source.json').write_text(json.dumps({JSONKeys.FORMAT_VERSION: FORMAT_VERSION}))
+        clean_registry(dry_run=False)
+        assert code_dir.exists()
+
+
+def test_clean_registry_removes_stale_snapshot_entry(tmp_path: Path) -> None:
+    from pygeodata.config import set_config
+
+    with set_config(path_registry=tmp_path / '.source'):
+        snap_dir = tmp_path / '.source' / 'snapshots' / 'oldhash'
+        snap_dir.mkdir(parents=True)
+        (snap_dir / 'tree.json').write_text(json.dumps({JSONKeys.FORMAT_VERSION: FORMAT_VERSION + 1}))
+        clean_registry(dry_run=False)
+        assert not snap_dir.exists()
+
+
+def test_clean_registry_missing_format_version_treated_as_stale(tmp_path: Path) -> None:
+    from pygeodata.config import set_config
+
+    with set_config(path_registry=tmp_path / '.source'):
+        code_dir = tmp_path / '.source' / 'code' / 'oldhash'
+        code_dir.mkdir(parents=True)
+        (code_dir / 'source.json').write_text(json.dumps({JSONKeys.CLASS_NAME: 'Foo'}))
+        clean_registry(dry_run=False)
+        assert not code_dir.exists()
+
+
+def test_clean_registry_dry_run_keeps_stale(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    from pygeodata.config import set_config
+
+    with set_config(path_registry=tmp_path / '.source'):
+        code_dir = tmp_path / '.source' / 'code' / 'oldhash'
+        code_dir.mkdir(parents=True)
+        (code_dir / 'source.json').write_text(json.dumps({JSONKeys.FORMAT_VERSION: FORMAT_VERSION + 1}))
+        clean_registry(dry_run=True)
+        assert code_dir.exists()
+        assert 'Format version mismatch' in capsys.readouterr().out
 
 
 # --- rebuild_registry ---

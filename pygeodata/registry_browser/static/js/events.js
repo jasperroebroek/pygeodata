@@ -14,6 +14,7 @@ import { renderClassList, _multiSelectEnabled, setMultiSelectEnabled, _showEmpty
 import { applyTableSelection, _visibleEntryIds, _tableRows, _tableEntryCount, _appendTableRows, PAGE_ENTRIES } from './table.js';
 import { lastDashboard } from './utils.js';
 import { postRebuild } from './api.js';
+import { runCleanCache } from './entries.js';
 
 // ---------------------------------------------------------------------------
 // Mode tabs (Compact / Detailed)
@@ -114,6 +115,14 @@ document.getElementById("btn-reload").onclick = async () => {
     toast(`Reload failed: ${e}`);
   }
 };
+
+// ---------------------------------------------------------------------------
+// Clean cache — btn-clean-run delegated via #modal-body in detail.js
+// ---------------------------------------------------------------------------
+
+document.getElementById("modal-body").addEventListener("click", (e) => {
+  if (e.target.id === "btn-clean-run") runCleanCache();
+});
 
 // ---------------------------------------------------------------------------
 // Show/hide zero-entry classes toggle

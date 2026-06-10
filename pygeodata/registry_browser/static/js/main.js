@@ -13,6 +13,7 @@ import './table.js';
 import './class-list.js';
 import './detail.js';
 import './entries.js';
+import './export-view.js';
 import './events.js';
 import './code-view.js';
 import './boot.js';

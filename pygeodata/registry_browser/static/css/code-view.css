@@ -46,6 +46,15 @@
   min-height: 32px;
 }
 
+/* Diff controls bar — sits flush above the diff table */
+.code-diff-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  flex-shrink: 0;
+}
+
 .code-filter {
   flex: 1;
   padding: 3px 7px;
@@ -137,8 +146,181 @@
   padding: 14px 18px;
 }
 
+/* When showing a diff the table needs edge-to-edge space (direct child only — not inside tree-diff cards) */
+.code-source-panel:has(> .diff-table) {
+  padding: 0;
+}
+
+/* Tree-diff card container — padding persists even when inner bodies contain diff tables */
+.tree-diff-container {
+  padding: 10px 14px 14px;
+}
+
 .code-source-panel pre.code-popup {
   font: 12px/1.6 ui-monospace, Menlo, monospace;
   white-space: pre;
   margin: 0;
+}
+
+
+/* ---------------------------------------------------------------
+   Diff table — shared structure
+   --------------------------------------------------------------- */
+
+.diff-table {
+  font: 12px/1.5 ui-monospace, Menlo, monospace;
+  border-collapse: collapse;
+  min-width: 100%;
+  table-layout: auto;
+}
+
+/* Split: fixed layout so both halves share space equally.
+   Each side: ln(44px fixed) + code(calc(50% - 44px)).
+   table-layout:fixed + explicit widths prevents the table from growing past the pane. */
+.diff-table--split {
+  table-layout: fixed;
+  width: 100%;
+  min-width: unset;
+}
+.diff-table--split .diff-ln {
+  width: 44px;
+}
+.diff-table--split .diff-code {
+  width: calc(50% - 44px);
+}
+
+.diff-ln {
+  text-align: right;
+  padding: 0 6px;
+  color: var(--muted);
+  user-select: none;
+  white-space: nowrap;
+  width: 1px;        /* shrink to content */
+  min-width: 36px;
+}
+
+.diff-sign {
+  text-align: center;
+  padding: 0 4px;
+  user-select: none;
+  color: var(--muted);
+  width: 1px;
+  white-space: nowrap;
+}
+
+.diff-code {
+  padding: 0 8px;
+  white-space: pre;   /* default: no wrap, scroll horizontally */
+  text-align: left;
+  overflow: hidden;   /* clip at cell edge; panel scrolls horizontally for full content */
+  text-overflow: clip; /* no ellipsis — content is monospace code */
+}
+
+/* Split mode always wraps long lines — both hunks and full expand. */
+.diff-table--split .diff-code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Row background colours */
+tr.diff-add,
+td.diff-add   { background: #e6ffed; }
+tr.diff-del,
+td.diff-del   { background: #ffeef0; }
+tr.diff-ctx   { color: var(--text); }
+
+.diff-table--inline tr.diff-add .diff-sign { color: #28a745; }
+.diff-table--inline tr.diff-del .diff-sign { color: #d73a49; }
+
+.diff-empty-side { background: var(--s2); color: var(--muted); }
+
+/* Hunk header */
+.diff-hunk-hdr-cell {
+  background: #dbedff;
+  color: #0550ae;
+  font-weight: 600;
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+/* Word-level highlights */
+.diff-word-add { background: #acf2bd; border-radius: 2px; }
+.diff-word-del { background: #fdb8c0; border-radius: 2px; text-decoration: line-through; }
+
+/* Diff target selector bar — "vs. prev" / "vs. current" pills above diff table */
+.diff-target-bar {
+  display: flex;
+  gap: 4px;
+  padding: 6px 0 10px;
+}
+
+.diff-empty-msg {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 12px 0;
+}
+
+.diff-no-snapshot {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 20px 0;
+}
+
+.diff-loading {
+  color: var(--faint);
+  font-size: 12px;
+  padding: 8px 0;
+}
+
+/* ---------------------------------------------------------------
+   Tree-diff result (What changed? view)
+   --------------------------------------------------------------- */
+
+.tree-diff-class {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+
+.tree-diff-class.changed   .tree-diff-header { background: #fff3cd; }
+.tree-diff-class.removed   .tree-diff-header { background: #ffeef0; }
+.tree-diff-class.added     .tree-diff-header { background: #e6ffed; }
+.tree-diff-class.unchanged .tree-diff-header { background: var(--s2); color: var(--muted); }
+
+.tree-diff-header {
+  padding: 6px 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  user-select: none;
+}
+
+.tree-diff-body {
+  border-top: 1px solid var(--border);
+  display: none;
+  overflow-x: auto;
+}
+
+.tree-diff-class.open .tree-diff-body { display: block; }
+
+.tree-diff-status {
+  font-size: 0.75em;
+  text-transform: uppercase;
+  font-weight: 600;
+  min-width: 72px;
+  flex-shrink: 0;
+}
+
+.tree-diff-name {
+  font-size: 12px;
+  font-weight: 500;
+  flex: 1 1 0;
+}
+
+.tree-diff-expand {
+  font-size: 10px;
+  color: var(--muted);
+  flex-shrink: 0;
 }

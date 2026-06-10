@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from pygeodata import Artifact
-from pygeodata.config import JSONKeys, get_config
+from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config
 from pygeodata.file_utils import classify_file
 from pygeodata.paths import CACHE_DIR_SUFFIXES, CACHE_META_SUFFIXES, CachePathResolver
 from pygeodata.registry_browser.class_catalog import source_info_from_disk
@@ -165,6 +165,7 @@ def _process_params_path(params_path: Path) -> ProcessResult:
     instance_hash = state.get(JSONKeys.INSTANCE_HASH)
     stored_dep_hash = state.get(JSONKeys.DEPENDENCY_TREE_HASH)
     co_output_hashes = state.get(JSONKeys.CO_OUTPUTS, [])
+    format_version_stale = state.get(JSONKeys.FORMAT_VERSION) != FORMAT_VERSION
 
     object_type = _object_type_from_class_name(class_name)
 
@@ -190,6 +191,7 @@ def _process_params_path(params_path: Path) -> ProcessResult:
         linked_entries=linked_entries,
         primary_file=primary_file,
         warnings=warnings,
+        format_version_stale=format_version_stale,
     )
 
 
@@ -308,6 +310,7 @@ def discover_entries(
             warnings=warnings,
             dep_hash_stale=dep_hash_stale,
             dep_hash=result.stored_dep_hash,
+            format_version_stale=result.format_version_stale,
         )
         groups.setdefault(
             class_name,

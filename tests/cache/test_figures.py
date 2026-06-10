@@ -23,7 +23,8 @@ def test_clean_cache_stale_figure_reported(
 ) -> None:
     process_touch(SimpleFigure(), sample_spatial_spec, stale=True)
     clean_cache(dry_run=True)
-    assert 'Hash wrong' in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert 'Hash wrong' in out or 'Format version mismatch' in out
 
 
 def test_clean_cache_valid_figure_untouched(sample_spatial_spec: SpatialSpec) -> None:

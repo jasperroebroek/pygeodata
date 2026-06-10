@@ -104,7 +104,7 @@ def test_build_source_popup_from_registry(tmp_path: Path) -> None:
         with patch('pygeodata.registry_browser.popups.get_source_code', return_value='class DummyForPopup: pass'):
             result = build_source_popup('DummyForPopup')
         assert 'DummyForPopup' in result['title']
-        assert '<pre' in result['html']
+        assert 'diff-table' in result['html']
     finally:
         TrackedObject._registry = saved
         TrackedObject.clear_function_caches()

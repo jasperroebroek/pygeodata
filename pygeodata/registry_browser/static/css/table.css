@@ -269,7 +269,7 @@ tr.row-param.active td.col-indent::after {
 .entry-pill-list {
   flex: 1 1 0;
   overflow-y: auto;
-  padding: 4px 8px;
+  padding: 4px 8px 12px;
   display: flex;
   flex-direction: column;
   gap: 1px;

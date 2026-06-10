@@ -13,7 +13,7 @@ from pygeodata.ast import (
     get_source_ast_tree,
     get_source_code,
 )
-from pygeodata.config import JSONKeys, get_config
+from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config
 from pygeodata.graphs import plot_class_dependency_graph
 from pygeodata.hash import calculate_cls_source_hash, calculate_dict_hash
 from pygeodata.paths import CodeRegistryResolver, TreeRegistryResolver
@@ -282,6 +282,7 @@ class TrackedObject:
 
         now = datetime.now(timezone.utc).isoformat()
         meta = {
+            JSONKeys.FORMAT_VERSION: FORMAT_VERSION,
             JSONKeys.CLASS_NAME: cls.get_class_name(),
             JSONKeys.OBJECT_TYPE: cls.object_type.get_class_name(),
             JSONKeys.SOURCE_HASH: source_hash,
@@ -305,7 +306,8 @@ class TrackedObject:
         resolver.directory.mkdir(parents=True, exist_ok=True)
         complete = resolver.tree_path.exists() and (not has_deps or resolver.graph_path.exists())
         if not complete:
-            _atomic_write_json(resolver.tree_path, cls.get_dependency_tree())
+            tree = {JSONKeys.FORMAT_VERSION: FORMAT_VERSION, **cls.get_dependency_tree()}
+            _atomic_write_json(resolver.tree_path, tree)
             if has_deps:
                 plot_class_dependency_graph(
                     cls_name=cls.get_class_name(),

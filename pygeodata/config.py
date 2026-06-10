@@ -53,8 +53,12 @@ def set_config(**overrides: Any) -> Iterator[Config]:
         CONFIG.update(**old_values)
 
 
+FORMAT_VERSION = 1
+
+
 class JSONKeys(StrEnum):
     CLASS_NAME = 'class_name'
+    FORMAT_VERSION = 'format_version'
     OBJECT_TYPE = 'object_type'
     PARAMS = 'params'
     SOURCE_HASH = 'source_hash'

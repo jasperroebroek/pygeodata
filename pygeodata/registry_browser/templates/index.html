@@ -12,6 +12,7 @@
     <div class="view-tabs">
       <button class="view-tab active" data-view="entries">Entries</button>
       <button class="view-tab" data-view="code">Code</button>
+      <button class="view-tab" data-view="export">Export <span class="tab-badge hidden" id="export-tab-badge"></span></button>
     </div>
     <div class="topbar-sep"></div>
     <div id="entries-toolbar" class="topbar-toolbar-section">
@@ -44,6 +45,7 @@
         <button class="kind-tab active" data-val="all">All params</button>
       </div>
       <div class="kind-group"><button class="kind-tab" id="btn-hide-stale">Hide stale</button></div>
+      <div class="kind-group"><button class="kind-tab" id="btn-select-mode" title="Toggle entry selection for export">Select</button></div>
     </div>
     <div id="code-toolbar-right" class="topbar-toolbar-section" style="display:none">
     </div>
@@ -178,9 +180,55 @@
     <div class="code-source-actions" id="code-source-hd">
       <span class="pane-title" id="code-source-title"></span>
       <span class="main-hd-spacer"></span>
-      <button class="kind-tab" id="btn-find-in-entries" style="display:none">Find in entries</button>
+      <button class="act-btn" id="btn-find-in-entries" style="display:none">Find entries</button>
+    </div>
+    <div class="code-diff-bar" id="code-diff-controls" style="display:none">
+      <div class="kind-group" id="code-src-diff-seg">
+        <button class="kind-tab active" data-srcmode="source">Source</button>
+        <button class="kind-tab"        data-srcmode="diff">Diff</button>
+      </div>
+      <div class="kind-group seg-disabled" id="code-diff-mode-seg">
+        <button class="kind-tab active" data-dmode="inline">Inline</button>
+        <button class="kind-tab"        data-dmode="split">Side by side</button>
+      </div>
+      <div class="kind-group seg-disabled" id="code-diff-expand-seg">
+        <button class="kind-tab active" data-expand="hunks">Hunks</button>
+        <button class="kind-tab"        data-expand="full">Full</button>
+      </div>
     </div>
     <div class="code-source-panel" id="code-source-panel"></div>
+  </div>
+</div>
+
+<div class="view-export" style="display:none">
+  <div class="export-card">
+    <div class="export-card-hd">
+      <span class="export-card-title">Export</span>
+      <span class="export-toolbar-count" id="export-toolbar-count">0 entries</span>
+      <span class="main-hd-spacer"></span>
+      <div class="export-progress hidden" id="export-progress">
+        <div class="loading-bar-track export-progress-track">
+          <div class="loading-bar-fill" id="export-progress-bar"></div>
+        </div>
+        <span class="export-progress-label" id="export-progress-label"></span>
+      </div>
+      <button class="act-btn" id="btn-export-download" disabled>Download .tar</button>
+    </div>
+    <div class="export-card-body">
+      <div class="export-empty hidden" id="export-empty">No entries selected. Use the <strong>Select</strong> toggle to add entries.</div>
+      <div class="table-scroll" id="export-table-scroll" style="display:none;">
+        <table>
+          <colgroup>
+            <col class="col-indent">
+            <col class="col-group">
+            <col class="col-param">
+            <col class="col-value">
+          </colgroup>
+          <thead><tr id="export-table-head"></tr></thead>
+          <tbody id="export-table-body"></tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </div>
 
