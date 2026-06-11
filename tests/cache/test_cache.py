@@ -3,20 +3,31 @@ from pathlib import Path
 
 import pytest
 
-from pygeodata.cache import clean_cache, clean_registry, format_version_matches, hash_matches_live, read_cache_class_name, rebuild_registry
+from pygeodata.cache import (
+    clean_cache,
+    clean_registry,
+    format_version_matches,
+    hash_matches_live,
+    read_cache_class_name,
+    rebuild_registry,
+)
 from pygeodata.config import FORMAT_VERSION, JSONKeys
-from pygeodata.types import SpatialSpec
+from pygeodata.spec import SpatialSpec
 from tests.fixtures.data import Child, Parent, SimpleLoader
 
 
 def write_stale_hash(artifact: SimpleLoader, spec: SpatialSpec) -> None:
     hash_path = artifact.resolve_cache_paths(spec).state_hash_path
     hash_path.parent.mkdir(parents=True, exist_ok=True)
-    hash_path.write_text(json.dumps({
-        JSONKeys.CLASS_NAME: artifact.get_class_name(),
-        JSONKeys.DEPENDENCY_TREE_HASH: 'stale',
-        JSONKeys.STATE_HASH: 'stale',
-    }))
+    hash_path.write_text(
+        json.dumps(
+            {
+                JSONKeys.CLASS_NAME: artifact.get_class_name(),
+                JSONKeys.DEPENDENCY_TREE_HASH: 'stale',
+                JSONKeys.STATE_HASH: 'stale',
+            }
+        )
+    )
 
 
 def process_touch(artifact: SimpleLoader, spec: SpatialSpec, stale: bool = False) -> None:
@@ -36,7 +47,13 @@ def make_zarr_archive(parent: Path, stem: str, hash_value: str | None = None) ->
     (zarr_dir / '0' / '0').mkdir(parents=True)
     if hash_value is not None:
         (parent / f'.{stem}.hash.json').write_text(
-            json.dumps({JSONKeys.FORMAT_VERSION: FORMAT_VERSION, JSONKeys.CLASS_NAME: 'SimpleLoader', JSONKeys.DEPENDENCY_TREE_HASH: hash_value}),
+            json.dumps(
+                {
+                    JSONKeys.FORMAT_VERSION: FORMAT_VERSION,
+                    JSONKeys.CLASS_NAME: 'SimpleLoader',
+                    JSONKeys.DEPENDENCY_TREE_HASH: hash_value,
+                }
+            ),
         )
     return zarr_dir
 
@@ -178,10 +195,14 @@ def test_hash_matches_live_false_when_missing(tmp_path: Path) -> None:
 
 def test_hash_matches_live_none_when_class_unregistered(tmp_path: Path) -> None:
     hash_file = tmp_path / '.data.hash.json'
-    hash_file.write_text(json.dumps({
-        JSONKeys.CLASS_NAME: 'NoSuchClass',
-        JSONKeys.DEPENDENCY_TREE_HASH: 'abc',
-    }))
+    hash_file.write_text(
+        json.dumps(
+            {
+                JSONKeys.CLASS_NAME: 'NoSuchClass',
+                JSONKeys.DEPENDENCY_TREE_HASH: 'abc',
+            }
+        )
+    )
     assert hash_matches_live(hash_file) is None
 
 
@@ -211,7 +232,9 @@ def test_format_version_matches_false_when_file_missing(tmp_path: Path) -> None:
     assert format_version_matches(tmp_path / '.data.hash.json') is False
 
 
-def test_clean_cache_format_version_mismatch_reported(sample_spatial_spec: SpatialSpec, capsys: pytest.CaptureFixture) -> None:
+def test_clean_cache_format_version_mismatch_reported(
+    sample_spatial_spec: SpatialSpec, capsys: pytest.CaptureFixture
+) -> None:
     process_touch(SimpleLoader(), sample_spatial_spec, stale=True)
     clean_cache(dry_run=True)
     assert 'Format version mismatch' in capsys.readouterr().out
@@ -255,11 +278,11 @@ def test_clean_registry_removes_stale_snapshot_entry(tmp_path: Path) -> None:
     from pygeodata.config import set_config
 
     with set_config(path_registry=tmp_path / '.source'):
-        snap_dir = tmp_path / '.source' / 'snapshots' / 'oldhash'
-        snap_dir.mkdir(parents=True)
-        (snap_dir / 'tree.json').write_text(json.dumps({JSONKeys.FORMAT_VERSION: FORMAT_VERSION + 1}))
+        snapshot_dir = tmp_path / '.source' / 'snapshots' / 'oldhash'
+        snapshot_dir.mkdir(parents=True)
+        (snapshot_dir / 'tree.json').write_text(json.dumps({JSONKeys.FORMAT_VERSION: FORMAT_VERSION + 1}))
         clean_registry(dry_run=False)
-        assert not snap_dir.exists()
+        assert not snapshot_dir.exists()
 
 
 def test_clean_registry_missing_format_version_treated_as_stale(tmp_path: Path) -> None:

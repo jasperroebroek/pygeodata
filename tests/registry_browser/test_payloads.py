@@ -22,7 +22,7 @@ from pygeodata.registry_browser.payloads import (
     build_browser_payload,
 )
 from pygeodata.registry_browser.state import AppState
-from pygeodata.types import SpecKeys
+from pygeodata.spec import SpecKeys
 
 
 # ---------------------------------------------------------------------------

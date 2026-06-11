@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="446pt" height="166pt" viewBox="0.00 0.00 446.00 166.00">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 162)">
+<title>CompactExecutionGraph</title>
+<polygon fill="white" stroke="none" points="-4,4 -4,-162 441.5,-162 441.5,4 -4,4"/>
+<!-- 8bc8e091ecec52bd25b2254be843d7ab8fe2fe539072d057e6f7463da753eb9f -->
+<g id="node1" class="node">
+<title>8bc8e091ecec52bd25b2254be843d7ab8fe2fe539072d057e6f7463da753eb9f</title>
+<polygon fill="#d0e4fe" stroke="none" points="253.75,-80 253.75,-105 429.5,-105 429.5,-80 253.75,-80"/>
+<polygon fill="none" stroke="black" points="253.75,-80 253.75,-105 429.5,-105 429.5,-80 253.75,-80"/>
+<text xml:space="preserve" text-anchor="start" x="258.75" y="-87.7" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="14.00">FeatureCorrelationLoader</text>
+<polygon fill="#ffffff" stroke="none" points="253.75,-46 253.75,-80 429.5,-80 429.5,-46 253.75,-46"/>
+<polygon fill="none" stroke="black" points="253.75,-46 253.75,-80 429.5,-80 429.5,-46 253.75,-46"/>
+<text xml:space="preserve" text-anchor="start" x="258.75" y="-64.55" font-family="Helvetica,sans-Serif" font-size="11.00">feature = ElevationLoader</text>
+<text xml:space="preserve" text-anchor="start" x="258.75" y="-52.55" font-family="Helvetica,sans-Serif" font-size="11.00">variable = LSTLoader</text>
+</g>
+<!-- 47130813d3050ee154e9265ff000af606bf8f5a9567cd1f6b0db93bcdb0db247 -->
+<g id="node2" class="node">
+<title>47130813d3050ee154e9265ff000af606bf8f5a9567cd1f6b0db93bcdb0db247</title>
+<polygon fill="#d0e4fe" stroke="none" points="23.38,-129 23.38,-154 112.88,-154 112.88,-129 23.38,-129"/>
+<polygon fill="none" stroke="black" points="23.38,-129 23.38,-154 112.88,-154 112.88,-129 23.38,-129"/>
+<text xml:space="preserve" text-anchor="start" x="32.88" y="-136.7" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="14.00">LSTLoader</text>
+<polygon fill="#ffffff" stroke="none" points="23.38,-95 23.38,-129 112.88,-129 112.88,-95 23.38,-95"/>
+<polygon fill="none" stroke="black" points="23.38,-95 23.38,-129 112.88,-129 112.88,-95 23.38,-95"/>
+<text xml:space="preserve" text-anchor="start" x="28.38" y="-113.55" font-family="Helvetica,sans-Serif" font-size="11.00">year = 2020</text>
+<text xml:space="preserve" text-anchor="start" x="28.38" y="-101.55" font-family="Helvetica,sans-Serif" font-size="11.00">src_dir = data/lst</text>
+</g>
+<!-- 47130813d3050ee154e9265ff000af606bf8f5a9567cd1f6b0db93bcdb0db247&#45;&gt;8bc8e091ecec52bd25b2254be843d7ab8fe2fe539072d057e6f7463da753eb9f -->
+<g id="edge1" class="edge">
+<title>47130813d3050ee154e9265ff000af606bf8f5a9567cd1f6b0db93bcdb0db247-&gt;8bc8e091ecec52bd25b2254be843d7ab8fe2fe539072d057e6f7463da753eb9f</title>
+<path fill="none" stroke="#000000" stroke-width="1.5" d="M120.83,-115.17C152.83,-109.39 195.1,-101.76 234.02,-94.74"/>
+<polygon fill="#000000" stroke="#000000" stroke-width="1.5" points="234.52,-98.21 243.74,-92.99 233.28,-91.32 234.52,-98.21"/>
+<text xml:space="preserve" text-anchor="middle" x="191" y="-107.38" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#333333">variable</text>
+</g>
+<!-- 43ca00cd400357ae473f1a07ffd13d781ec524dfcb593890b5077073e1950d0d -->
+<g id="node3" class="node">
+<title>43ca00cd400357ae473f1a07ffd13d781ec524dfcb593890b5077073e1950d0d</title>
+<polygon fill="#d0e4fe" stroke="none" points="8,-26 8,-51 128.25,-51 128.25,-26 8,-26"/>
+<polygon fill="none" stroke="black" points="8,-26 8,-51 128.25,-51 128.25,-26 8,-26"/>
+<text xml:space="preserve" text-anchor="start" x="15.62" y="-33.7" font-family="Helvetica,sans-Serif" font-weight="bold" font-size="14.00">ElevationLoader</text>
+<polygon fill="#ffffff" stroke="none" points="8,-4 8,-26 128.25,-26 128.25,-4 8,-4"/>
+<polygon fill="none" stroke="black" points="8,-4 8,-26 128.25,-26 128.25,-4 8,-4"/>
+<text xml:space="preserve" text-anchor="start" x="13" y="-10.55" font-family="Helvetica,sans-Serif" font-size="11.00">src = data/srtm_30m.tif</text>
+</g>
+<!-- 43ca00cd400357ae473f1a07ffd13d781ec524dfcb593890b5077073e1950d0d&#45;&gt;8bc8e091ecec52bd25b2254be843d7ab8fe2fe539072d057e6f7463da753eb9f -->
+<g id="edge2" class="edge">
+<title>43ca00cd400357ae473f1a07ffd13d781ec524dfcb593890b5077073e1950d0d-&gt;8bc8e091ecec52bd25b2254be843d7ab8fe2fe539072d057e6f7463da753eb9f</title>
+<path fill="none" stroke="#000000" stroke-width="1.5" d="M136.24,-39.37C165.68,-44.57 200.96,-50.81 233.86,-56.62"/>
+<polygon fill="#000000" stroke="#000000" stroke-width="1.5" points="233.17,-60.06 243.62,-58.35 234.39,-53.16 233.17,-60.06"/>
+<text xml:space="preserve" text-anchor="middle" x="191" y="-53.05" font-family="Helvetica,sans-Serif" font-size="11.00" fill="#333333">feature</text>
+</g>
+</g>
+</svg>

@@ -1,6 +1,7 @@
 from pygeodata.artifact import Artifact
 from pygeodata.data import Data
-from pygeodata.types import SpatialSpec, T
+from pygeodata.protocols import T
+from pygeodata.spec import SpatialSpec
 
 
 def process(artifact: Artifact, spec: SpatialSpec | None = None) -> None:

@@ -221,41 +221,21 @@ man_pages = [('index')]
 # disable warnings
 warnings.filterwarnings('ignore')
 
-notebooks = [
-    Path.cwd() / 'notebooks' / f'{file}.ipynb'
-    for file in (
-        '01_getting_started',
-        '02_building_a_pipeline',
-        '03_reprojection',
-        '04_rasterization',
-        '05_custom_processing',
-        '06_custom_drivers',
-        '07_parallel_processing',
-        '08_visualisation_and_debugging',
-        '09_registry_browser',
-    )
+# -- Build examples from notebooks -------------------------------------------
+
+_examples_dir = Path(__file__).parent / 'examples'
+_examples = [
+    _examples_dir / '01_pipeline_and_cache.ipynb',
+    _examples_dir / '02_data_as_parameters.ipynb',
 ]
 
-print('\nBuilding notebooks:')
-for nb in notebooks:
-    # only render notebooks if necessary
-    f1 = os.path.getmtime(nb)
-    try:
-        f2 = os.path.getmtime(nb.with_suffix('.rst'))
-
-        if f2 > f1:
-            print(f' --- skipping: {nb}')
-            continue
-    except FileNotFoundError:
-        pass
-
+print('\nBuilding examples:')
+for nb in _examples:
+    rst = nb.with_suffix('.rst')
+    if rst.exists() and rst.stat().st_mtime > nb.stat().st_mtime:
+        print(f' --- skipping: {nb.name}')
+        continue
     call(
-        (
-            'jupyter nbconvert'
-            ' --to rst'
-            ' --template-file notebooks/tutorial_rst.tpl'
-            ' --ExecutePreprocessor.timeout=60'
-            ' --execute ' + nb.as_posix()
-        ),
+        f'jupyter nbconvert --to rst --output-dir {_examples_dir} {nb}',
         shell=True,
     )

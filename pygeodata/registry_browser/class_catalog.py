@@ -1,141 +1,74 @@
-import json
 import logging
 from pathlib import Path
 from typing import Any
 
-from pygeodata.config import JSONKeys, get_config
+from pygeodata.config import get_config
 from pygeodata.hash import calculate_cls_source_hash
 from pygeodata.paths import CodeRegistryResolver, TreeRegistryResolver
-from pygeodata.registry_browser.io_utils import existing_path_str, read_json_dict
+from pygeodata.registry import SourceRegistry, TreeRegistry
+from pygeodata.registry_browser.io_utils import existing_path_str
 from pygeodata.registry_browser.models import ClassInfo, RegistryClassInfo
 from pygeodata.tracked_object import TrackedObject
 
 logger = logging.getLogger(__name__)
 
 
-def _extract_dep_names(tree_data: dict, dep_type: str) -> list[str]:
-    """Extract direct child names under ``dep_type`` from the tree root.
-
-    Parameters
-    ----------
-    tree_data:
-        The full ``{nodes, tree}`` dict as stored in ``tree.json``.
-    dep_type:
-        Either ``"call_dependencies"`` or ``"inheritance_dependencies"``.
-
-    Returns
-    -------
-    list[str]
-        Sorted list of class names that are direct dependencies of the root node.
-    """
-    tree = tree_data.get(JSONKeys.TREE, {})
-    if not tree:
-        return []
-    root_node = next(iter(tree.values()), {})
-    return sorted(root_node.get(dep_type, {}).keys())
-
 
 def scan_code_snapshots() -> dict[str, list[dict]]:
-    """Scan ``.source/code/*/source.json`` and return all versions grouped by class_name.
+    """Return all code versions grouped by class_name.
 
-    Each entry includes ``{source_hash, mtime, object_type, is_version_change}`` where
-    ``mtime`` holds the ``registered_at`` value from ``source.json``.
-    ``is_version_change`` is ``True`` for all entries except the one with the oldest
-    ``registered_at`` per class (the initial registration).  Lists are unsorted.
+    Thin wrapper over :class:`SourceRegistry` that preserves the original
+    ``{source_hash, mtime, object_type, is_version_change}`` dict structure.
     """
-    code_root = Path(get_config().path_registry) / 'code'
-    groups: dict[str, list[dict]] = {}
-    if not code_root.exists():
-        return groups
-    for meta_path in code_root.glob('*/source.json'):
-        try:
-            data = json.loads(meta_path.read_text(encoding='utf-8'))
-        except (OSError, json.JSONDecodeError):
-            continue
-        cn = data.get(JSONKeys.CLASS_NAME)
-        if not cn:
-            continue
-        groups.setdefault(cn, []).append({
-            'source_hash': data.get(JSONKeys.SOURCE_HASH, ''),
-            'mtime': data.get(JSONKeys.REGISTERED_AT, ''),
-            'object_type': data.get(JSONKeys.OBJECT_TYPE, ''),
-        })
-
-    # is_version_change marks entries that represent a genuine code change (not the initial
-    # registration). Only entries 2..N for a class are changes; the oldest entry is the
-    # baseline and does not itself constitute a change event.
-    for entries in groups.values():
-        if len(entries) <= 1:
-            for e in entries:
-                e['is_version_change'] = False
-        else:
-            oldest_mtime = min(e['mtime'] for e in entries)
-            for e in entries:
-                e['is_version_change'] = e['mtime'] != oldest_mtime
-
-    return groups
-
+    return SourceRegistry(get_config().path_registry).code_groups_dict()
 
 
 def source_info_from_disk(class_name: str) -> RegistryClassInfo:
     """Read class metadata from the content-addressed code registry.
 
-    Scans ``.source/code/*/source.json`` for a snapshot whose ``class_name`` field
-    matches, then finds the most recent one by ``mtime``. Also searches
-    ``.source/snapshots/*/tree.json`` for a dependency tree that has this class as root.
+    Uses :class:`SourceRegistry` to find the most recent snapshot for
+    ``class_name``, then searches ``snapshots/*/tree.json`` for a dependency
+    tree that has this class as root.
 
-    Used for classes that are known from cache but not loaded into the Python registry.
     Returns a default :class:`RegistryClassInfo` if nothing is found.
     """
-    code_root = Path(get_config().path_registry) / 'code'
-    if not code_root.exists():
+    registry = SourceRegistry(get_config().path_registry)
+    latest = registry.latest_for_class(class_name)
+    if latest is None:
         return RegistryClassInfo()
 
-    candidates = []
-    for meta_path in code_root.glob('*/source.json'):
-        try:
-            data = json.loads(meta_path.read_text(encoding='utf-8'))
-        except (OSError, json.JSONDecodeError):
-            continue
-        if data.get(JSONKeys.CLASS_NAME) == class_name:
-            candidates.append((data.get(JSONKeys.REGISTERED_AT, ''), meta_path, data))
-
-    if not candidates:
-        return RegistryClassInfo()
-
-    _, meta_path, data = max(candidates, key=lambda x: x[0])
-    source_hash = data.get(JSONKeys.SOURCE_HASH)
+    source_hash = latest.source_hash
     code_resolver = CodeRegistryResolver.from_source_hash(source_hash) if source_hash else None
+    meta_path = code_resolver.meta_path if code_resolver else None
 
     call_dep_names: list[str] = []
     inh_dep_names: list[str] = []
     graph_path_str: str | None = None
     tree_path_str: str | None = None
 
-    snapshots_dir = Path(get_config().path_registry) / 'snapshots'
-    if snapshots_dir.exists():
-        for tree_path in snapshots_dir.glob('*/tree.json'):
-            try:
-                tree_data = json.loads(tree_path.read_text(encoding='utf-8'))
-            except (OSError, json.JSONDecodeError):
-                continue
-            if class_name in tree_data.get(JSONKeys.TREE, {}):
-                call_dep_names = _extract_dep_names(tree_data, 'call_dependencies')
-                inh_dep_names = _extract_dep_names(tree_data, 'inheritance_dependencies')
-                graph_path_candidate = tree_path.parent / 'graph.pdf'
-                graph_path_str = str(graph_path_candidate.resolve()) if graph_path_candidate.exists() else None
-                tree_path_str = str(tree_path.resolve())
-                break
+    trees = TreeRegistry(get_config().path_registry)
+    dep_hash = trees.find_by_class(class_name)
+    if dep_hash is not None:
+        call_dep_names = trees.get_call_deps(dep_hash)
+        inh_dep_names = trees.get_inheritance_deps(dep_hash)
+        tree_path = trees.get_tree_path(dep_hash)
+        graph_path_candidate = tree_path.parent / 'graph.pdf'
+        graph_path_str = str(graph_path_candidate.resolve()) if graph_path_candidate.exists() else None
+        tree_path_str = str(tree_path.resolve())
+
+    state = registry.get_state_by_hash(source_hash) if source_hash else None
 
     return RegistryClassInfo(
-        object_type=str(data[JSONKeys.OBJECT_TYPE]) if JSONKeys.OBJECT_TYPE in data else None,
+        object_type=state.object_type if state else None,
         call_dependency_names=call_dep_names,
         inheritance_dependency_names=inh_dep_names,
         stored_source_hash=source_hash,
         stored_dependency_tree_hash=None,
-        source_path=str(code_resolver.source_path.resolve()) if code_resolver and code_resolver.source_path.exists() else None,
+        source_path=str(code_resolver.source_path.resolve())
+        if code_resolver and code_resolver.source_path.exists()
+        else None,
         graph_path=graph_path_str,
-        registry_path=str(meta_path.resolve()),
+        registry_path=str(meta_path.resolve()) if meta_path and meta_path.exists() else None,
         tree_path=tree_path_str,
     )
 
@@ -184,8 +117,8 @@ def merge_unloaded_classes(
             continue
 
         info = source_info_from_disk(class_name)
-        object_type = (
-            info.object_type or (str(getattr(group, 'object_type')) if getattr(group, 'object_type', None) else None)
+        object_type = info.object_type or (
+            str(getattr(group, 'object_type')) if getattr(group, 'object_type', None) else None
         )
 
         merged[class_name] = ClassInfo(

@@ -3,7 +3,8 @@ from typing import ClassVar, Generic
 
 from pygeodata.artifact import Artifact
 from pygeodata.config import get_config
-from pygeodata.types import Driver, SpatialSpec, T
+from pygeodata.protocols import Driver, T
+from pygeodata.spec import SpatialSpec
 
 
 class Data(Artifact, Generic[T]):

@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 
 from pygeodata.formatting.shared import format_array
-from pygeodata.types import AllowsFormatting
+from pygeodata.protocols import AllowsFormatting
 
 
 def _is_container(value: Any) -> bool:

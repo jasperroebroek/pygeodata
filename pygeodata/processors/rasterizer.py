@@ -12,7 +12,7 @@ from rasterio.features import rasterize
 from pygeodata.config import get_config
 from pygeodata.drivers import RioXArrayDriver
 from pygeodata.rasters import RasterCreationOptions
-from pygeodata.types import SpatialSpec
+from pygeodata.spec import SpatialSpec
 
 
 @dataclass

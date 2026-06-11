@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from pygeodata.rasters import RasterCreationOptions
-from pygeodata.types import SpatialSpec
+from pygeodata.spec import SpatialSpec
 
 
 @dataclass

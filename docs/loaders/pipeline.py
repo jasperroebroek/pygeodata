@@ -17,7 +17,7 @@ from pygeodata.data import Data
 from pygeodata.drivers.rioxarray import RioXArrayDriver
 from pygeodata.processors.reprojection import Reprojector
 from pygeodata.processors.rasterizer import Rasterizer
-from pygeodata.types import SpatialSpec
+from pygeodata.spec import SpatialSpec
 
 
 # ---------------------------------------------------------------------------

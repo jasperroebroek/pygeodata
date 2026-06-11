@@ -2,8 +2,9 @@ from pygeodata.config import JSONKeys
 from pygeodata.formatting.json import format_json
 from pygeodata.registry_browser.filters import Filter, entry_matches_filters, matching_rows, parse_filters
 from pygeodata.registry_browser.models import ClassInfo, EntryInfo, FileRef, LinkedEntry
-from pygeodata.registry_browser.state import AppState, build_version_groups
-from pygeodata.types import SpecKeys
+from pygeodata.registry_browser.state import AppState
+from pygeodata.versioning import build_version_groups
+from pygeodata.spec import SpecKeys
 
 # ---------------------------------------------------------------------------
 # Small serialisers — one responsibility each
@@ -372,6 +373,23 @@ def _build_instance_hash_index(entries: dict[str, 'EntryInfo']) -> dict[str, lis
     return index
 
 
+def _class_version_history(state: AppState, class_name: str) -> list[dict]:
+    """Return code versions for a class sorted oldest-first.
+
+    Each entry: {source_hash, mtime, is_version_change}.
+    Only includes entries that represent genuine version changes plus the
+    initial (oldest) entry so the full history is available.
+    """
+    entries = state.code_groups.get(class_name, [])
+    if not entries:
+        return []
+    sorted_entries = sorted(entries, key=lambda e: e['mtime'])
+    return [
+        {'source_hash': e['source_hash'], 'mtime': e['mtime'], 'is_version_change': e['is_version_change']}
+        for e in sorted_entries
+    ]
+
+
 def _build_detail_payload(
     *,
     state: AppState,
@@ -390,8 +408,13 @@ def _build_detail_payload(
                 for e in index.get(selected_entry_info.instance_hash, [])
                 if e.record_id != selected_entry_info.record_id
             ]
+        # mtime of the version group this entry's snapshot belongs to — used to
+        # highlight the matching row in the Versions card.
+        entry_version_mtime = state.snapshots.get(selected_entry_info.dep_hash) if selected_entry_info.dep_hash else None
         return {
             **_class_detail_payload(class_info),
+            'code_versions': _class_version_history(state, selected_entry_info.class_name),
+            'entry_version_mtime': entry_version_mtime,
             'selected_entry': _entry_detail_payload(selected_entry_info, same_instance_runs=siblings),
         }
 
@@ -400,6 +423,8 @@ def _build_detail_payload(
         if class_info is not None:
             return {
                 **_class_detail_payload(class_info),
+                'code_versions': _class_version_history(state, selected_classes[0]),
+                'entry_version_mtime': None,
                 'selected_entry': None,
             }
 

@@ -525,3 +525,76 @@ a.link-entry-name {
   color: var(--faint);
   font-size: 10px;
 }
+
+/* ---------------------------------------------------------------
+   Versions card
+   --------------------------------------------------------------- */
+
+.dcard-hd-meta {
+  font-size: 11px;
+  color: var(--faint);
+  font-weight: 400;
+  margin-left: 4px;
+}
+
+.dcard-body--versions {
+  padding: 2px 0 4px;
+}
+
+.ver-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 14px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border-s);
+}
+.ver-row:last-child { border-bottom: none; }
+
+.ver-row--active {
+  background: var(--accent-bg2);
+}
+
+.ver-num {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  min-width: 22px;
+  flex-shrink: 0;
+}
+
+.ver-row--active .ver-num {
+  color: var(--accent);
+}
+
+.ver-date {
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.ver-hash {
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--faint);
+  flex-shrink: 0;
+}
+
+.ver-chip {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.ver-chip--active {
+  background: var(--accent-bg);
+  color: var(--accent);
+  border: 1px solid var(--accent-mid);
+}
+
+.ver-spacer { flex: 1; }
+
+.ver-src-btn {
+  flex-shrink: 0;
+}

@@ -7,7 +7,8 @@ from typing import Any
 import numpy as np
 
 from pygeodata.formatting.shared import JSON_SAFE_TYPES, format_array
-from pygeodata.types import AllowsFormatting, SpatialSpec
+from pygeodata.protocols import AllowsFormatting
+from pygeodata.spec import SpatialSpec
 
 
 @singledispatch

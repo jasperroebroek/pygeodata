@@ -71,15 +71,15 @@ function _snapshot(viewMode, codeState = null) {
   };
 }
 
-function _restore(snap) {
-  state.selected_classes  = snap.selected_classes;
-  state.selected_entry    = snap.selected_entry;
-  state.kind_filter       = snap.kind_filter;
-  state.logic_mode        = snap.logic_mode       ?? state.logic_mode;
-  state.row_display       = snap.row_display      ?? state.row_display;
-  state.version_filter    = snap.version_filter    ?? null;
-  state.spec_filters      = snap.spec_filters;
-  state.filters           = snap.filters;
+function _restore(snapshot) {
+  state.selected_classes  = snapshot.selected_classes;
+  state.selected_entry    = snapshot.selected_entry;
+  state.kind_filter       = snapshot.kind_filter;
+  state.logic_mode        = snapshot.logic_mode       ?? state.logic_mode;
+  state.row_display       = snapshot.row_display      ?? state.row_display;
+  state.version_filter    = snapshot.version_filter    ?? null;
+  state.spec_filters      = snapshot.spec_filters;
+  state.filters           = snapshot.filters;
 }
 
 /**
@@ -99,9 +99,9 @@ export function pushHistory(viewMode, codeState = null) {
 export function navigateBack(currentViewMode, codeState = null) {
   if (!_back.length) return null;
   _forward.push(_snapshot(currentViewMode, codeState));
-  const snap = _back.pop();
-  _restore(snap);
-  return snap;
+  const snapshot = _back.pop();
+  _restore(snapshot);
+  return snapshot;
 }
 
 /**
@@ -111,9 +111,9 @@ export function navigateBack(currentViewMode, codeState = null) {
 export function navigateForward(currentViewMode, codeState = null) {
   if (!_forward.length) return null;
   _back.push(_snapshot(currentViewMode, codeState));
-  const snap = _forward.pop();
-  _restore(snap);
-  return snap;
+  const snapshot = _forward.pop();
+  _restore(snapshot);
+  return snapshot;
 }
 
 export function hasBack()    { return _back.length > 0; }

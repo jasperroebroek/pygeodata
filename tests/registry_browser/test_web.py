@@ -5,10 +5,11 @@ from unittest.mock import patch
 import pytest
 
 from pygeodata.config import set_config
-from pygeodata.registry_browser.class_catalog import scan_code_snapshots
-from pygeodata.registry_browser.state import AppContext, AppState, _build_versions
+from pygeodata.registry import SourceRegistry
+from pygeodata.registry_browser.state import AppContext, AppState
 from pygeodata.registry_browser.web import _allowed_roots, _assert_allowed_path
 from pygeodata.registry_browser.web import app as flask_app
+from pygeodata.versioning import version_infos
 
 
 def _make_ready_ctx(versions=None, code_groups=None):
@@ -206,9 +207,8 @@ def test_api_code_versions_only_shows_changes(tmp_path: Path) -> None:
     # Single entry for MyLoader — first registration, not a version change
     _write_code_snapshot(registry, 'v1hash', 'MyLoader', 'class MyLoader: pass', mtime='2026-01-01T00:00:00+00:00')
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
-        code_groups = scan_code_snapshots()
-        versions = _build_versions(code_groups)
-        ctx = _make_ready_ctx(versions=versions, code_groups=code_groups)
+        reg = SourceRegistry(registry)
+        ctx = _make_ready_ctx(versions=version_infos(reg), code_groups=reg.code_groups_dict())
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
             resp = flask_app.test_client().get('/api/code/versions')
@@ -222,9 +222,8 @@ def test_api_code_versions_shows_second_entry(tmp_path: Path) -> None:
     _write_code_snapshot(registry, 'v1hash', 'MyLoader', 'class MyLoader: pass', mtime='2026-01-01T00:00:00+00:00')
     _write_code_snapshot(registry, 'v2hash', 'MyLoader', 'class MyLoader: pass\n', mtime='2026-06-01T00:00:00+00:00')
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
-        code_groups = scan_code_snapshots()
-        versions = _build_versions(code_groups)
-        ctx = _make_ready_ctx(versions=versions, code_groups=code_groups)
+        reg = SourceRegistry(registry)
+        ctx = _make_ready_ctx(versions=version_infos(reg), code_groups=reg.code_groups_dict())
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
             resp = flask_app.test_client().get('/api/code/versions')
@@ -252,9 +251,9 @@ def test_api_code_resolve_dep_hash(tmp_path: Path) -> None:
     # MyDep: registered once at a time between v1 and v2 of MyLoader
     _write_code_snapshot(registry, 'dep1hash', 'MyDep', 'class MyDep: pass', mtime='2026-03-01T00:00:00+00:00')
 
-    snap_dir = registry / 'snapshots' / 'snap_old'
-    snap_dir.mkdir(parents=True)
-    (snap_dir / 'tree.json').write_text(
+    snapshot_dir = registry / 'snapshots' / 'snapshot_old'
+    snapshot_dir.mkdir(parents=True)
+    (snapshot_dir / 'tree.json').write_text(
         json.dumps(
             {
                 # Snapshot uses MyLoader v1 (2026-01-01) but MyDep at 2026-03-01
@@ -269,12 +268,11 @@ def test_api_code_resolve_dep_hash(tmp_path: Path) -> None:
     )
 
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
-        code_groups = scan_code_snapshots()
-        versions = _build_versions(code_groups)
-        ctx = _make_ready_ctx(versions=versions, code_groups=code_groups)
+        reg = SourceRegistry(registry)
+        ctx = _make_ready_ctx(versions=version_infos(reg), code_groups=reg.code_groups_dict())
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
-            resp = flask_app.test_client().get('/api/code/resolve-dep-hash?dep_hash=snap_old&class_name=MyLoader')
+            resp = flask_app.test_client().get('/api/code/resolve-dep-hash?dep_hash=snapshot_old&class_name=MyLoader')
     assert resp.status_code == 200
     data = resp.get_json()
     assert data['source_hash'] == 'v1hash'
@@ -306,8 +304,8 @@ def test_api_code_version_classes_returns_latest(tmp_path: Path) -> None:
     _write_code_snapshot(registry, 'v1hash', 'MyLoader', 'class MyLoader: pass', mtime='2026-01-01T00:00:00+00:00')
     _write_code_snapshot(registry, 'v2hash', 'MyLoader', 'class MyLoader: pass\n', mtime='2026-06-01T00:00:00+00:00')
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
-        code_groups = scan_code_snapshots()
-        ctx = _make_ready_ctx(versions=_build_versions(code_groups), code_groups=code_groups)
+        reg = SourceRegistry(registry)
+        ctx = _make_ready_ctx(versions=version_infos(reg), code_groups=reg.code_groups_dict())
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
             resp = flask_app.test_client().get('/api/code/version-classes')
@@ -323,8 +321,8 @@ def test_api_code_version_classes_mtime_cutoff(tmp_path: Path) -> None:
     _write_code_snapshot(registry, 'v1hash', 'MyLoader', 'class MyLoader: pass', mtime='2026-01-01T00:00:00+00:00')
     _write_code_snapshot(registry, 'v2hash', 'MyLoader', 'class MyLoader: pass\n', mtime='2026-06-01T00:00:00+00:00')
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
-        code_groups = scan_code_snapshots()
-        ctx = _make_ready_ctx(versions=_build_versions(code_groups), code_groups=code_groups)
+        reg = SourceRegistry(registry)
+        ctx = _make_ready_ctx(versions=version_infos(reg), code_groups=reg.code_groups_dict())
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
             resp = flask_app.test_client().get('/api/code/version-classes?mtime=2026-03-01T00:00:00+00:00')
@@ -442,9 +440,9 @@ def test_api_code_tree_diff_missing_param(client) -> None:
 def test_api_code_tree_diff_returns_changes(tmp_path: Path) -> None:
     registry = tmp_path / '.source'
     # Stored snapshot: MyLoader at v1hash
-    snap_dir = registry / 'snapshots' / 'snap1'
-    snap_dir.mkdir(parents=True)
-    (snap_dir / 'tree.json').write_text(
+    snapshot_dir = registry / 'snapshots' / 'snapshot1'
+    snapshot_dir.mkdir(parents=True)
+    (snapshot_dir / 'tree.json').write_text(
         json.dumps(
             {
                 'nodes': {'MyLoader': {'hash': 'v1hash', 'object_type': 'Data'}},
@@ -469,7 +467,7 @@ def test_api_code_tree_diff_returns_changes(tmp_path: Path) -> None:
         mtime='2026-06-01T00:00:00+00:00',
     )
 
-    entry = _make_entry('rec1', 'snap1')
+    entry = _make_entry('rec1', 'snapshot1')
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
         from pygeodata.registry_browser.class_catalog import scan_code_snapshots
 
@@ -495,9 +493,9 @@ def test_api_code_tree_diff_returns_changes(tmp_path: Path) -> None:
 def test_api_code_tree_diff_sort_order(tmp_path: Path) -> None:
     """Changed → removed → added → unchanged."""
     registry = tmp_path / '.source'
-    snap_dir = registry / 'snapshots' / 'snap1'
-    snap_dir.mkdir(parents=True)
-    (snap_dir / 'tree.json').write_text(
+    snapshot_dir = registry / 'snapshots' / 'snapshot1'
+    snapshot_dir.mkdir(parents=True)
+    (snapshot_dir / 'tree.json').write_text(
         json.dumps(
             {
                 'nodes': {
@@ -516,7 +514,7 @@ def test_api_code_tree_diff_sort_order(tmp_path: Path) -> None:
     # ClassD only in live (added)
     _write_code_snapshot(registry, 'hd1', 'ClassD', 'class ClassD: pass\n')
 
-    entry = _make_entry('rec1', 'snap1')
+    entry = _make_entry('rec1', 'snapshot1')
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
         from pygeodata.registry_browser.class_catalog import scan_code_snapshots
 
@@ -558,7 +556,9 @@ def _make_entry_with_path(record_id: str, params_path: str, dep_hash: str | None
 
 def _run_export(client, record_ids, include_snapshots=False):
     """Helper: start → poll until complete → download. Returns (tar_names, download_resp)."""
-    import time, tarfile as tarlib, io
+    import io
+    import tarfile as tarlib
+    import time
 
     resp = client.post('/api/export/start', json={'record_ids': record_ids, 'include_snapshots': include_snapshots})
     assert resp.status_code == 200
@@ -569,10 +569,10 @@ def _run_export(client, record_ids, include_snapshots=False):
         status = client.get(f'/api/export/status/{job_id}').get_json()
         if status['status'] == 'complete':
             break
-        assert status['status'] == 'running', f"unexpected status: {status}"
+        assert status['status'] == 'running', f'unexpected status: {status}'
         time.sleep(0.05)
     else:
-        raise AssertionError("export job never completed")
+        raise AssertionError('export job never completed')
 
     dl = client.get(f'/api/export/download/{job_id}')
     assert dl.status_code == 200
@@ -629,10 +629,10 @@ def test_api_export_includes_snapshots(tmp_path: Path) -> None:
     (code_dir / 'source.json').write_text('{}')
 
     dep_hash = 'dephash1'
-    snap_dir = registry / 'snapshots' / dep_hash
-    snap_dir.mkdir(parents=True)
-    (snap_dir / 'tree.json').write_text(
-        json.dumps({'nodes': {'MyLoader': {'hash': src_hash, 'object_type': 'Data'}}, 'tree': {}})
+    snapshot_dir = registry / 'snapshots' / dep_hash
+    snapshot_dir.mkdir(parents=True)
+    (snapshot_dir / 'tree.json').write_text(
+        json.dumps({'nodes': {'MyLoader': {'hash': src_hash, 'object_type': 'Data'}}, 'tree': {}}),
     )
 
     entry = _make_entry_with_path('abc123', str(cache_dir / '.myloader.params.json'), dep_hash=dep_hash)

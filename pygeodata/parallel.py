@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from dask.delayed import Delayed
 
     from pygeodata.data import Data
-    from pygeodata.types import SpatialSpec
+    from pygeodata.spec import SpatialSpec
 
 
 def build_dask_graph(

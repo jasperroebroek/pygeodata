@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="221pt" height="44pt" viewBox="0.00 0.00 221.00 44.00">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 40)">
+<polygon fill="white" stroke="none" points="-4,4 -4,-40 216.75,-40 216.75,4 -4,4"/>
+<!-- ElevationLoader -->
+<g id="node1" class="node">
+<title>ElevationLoader</title>
+<path fill="#d0dceb" stroke="black" d="M200.75,-36C200.75,-36 139,-36 139,-36 133,-36 127,-30 127,-24 127,-24 127,-12 127,-12 127,-6 133,0 139,0 139,0 200.75,0 200.75,0 206.75,0 212.75,-6 212.75,-12 212.75,-12 212.75,-24 212.75,-24 212.75,-30 206.75,-36 200.75,-36"/>
+<text xml:space="preserve" text-anchor="middle" x="169.88" y="-14.12" font-family="Helvetica,sans-Serif" font-size="10.00">ElevationLoader</text>
+</g>
+<!-- SlopeLoader -->
+<g id="node2" class="node">
+<title>SlopeLoader</title>
+<path fill="#d0dceb" stroke="black" d="M58,-36C58,-36 12,-36 12,-36 6,-36 0,-30 0,-24 0,-24 0,-12 0,-12 0,-6 6,0 12,0 12,0 58,0 58,0 64,0 70,-6 70,-12 70,-12 70,-24 70,-24 70,-30 64,-36 58,-36"/>
+<text xml:space="preserve" text-anchor="middle" x="35" y="-14.12" font-family="Helvetica,sans-Serif" font-size="10.00">SlopeLoader</text>
+</g>
+<!-- SlopeLoader&#45;&gt;ElevationLoader -->
+<g id="edge1" class="edge">
+<title>SlopeLoader-&gt;ElevationLoader</title>
+<path fill="none" stroke="#2c3e50" d="M70.22,-18C83.94,-18 100.09,-18 115.3,-18"/>
+<polygon fill="#2c3e50" stroke="#2c3e50" points="115.18,-21.5 125.18,-18 115.18,-14.5 115.18,-21.5"/>
+<text xml:space="preserve" text-anchor="middle" x="98.5" y="-19.2" font-family="Helvetica,sans-Serif" font-size="9.00"> calls</text>
+</g>
+</g>
+</svg>

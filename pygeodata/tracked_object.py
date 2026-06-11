@@ -1,9 +1,7 @@
 import ast
 import functools
 import json
-import os
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, ClassVar
 
 from pygeodata.ast import (
@@ -13,23 +11,13 @@ from pygeodata.ast import (
     get_source_ast_tree,
     get_source_code,
 )
-from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config
+from pygeodata.config import get_config
+from pygeodata.graph_types import ClassNode, DependencyGraph
 from pygeodata.graphs import plot_class_dependency_graph
 from pygeodata.hash import calculate_cls_source_hash, calculate_dict_hash
 from pygeodata.paths import CodeRegistryResolver, TreeRegistryResolver
-from pygeodata.types import ClassNode, DependencyGraph
-
-
-def _atomic_write_text(path: Path, text: str) -> None:
-    tmp = path.with_suffix('.tmp')
-    tmp.write_text(text, encoding='utf-8')
-    os.replace(tmp, path)
-
-
-def _atomic_write_json(path: Path, data: dict) -> None:
-    tmp = path.with_suffix('.tmp')
-    tmp.write_text(json.dumps(data, indent=4), encoding='utf-8')
-    os.replace(tmp, path)
+from pygeodata.registry import SourceRegistry
+from pygeodata.registry_types import CodeState, TreeSnapshot
 
 
 class TrackedObject:
@@ -241,28 +229,9 @@ class TrackedObject:
 
     @classmethod
     def _previously_active_source_hash(cls) -> str | None:
-        """Return the source_hash from the most-recent ``source.json`` for this class.
-
-        Scans ``.source/code/*/source.json`` for entries matching this class and returns
-        the hash of the entry with the greatest mtime.  Returns ``None`` if none exists.
-        """
-        code_root = Path(get_config().path_registry) / 'code'
-        if not code_root.exists():
-            return None
-        best_mtime = ''
-        best_hash: str | None = None
-        for meta_path in code_root.glob('*/source.json'):
-            try:
-                data = json.loads(meta_path.read_text(encoding='utf-8'))
-            except (OSError, json.JSONDecodeError):
-                continue
-            if data.get(JSONKeys.CLASS_NAME) != cls.get_class_name():
-                continue
-            mtime = data.get(JSONKeys.REGISTERED_AT, '')
-            if mtime > best_mtime:
-                best_mtime = mtime
-                best_hash = data.get(JSONKeys.SOURCE_HASH)
-        return best_hash
+        """Return the source_hash from the most-recent ``source.json`` for this class."""
+        state = SourceRegistry(get_config().path_registry).latest_for_class(cls.get_class_name())
+        return state.source_hash if state else None
 
     @classmethod
     def _write_code_registry(cls) -> None:
@@ -278,20 +247,22 @@ class TrackedObject:
         resolver.directory.mkdir(parents=True, exist_ok=True)
 
         if not resolver.source_path.exists():
-            _atomic_write_text(resolver.source_path, get_source_code(cls))
+            tmp = resolver.source_path.with_suffix('.tmp')
+            tmp.write_text(get_source_code(cls), encoding='utf-8')
+            tmp.replace(resolver.source_path)
 
-        now = datetime.now(timezone.utc).isoformat()
-        meta = {
-            JSONKeys.FORMAT_VERSION: FORMAT_VERSION,
-            JSONKeys.CLASS_NAME: cls.get_class_name(),
-            JSONKeys.OBJECT_TYPE: cls.object_type.get_class_name(),
-            JSONKeys.SOURCE_HASH: source_hash,
-            JSONKeys.REGISTERED_AT: now,
-        }
+        state = CodeState(
+            source_hash=source_hash,
+            class_name=cls.get_class_name(),
+            object_type=cls.object_type.get_class_name(),
+            registered_at=datetime.now(timezone.utc).isoformat(),
+        )
 
         previously_active = cls._previously_active_source_hash()
         if not resolver.meta_path.exists() or (previously_active is not None and previously_active != source_hash):
-            _atomic_write_json(resolver.meta_path, meta)
+            tmp = resolver.meta_path.with_suffix('.tmp')
+            state.dump(tmp)
+            tmp.replace(resolver.meta_path)
 
     @classmethod
     def _write_tree_registry(cls) -> None:
@@ -306,8 +277,15 @@ class TrackedObject:
         resolver.directory.mkdir(parents=True, exist_ok=True)
         complete = resolver.tree_path.exists() and (not has_deps or resolver.graph_path.exists())
         if not complete:
-            tree = {JSONKeys.FORMAT_VERSION: FORMAT_VERSION, **cls.get_dependency_tree()}
-            _atomic_write_json(resolver.tree_path, tree)
+            dep_tree = cls.get_dependency_tree()
+            tree = TreeSnapshot(
+                dep_hash=dep_tree_hash,
+                nodes=dep_tree['nodes'],
+                tree=dep_tree['tree'],
+            )
+            tmp = resolver.tree_path.with_suffix('.tmp')
+            tree.dump(tmp)
+            tmp.replace(resolver.tree_path)
             if has_deps:
                 plot_class_dependency_graph(
                     cls_name=cls.get_class_name(),

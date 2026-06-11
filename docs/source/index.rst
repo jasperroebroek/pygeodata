@@ -29,12 +29,18 @@ change, enabling reproducible, incremental pipelines.
    :maxdepth: 2
    :caption: Tutorials
 
-   notebooks/01_getting_started
-   notebooks/02_building_a_pipeline
-   notebooks/03_reprojection
-   notebooks/04_rasterization
-   notebooks/05_custom_processing
-   notebooks/06_custom_drivers
-   notebooks/07_parallel_processing
-   notebooks/08_visualisation_and_debugging
-   notebooks/09_registry_browser
+   tutorials/01_getting_started
+   tutorials/02_building_a_pipeline
+   tutorials/03_reprojection
+   tutorials/04_custom_processing
+   tutorials/05_drivers
+   tutorials/06_parallel_processing
+   tutorials/07_cache_management
+   tutorials/08_registry_browser
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Examples
+
+   examples/01_pipeline_and_cache
+   examples/02_data_as_parameters

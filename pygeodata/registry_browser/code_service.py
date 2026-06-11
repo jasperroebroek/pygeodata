@@ -1,0 +1,202 @@
+"""Domain logic for the /api/code/* routes.
+
+Routes in web.py parse request args, call these functions, and jsonify the
+result.  No Flask imports here.
+"""
+
+from __future__ import annotations
+
+from difflib import unified_diff
+
+from pygeodata.config import get_config
+from pygeodata.hash import calculate_cls_source_hash
+from pygeodata.paths import CodeRegistryResolver
+from pygeodata.registry import SourceRegistry, TreeRegistry
+from pygeodata.registry_browser.io_utils import read_text
+from pygeodata.registry_browser.popups import render_source_html
+from pygeodata.tracked_object import TrackedObject
+from pygeodata.versioning import snapshot_version_identity
+
+
+def resolve_dep_hash(dep_hash: str, class_name: str) -> dict | None:
+    """Return {'version_mtime': ..., 'source_hash': ...} or None if not found.
+
+    None signals a 404; callers should abort(404).
+    """
+    root = get_config().path_registry
+    trees = TreeRegistry(root)
+    tree = trees.get_snapshot(dep_hash)
+    if tree is None:
+        return None
+
+    source_hash = tree.get_source_hash(class_name)
+    if not source_hash:
+        return None
+
+    registry = SourceRegistry(root)
+    version_mtime = snapshot_version_identity(registry, dep_hash, tree_registry=trees)
+    return {'version_mtime': version_mtime, 'source_hash': source_hash}
+
+
+def version_classes(code_groups: dict[str, list[dict]], mtime_cutoff: str, exclusive: bool) -> list[dict]:
+    """Return per-class best-version dicts for the given mtime cutoff.
+
+    Includes live staleness check via TrackedObject + calculate_cls_source_hash.
+    """
+    result = []
+    for class_name, versions in sorted(code_groups.items()):
+        if mtime_cutoff == 'now':
+            candidates = versions
+        elif exclusive:
+            candidates = [v for v in versions if v['mtime'] < mtime_cutoff]
+        else:
+            candidates = [v for v in versions if v['mtime'] <= mtime_cutoff]
+        if not candidates:
+            continue
+        best = max(candidates, key=lambda v: v['mtime'])
+
+        cls = TrackedObject.find_object_class(class_name)
+        is_loaded = cls is not None
+        is_stale = False
+        if is_loaded:
+            is_stale = calculate_cls_source_hash(cls) != best['source_hash']
+
+        result.append(
+            {
+                'class_name': class_name,
+                'object_type': best['object_type'],
+                'source_hash': best['source_hash'],
+                'is_loaded': is_loaded,
+                'is_stale': is_stale,
+            },
+        )
+    return result
+
+
+def snapshot_html(source_hash: str, state_code_groups: dict | None) -> dict | None:
+    """Return {'class_name': ..., 'html': ...} for the given source hash.
+
+    Returns None if the snapshot is not found (caller should abort(404)).
+    """
+    registry = SourceRegistry(get_config().path_registry)
+    source_text = registry.get_source(source_hash)
+    if source_text is None:
+        return None
+
+    state = registry.get_state_by_hash(source_hash)
+    class_name = state.class_name if state else ''
+    known_classes = frozenset(TrackedObject._registry.keys()) | frozenset(
+        (state_code_groups or {}).keys(),
+    )
+    html_body = render_source_html(source_text, known_classes, class_name)
+    return {'class_name': class_name, 'html': html_body}
+
+
+def diff_hashes(hash_a: str, hash_b: str, full: bool) -> dict | None:
+    """Return {'diff': ..., ['full_a': ..., 'full_b': ...]} or None if either file is missing."""
+    text_a = read_text(CodeRegistryResolver.from_source_hash(hash_a).source_path)
+    text_b = read_text(CodeRegistryResolver.from_source_hash(hash_b).source_path)
+    if text_a is None or text_b is None:
+        return None
+
+    diff = ''.join(
+        unified_diff(
+            text_a.splitlines(keepends=True),
+            text_b.splitlines(keepends=True),
+            fromfile=hash_a[:8],
+            tofile=hash_b[:8],
+        ),
+    )
+    result: dict = {'diff': diff}
+    if full:
+        result['full_a'] = text_a
+        result['full_b'] = text_b
+    return result
+
+
+def unified_diff_payload(
+    hash_a: str,
+    hash_b: str,
+    full: bool,
+    assert_allowed_path: callable,
+) -> dict | None:
+    """HTTP-boundary wrapper around diff_hashes that enforces the path guard.
+
+    ``assert_allowed_path`` is the guard from web.py; calling it here keeps
+    the security check provably on the HTTP boundary for user-facing diffs.
+    Returns None when either source file does not exist (caller should abort(404)).
+    """
+    assert_allowed_path(str(CodeRegistryResolver.from_source_hash(hash_a).source_path))
+    assert_allowed_path(str(CodeRegistryResolver.from_source_hash(hash_b).source_path))
+    return diff_hashes(hash_a, hash_b, full)
+
+
+def tree_diff(record_id: str, entries: dict, code_groups: dict[str, list[dict]]) -> dict:
+    """Compare the stored dep tree for an entry against the live code registry.
+
+    Returns the jsonifiable response dict.  Never raises — errors are encoded
+    as {'error': 'no_snapshot', 'message': ...}.
+
+    ``assert_allowed_path`` is NOT needed here: no path leaves the service
+    (all reads go through SourceRegistry).
+    """
+    entry = entries.get(record_id)
+    if entry is None:
+        return {'__not_found__': True}
+
+    dep_hash = entry.dep_hash
+    if not dep_hash:
+        return {'error': 'no_snapshot', 'message': 'Snapshot not available for this entry'}
+
+    trees = TreeRegistry(get_config().path_registry)
+    stored_tree = trees.get_snapshot(dep_hash)
+    if stored_tree is None:
+        return {'error': 'no_snapshot', 'message': 'Snapshot not available for this entry'}
+
+    live_nodes: dict[str, str] = {}
+    for class_name, class_entries in code_groups.items():
+        if not class_entries:
+            continue
+        best = max(class_entries, key=lambda e: e['mtime'])
+        live_nodes[class_name] = best['source_hash']
+
+    changes = []
+    all_classes = set(stored_tree.nodes.keys()) | set(live_nodes.keys())
+
+    for class_name in sorted(all_classes):
+        stored_hash = stored_tree.get_source_hash(class_name)
+        live_hash = live_nodes.get(class_name)
+
+        if stored_hash and live_hash:
+            if stored_hash == live_hash:
+                changes.append({'class_name': class_name, 'status': 'unchanged', 'diff': None})
+            else:
+                payload = diff_hashes(stored_hash, live_hash, full=True)
+                if payload is not None:
+                    changes.append(
+                        {
+                            'class_name': class_name,
+                            'status': 'changed',
+                            'diff': payload['diff'],
+                            'full_a': payload.get('full_a'),
+                            'full_b': payload.get('full_b'),
+                        },
+                    )
+                else:
+                    changes.append(
+                        {
+                            'class_name': class_name,
+                            'status': 'changed',
+                            'diff': None,
+                            'full_a': None,
+                            'full_b': None,
+                        },
+                    )
+        elif stored_hash and not live_hash:
+            changes.append({'class_name': class_name, 'status': 'removed', 'source_hash': stored_hash})
+        else:
+            changes.append({'class_name': class_name, 'status': 'added', 'source_hash': live_hash})
+
+    order = {'changed': 0, 'removed': 1, 'added': 2, 'unchanged': 3}
+    changes.sort(key=lambda c: (order[c['status']], c['class_name']))
+    return {'changes': changes}

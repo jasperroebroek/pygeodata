@@ -390,6 +390,10 @@ export function bindFileActions(root) {
     btn.onclick = () => _navigateToCodeClass(btn.dataset.cls, btn.dataset.depHash || null);
   });
 
+  root.querySelectorAll(".js-ver-src").forEach((btn) => {
+    btn.onclick = () => _navigateToCodeClassBySourceHash(btn.dataset.cls, btn.dataset.srcHash || null);
+  });
+
   root.querySelectorAll(".js-what-changed").forEach((btn) => {
     btn.onclick = () => _showWhatChanged(btn.dataset.recordId);
   });
@@ -515,9 +519,10 @@ export function renderDetail(detail) {
   const coOutputsCard  = buildCoOutputsCard(detail.selected_entry);
   const sameSpecCard   = buildSameSpecSiblingsCard(detail.selected_entry);
   const linkedCard     = buildLinkedEntriesCard(detail.selected_entry);
+  const versionsCard   = buildVersionsCard(detail);
   const paramsCard     = buildParamsCard(detail.selected_entry);
 
-  el.innerHTML = [figureCard, classCard, entryCard, coOutputsCard, sameSpecCard, linkedCard, paramsCard].join("");
+  el.innerHTML = [figureCard, classCard, entryCard, coOutputsCard, sameSpecCard, linkedCard, versionsCard, paramsCard].join("");
 
   // Re-bind JSON explorer toggles (lost when using innerHTML/outerHTML)
   el.querySelectorAll(".jx-toggle").forEach(bindJxToggle);
@@ -857,6 +862,51 @@ function buildSameSpecSiblingsCard(entry) {
     </div>`;
 }
 
+function buildVersionsCard(detail) {
+  const versions = detail.code_versions ?? [];
+  if (versions.length <= 1) return "";
+
+  const entryVersionMtime = detail.entry_version_mtime ?? null;
+
+  const rows = versions.map((v, i) => {
+    const hashShort = (v.source_hash ?? "").slice(0, 8);
+    const isActive = entryVersionMtime !== null && v.mtime === entryVersionMtime;
+    const versionNum = i + 1;
+
+    let dateStr = "";
+    try {
+      const dt = new Date(v.mtime);
+      dateStr = dt.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    } catch {
+      dateStr = v.mtime;
+    }
+
+    const activeChip = isActive
+      ? `<span class="ver-chip ver-chip--active">this entry</span>`
+      : "";
+
+    const srcBtn = v.source_hash
+      ? `<button class="act-btn js-ver-src ver-src-btn" data-cls="${esc(detail.class_name)}" data-src-hash="${esc(v.source_hash)}" title="View source at this version">Source</button>`
+      : "";
+
+    return `
+      <div class="ver-row ${isActive ? "ver-row--active" : ""}">
+        <span class="ver-num">v${versionNum}</span>
+        <span class="ver-date">${esc(dateStr)}</span>
+        <span class="ver-hash" title="${esc(v.source_hash ?? "")}">${esc(hashShort)}</span>
+        ${activeChip}
+        <span class="ver-spacer"></span>
+        ${srcBtn}
+      </div>`;
+  }).join("");
+
+  return `
+    <div class="dcard">
+      <div class="dcard-hd"><span class="dcard-hd-label">Versions</span><span class="dcard-hd-meta">${versions.length}</span></div>
+      <div class="dcard-body dcard-body--versions">${rows}</div>
+    </div>`;
+}
+
 function buildParamsCard(entry) {
   if (!entry || !entry.params_tree) return "";
   // Check if anything is visible after hidden-key filtering
@@ -948,14 +998,16 @@ function _knownClassSet() {
 
 // Lazy references — set by entries.js at init time.
 let _navigateToCodeClass = () => {};
+let _navigateToCodeClassBySourceHash = () => {};
 let _selectEntry = () => {};
 let _toggleClass = () => {};
 let _showWhatChanged = () => {};
 let _toggleCartEntry = () => {};
 let _onEntryDeleted = () => {};
 
-export function setDetailActions(navigateToCodeClass, selectEntry, toggleClass, showWhatChanged, toggleCartEntry, onEntryDeleted) {
+export function setDetailActions(navigateToCodeClass, selectEntry, toggleClass, showWhatChanged, toggleCartEntry, onEntryDeleted, navigateToCodeClassBySourceHash) {
   _navigateToCodeClass = navigateToCodeClass;
+  _navigateToCodeClassBySourceHash = navigateToCodeClassBySourceHash ?? (() => {});
   _selectEntry = selectEntry;
   _toggleClass = toggleClass;
   _showWhatChanged = showWhatChanged ?? (() => {});

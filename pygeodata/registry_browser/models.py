@@ -6,13 +6,7 @@ from typing import Any
 from pyproj import CRS, Transformer
 from pyproj.exceptions import CRSError, ProjError
 
-from pygeodata.types import SpecKeys
-
-
-@dataclass(slots=True)
-class VersionInfo:
-    mtime: str
-    class_name: str
+from pygeodata.spec import SpecKeys
 
 
 @dataclass(slots=True)

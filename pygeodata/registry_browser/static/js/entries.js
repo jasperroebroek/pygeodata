@@ -429,7 +429,7 @@ export async function runCleanCache() {
 // Wire up cross-module loaders at init time (called from boot.js)
 // ---------------------------------------------------------------------------
 
-export function initEntries(navigateToCodeClass, getCodeState, showWhatChanged) {
+export function initEntries(navigateToCodeClass, getCodeState, showWhatChanged, navigateToCodeClassBySourceHash) {
   _getCodeState = getCodeState;
 
   // Wire filters
@@ -448,5 +448,5 @@ export function initEntries(navigateToCodeClass, getCodeState, showWhatChanged) 
   setTableActions(navigateToCodeClass, selectEntry, toggleCartEntry);
 
   // Wire detail pane
-  setDetailActions(navigateToCodeClass, selectEntry, toggleClass, showWhatChanged ?? (() => {}), toggleCartEntry, loadEntries);
+  setDetailActions(navigateToCodeClass, selectEntry, toggleClass, showWhatChanged ?? (() => {}), toggleCartEntry, loadEntries, navigateToCodeClassBySourceHash);
 }

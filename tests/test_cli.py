@@ -123,8 +123,8 @@ def test_import_snapshot_entry_lands_in_registry(tmp_path: Path) -> None:
 
     _invoke(archive)
 
-    snap_dir = get_config().path_registry / 'snapshots' / dep_hash
-    assert (snap_dir / 'tree.json').exists()
+    snapshot_dir = get_config().path_registry / 'snapshots' / dep_hash
+    assert (snapshot_dir / 'tree.json').exists()
 
 
 def test_import_registry_existing_entry_not_overwritten(tmp_path: Path) -> None:

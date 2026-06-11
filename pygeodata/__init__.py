@@ -5,7 +5,7 @@ from pygeodata.config import get_config, set_config
 from pygeodata.data import Data
 from pygeodata.figure import Figure
 from pygeodata.tracked_object import TrackedObject
-from pygeodata.types import SpatialSpec
+from pygeodata.spec import SpatialSpec
 
 __all__ = [
     'Artifact',

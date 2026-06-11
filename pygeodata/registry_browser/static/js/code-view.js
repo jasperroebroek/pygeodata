@@ -948,6 +948,38 @@ export async function navigateToCodeClass(className, depHash = null) {
   if (match) selectCodeClass(match.class_name, match.source_hash, { silent: true });
 }
 
+/**
+ * Navigate to a specific source_hash snapshot for a class in the Code view.
+ * Unlike navigateToCodeClass (which resolves via dep_hash), this directly selects
+ * the version group whose snapshot matches source_hash.
+ */
+export async function navigateToCodeClassBySourceHash(className, sourceHash) {
+  if (!className || !sourceHash) return;
+  pushHistory(_viewMode, _topView === 'code' ? _codeState() : null);
+  showView('code');
+  if (!_codeLoaded) await loadCodeView();
+
+  if (_codeBrowseMode !== 'version') {
+    await applyCodeBrowseMode('version', { silent: true });
+  }
+
+  let targetVersion = _codeVersions[0]?.mtime ?? 'now';
+  try {
+    const res = await fetch(
+      `/api/code/source-hash-version?source_hash=${encodeURIComponent(sourceHash)}&class_name=${encodeURIComponent(className)}`
+    ).then((r) => r.ok ? r.json() : null);
+    if (res?.version_mtime) targetVersion = res.version_mtime;
+  } catch { /* fall through to newest */ }
+
+  if (targetVersion !== _codeSelectedVersion) {
+    await selectCodeVersion(targetVersion, { silent: true });
+  }
+
+  const match = _codeClasses.find((c) => c.class_name === className && c.source_hash === sourceHash)
+    ?? _codeClasses.find((c) => c.class_name === className);
+  if (match) selectCodeClass(match.class_name, match.source_hash, { silent: true });
+}
+
 export function showView(view, { pushNav = false } = {}) {
   if (pushNav && view !== _topView) {
     pushHistory(_viewMode, _topView === 'code' ? _codeState() : null);

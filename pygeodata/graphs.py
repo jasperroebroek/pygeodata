@@ -10,7 +10,7 @@ from pygeodata.formatting.html import format_html_block
 if TYPE_CHECKING:
     from graphviz import Digraph
 
-    from pygeodata.types import DependencyGraph, RuntimeDependencyGraph
+    from pygeodata.graph_types import DependencyGraph, RuntimeDependencyGraph
 
 try:
     from graphviz import Digraph as _Digraph

@@ -1,4 +1,4 @@
-from pygeodata.types import SpatialSpec
+from pygeodata.spec import SpatialSpec
 from tests.fixtures.data import EmptyLoader, LoaderA, LoaderB, LoaderC, LoaderD
 
 

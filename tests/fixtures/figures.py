@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from pygeodata.figure import Figure
-from pygeodata.types import SpatialSpec
+from pygeodata.spec import SpatialSpec
 
 
 @dataclass

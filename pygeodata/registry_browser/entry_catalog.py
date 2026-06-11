@@ -7,8 +7,7 @@ from pathlib import Path
 
 from pygeodata import Artifact
 from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config
-from pygeodata.file_utils import classify_file
-from pygeodata.paths import CACHE_DIR_SUFFIXES, CACHE_META_SUFFIXES, CachePathResolver
+from pygeodata.paths import CACHE_DIR_SUFFIXES, CACHE_META_SUFFIXES, CachePathResolver, classify_file
 from pygeodata.registry_browser.class_catalog import source_info_from_disk
 from pygeodata.registry_browser.io_utils import existing_path_str, read_json_dict
 from pygeodata.registry_browser.models import (
@@ -21,8 +20,8 @@ from pygeodata.registry_browser.models import (
     SpecInfo,
 )
 from pygeodata.registry_browser.params_index import flatten_params
+from pygeodata.spec import SpecKeys
 from pygeodata.tracked_object import TrackedObject
-from pygeodata.types import SpecKeys
 
 _log = logging.getLogger(__name__)
 

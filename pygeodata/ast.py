@@ -4,7 +4,7 @@ import inspect
 import textwrap
 from pathlib import Path
 
-from pygeodata.types import SymbolTables
+from pygeodata.graph_types import SymbolTables
 
 
 @functools.cache

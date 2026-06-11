@@ -14,7 +14,9 @@ from pygeodata.graphs import plot_compact_execution_graph
 from pygeodata.hash import calculate_cls_source_hash, calculate_dict_hash
 from pygeodata.paths import CachePathResolver
 from pygeodata.tracked_object import TrackedObject
-from pygeodata.types import Processor, RuntimeDependencyGraph, RuntimeNode, RuntimeParamEdge, SpatialSpec, SpecKeys
+from pygeodata.graph_types import RuntimeDependencyGraph, RuntimeNode, RuntimeParamEdge
+from pygeodata.protocols import Processor
+from pygeodata.spec import SpatialSpec, SpecKeys
 
 
 class Artifact(TrackedObject, ABC):

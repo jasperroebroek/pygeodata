@@ -2,7 +2,7 @@ import pytest
 
 from pygeodata.cache import clean_cache
 from pygeodata.config import JSONKeys
-from pygeodata.types import SpatialSpec
+from pygeodata.spec import SpatialSpec
 from tests.fixtures.figures import SimpleFigure
 
 

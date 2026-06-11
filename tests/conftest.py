@@ -9,7 +9,7 @@ from affine import Affine
 from pyproj import CRS
 
 from pygeodata.config import JSONKeys, set_config
-from pygeodata.types import SpatialSpec
+from pygeodata.spec import SpatialSpec
 from tests.fixtures.data import MultiOutputLoader, NestedLoader, SampleLoader
 
 

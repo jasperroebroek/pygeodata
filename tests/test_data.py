@@ -3,7 +3,7 @@ import pytest
 from pygeodata import load
 from pygeodata.config import set_config
 from pygeodata.data import Data
-from pygeodata.types import SpatialSpec
+from pygeodata.spec import SpatialSpec
 from tests.fixtures.data import (
     LoaderA,
     SimpleLoader,

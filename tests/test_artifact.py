@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from pygeodata.config import JSONKeys, set_config
-from pygeodata.types import SpatialSpec
+from pygeodata.spec import SpatialSpec
 from tests.fixtures.data import (
     DummyLoader,
     EmptyLoader,

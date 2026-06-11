@@ -1,7 +1,7 @@
 from collections.abc import Generator, Iterable, Mapping
 from typing import Any
 
-from pygeodata.types import T
+from pygeodata.protocols import T
 
 
 def extract_instances(value: Any, target_type: type[T]) -> Generator[T]:

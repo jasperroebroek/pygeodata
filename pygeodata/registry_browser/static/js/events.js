@@ -172,19 +172,19 @@ document.getElementById("btn-multi-select").onclick = (e) => {
 // Back / forward navigation
 // ---------------------------------------------------------------------------
 
-export async function _syncUIAfterRestore(snap) {
-  const targetTopView = snap.code_version != null ? 'code' : (snap.view_mode === 'code' ? 'code' : 'entries');
+export async function _syncUIAfterRestore(snapshot) {
+  const targetTopView = snapshot.code_version != null ? 'code' : (snapshot.view_mode === 'code' ? 'code' : 'entries');
 
   if (targetTopView === 'code') {
     _showView('code');
     if (!_codeLoaded()) await _loadCodeView();
     // Restore Code view selection without overwriting history again
-    const version = snap.code_version ?? 'now';
+    const version = snapshot.code_version ?? 'now';
     if (version !== _codeSelectedVersion()) {
       await _selectCodeVersion(version, { silent: true });
     }
-    if (snap.code_class_name) {
-      const match = _codeClasses().find((c) => c.class_name === snap.code_class_name);
+    if (snapshot.code_class_name) {
+      const match = _codeClasses().find((c) => c.class_name === snapshot.code_class_name);
       if (match) await _selectCodeClass(match.class_name, match.source_hash, { silent: true });
     }
     updateNavBtns();
@@ -192,7 +192,7 @@ export async function _syncUIAfterRestore(snap) {
   }
 
   _showView('entries');
-  if (snap.view_mode && snap.view_mode !== _viewMode) applyViewMode(snap.view_mode, false);
+  if (snapshot.view_mode && snapshot.view_mode !== _viewMode) applyViewMode(snapshot.view_mode, false);
   // Sync kind tabs
   $$("#kind-tabs .kind-tab").forEach((t) =>
     t.classList.toggle("active", t.dataset.kind === state.kind_filter)
@@ -281,12 +281,12 @@ document.addEventListener("keydown", (e) => {
   if (!e.metaKey) return;
   if (e.key === "[") {
     e.preventDefault();
-    const snap = navigateBack(_viewMode, _topView === 'code' ? _getCodeState() : null);
-    if (snap) _syncUIAfterRestore(snap);
+    const snapshot = navigateBack(_viewMode, _topView === 'code' ? _getCodeState() : null);
+    if (snapshot) _syncUIAfterRestore(snapshot);
   } else if (e.key === "]") {
     e.preventDefault();
-    const snap = navigateForward(_viewMode, _topView === 'code' ? _getCodeState() : null);
-    if (snap) _syncUIAfterRestore(snap);
+    const snapshot = navigateForward(_viewMode, _topView === 'code' ? _getCodeState() : null);
+    if (snapshot) _syncUIAfterRestore(snapshot);
   }
 });
 

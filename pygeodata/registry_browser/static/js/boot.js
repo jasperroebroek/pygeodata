@@ -10,7 +10,7 @@ import {
   loadEntries, applyViewMode, initEntries, toggleSelectMode,
 } from './entries.js';
 import {
-  navigateToCodeClass, getCodeState, loadCodeView, showView,
+  navigateToCodeClass, navigateToCodeClassBySourceHash, getCodeState, loadCodeView, showView,
   codeLoaded, codeSelectedVersion, codeClasses, codeSelectedClass,
   selectCodeVersion, selectCodeClass,
   codeBrowseMode, codeAllClasses, selectCodeClassFirst,
@@ -24,7 +24,7 @@ import { initExportView, renderExportView } from './export-view.js';
 // ---------------------------------------------------------------------------
 
 // entries.js needs navigateToCodeClass, getCodeState, and showWhatChanged from code-view.js
-initEntries(navigateToCodeClass, getCodeState, showWhatChanged);
+initEntries(navigateToCodeClass, getCodeState, showWhatChanged, navigateToCodeClassBySourceHash);
 
 // export-view.js wires its cart-tab updater into entries.js
 initExportView();
