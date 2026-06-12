@@ -30,10 +30,10 @@ from pygeodata.registry_types import CodeState, TreeSnapshot
 
 
 class SourceRegistry:
-    """Per-root index of code snapshots, scanned from code/*/source.json.
+    """Per-root index of code states, scanned from code/*/source.json.
 
     Instances are cached in :attr:`_instances` by resolved root path.
-    :meth:`reload` re-scans and atomically replaces the snapshot dict on the
+    :meth:`reload` re-scans and atomically replaces the state dict on the
     existing instance, so held references stay valid.
     """
 
@@ -41,7 +41,9 @@ class SourceRegistry:
 
     def __init__(self, registry_root: Path) -> None:
         self._root = registry_root
-        self._states: dict[str, list[CodeState]] = self._scan()
+        self._states: dict[str, list[CodeState]] = {}
+        self._hash_index: dict[str, CodeState] = {}
+        self._load(self._scan())
 
     @classmethod
     def instance(cls, path: Path | str | None = None) -> SourceRegistry:
@@ -55,7 +57,11 @@ class SourceRegistry:
 
     def reload(self) -> None:
         """Rescan the root and atomically replace the cached snapshot dict."""
-        self._states = self._scan()
+        self._load(self._scan())
+
+    def _load(self, states: dict[str, list[CodeState]]) -> None:
+        self._states = states
+        self._hash_index = {s.source_hash: s for sl in states.values() for s in sl}
 
     def _scan(self) -> dict[str, list[CodeState]]:
         code_root = self._root / 'code'
@@ -83,11 +89,7 @@ class SourceRegistry:
 
     def get_state_by_hash(self, source_hash: str) -> CodeState | None:
         """Return the CodeState for source_hash, or None if not found."""
-        for states in self._states.values():
-            for s in states:
-                if s.source_hash == source_hash:
-                    return s
-        return None
+        return self._hash_index.get(source_hash)
 
     def get_source(self, source_hash: str) -> str | None:
         """Return source.py text for source_hash, or None if absent."""
@@ -111,14 +113,11 @@ class SourceRegistry:
 
     def hash_to_mtime(self, source_hash: str) -> str | None:
         """Return registered_at for source_hash, or None if not found."""
-        for states in self._states.values():
-            for s in states:
-                if s.source_hash == source_hash:
-                    return s.registered_at
-        return None
+        s = self._hash_index.get(source_hash)
+        return s.registered_at if s is not None else None
 
     def code_groups_dict(self) -> dict[str, list[dict]]:
-        """Compatibility shim returning the old scan_code_snapshots() structure."""
+        """Return code states grouped by class_name as plain dicts for API consumers."""
         return {
             class_name: [
                 {

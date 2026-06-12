@@ -8,14 +8,12 @@ from __future__ import annotations
 
 from difflib import unified_diff
 
-from pygeodata.config import get_config
 from pygeodata.hash import calculate_cls_source_hash
 from pygeodata.paths import CodeRegistryResolver
-from pygeodata.registry import SourceRegistry, TreeRegistry
 from pygeodata.registry_browser.io_utils import read_text
 from pygeodata.registry_browser.popups import render_source_html
 from pygeodata.tracked_object import TrackedObject
-from pygeodata.versioning import snapshot_version_identity
+from pygeodata.versioning import VersionRegistry
 
 
 def resolve_dep_hash(dep_hash: str, class_name: str) -> dict | None:
@@ -23,9 +21,8 @@ def resolve_dep_hash(dep_hash: str, class_name: str) -> dict | None:
 
     None signals a 404; callers should abort(404).
     """
-    root = get_config().path_registry
-    trees = TreeRegistry(root)
-    tree = trees.get_snapshot(dep_hash)
+    vreg = VersionRegistry.instance()
+    tree = vreg.tree_registry.get_snapshot(dep_hash)
     if tree is None:
         return None
 
@@ -33,39 +30,54 @@ def resolve_dep_hash(dep_hash: str, class_name: str) -> dict | None:
     if not source_hash:
         return None
 
-    registry = SourceRegistry(root)
-    version_mtime = snapshot_version_identity(registry, dep_hash, tree_registry=trees)
+    version_mtime = vreg.version_mtime_for_dep_hash(dep_hash)
     return {'version_mtime': version_mtime, 'source_hash': source_hash}
 
 
-def version_classes(code_groups: dict[str, list[dict]], mtime_cutoff: str, exclusive: bool) -> list[dict]:
-    """Return per-class best-version dicts for the given mtime cutoff.
+def version_classes(version_mtime: str, vreg: VersionRegistry | None = None) -> list[dict]:
+    """Return per-class best CodeState as of the given version group, with live staleness.
 
-    Includes live staleness check via TrackedObject + calculate_cls_source_hash.
+    Pass a VersionInfo.mtime to select that group, or 'now' for the newest group.
     """
-    result = []
-    for class_name, versions in sorted(code_groups.items()):
-        if mtime_cutoff == 'now':
-            candidates = versions
-        elif exclusive:
-            candidates = [v for v in versions if v['mtime'] < mtime_cutoff]
-        else:
-            candidates = [v for v in versions if v['mtime'] <= mtime_cutoff]
-        if not candidates:
-            continue
-        best = max(candidates, key=lambda v: v['mtime'])
+    if vreg is None:
+        vreg = VersionRegistry.instance()
+    src = vreg.source_registry
 
+    if version_mtime == 'now':
+        vi = vreg.version_groups[0] if vreg.version_groups else None
+    else:
+        vi = next((v for v in vreg.version_groups if v.mtime == version_mtime), None)
+
+    if vi is None:
+        return []
+
+    groups = vreg.version_groups
+    vi_idx = groups.index(vi)
+    is_newest = vi_idx == 0
+    # Upper bound: the group newer than vi (exclusive), or None for the newest group.
+    # A class is visible in vi's window if it was registered before the next (newer) group's change.
+    upper = groups[vi_idx - 1].mtime if vi_idx > 0 else None
+
+    result = []
+    for class_name in sorted(src.class_names):
+        states = sorted(src.get_states(class_name), key=lambda s: s.registered_at)
+        if is_newest:
+            candidates = states
+        elif upper is not None:
+            candidates = [s for s in states if s.registered_at < upper]
+        else:
+            candidates = states
+        best = candidates[-1] if candidates else None
+        if best is None:
+            continue
         cls = TrackedObject.find_object_class(class_name)
         is_loaded = cls is not None
-        is_stale = False
-        if is_loaded:
-            is_stale = calculate_cls_source_hash(cls) != best['source_hash']
-
+        is_stale = is_loaded and calculate_cls_source_hash(cls) != best.source_hash
         result.append(
             {
                 'class_name': class_name,
-                'object_type': best['object_type'],
-                'source_hash': best['source_hash'],
+                'object_type': best.object_type,
+                'source_hash': best.source_hash,
                 'is_loaded': is_loaded,
                 'is_stale': is_stale,
             },
@@ -78,12 +90,12 @@ def snapshot_html(source_hash: str, state_code_groups: dict | None) -> dict | No
 
     Returns None if the snapshot is not found (caller should abort(404)).
     """
-    registry = SourceRegistry(get_config().path_registry)
-    source_text = registry.get_source(source_hash)
+    vreg = VersionRegistry.instance()
+    source_text = vreg.source_registry.get_source(source_hash)
     if source_text is None:
         return None
 
-    state = registry.get_state_by_hash(source_hash)
+    state = vreg.source_registry.get_state_by_hash(source_hash)
     class_name = state.class_name if state else ''
     known_classes = frozenset(TrackedObject._registry.keys()) | frozenset(
         (state_code_groups or {}).keys(),
@@ -136,9 +148,6 @@ def tree_diff(record_id: str, entries: dict, code_groups: dict[str, list[dict]])
 
     Returns the jsonifiable response dict.  Never raises — errors are encoded
     as {'error': 'no_snapshot', 'message': ...}.
-
-    ``assert_allowed_path`` is NOT needed here: no path leaves the service
-    (all reads go through SourceRegistry).
     """
     entry = entries.get(record_id)
     if entry is None:
@@ -148,8 +157,8 @@ def tree_diff(record_id: str, entries: dict, code_groups: dict[str, list[dict]])
     if not dep_hash:
         return {'error': 'no_snapshot', 'message': 'Snapshot not available for this entry'}
 
-    trees = TreeRegistry(get_config().path_registry)
-    stored_tree = trees.get_snapshot(dep_hash)
+    vreg = VersionRegistry.instance()
+    stored_tree = vreg.tree_registry.get_snapshot(dep_hash)
     if stored_tree is None:
         return {'error': 'no_snapshot', 'message': 'Snapshot not available for this entry'}
 

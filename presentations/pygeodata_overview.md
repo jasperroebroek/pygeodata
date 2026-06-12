@@ -121,4 +121,4 @@ data_processed/
 - **Full version history** — browse old source code for any class
 - **Dependency graphs** — which loaders depend on which
 
-`pygeodata serve` — one command, runs in the browser.
+`pygeodata browse` — one command, runs in the browser.

@@ -3,7 +3,7 @@ from pygeodata.formatting.json import format_json
 from pygeodata.registry_browser.filters import Filter, entry_matches_filters, matching_rows, parse_filters
 from pygeodata.registry_browser.models import ClassInfo, EntryInfo, FileRef, LinkedEntry
 from pygeodata.registry_browser.state import AppState
-from pygeodata.versioning import build_version_groups
+from pygeodata.versioning import VersionRegistry
 from pygeodata.spec import SpecKeys
 
 # ---------------------------------------------------------------------------
@@ -373,6 +373,56 @@ def _build_instance_hash_index(entries: dict[str, 'EntryInfo']) -> dict[str, lis
     return index
 
 
+def version_groups_payload(vreg: VersionRegistry) -> list[dict]:
+    """Serialize VersionRegistry.version_groups for the browser API.
+
+    Adds cutoff_mtime / cutoff_exclusive (positional, derived from adjacent groups)
+    and expands class_names to include newly-appearing classes so the JS can show
+    them as 'added' in the version change summary.
+    """
+    groups = vreg.version_groups
+    src = vreg.source_registry
+
+    first_reg: dict[str, str] = {}
+    for class_name in src.class_names:
+        states = sorted(src.get_states(class_name), key=lambda s: s.registered_at)
+        if states:
+            first_reg[class_name] = states[0].registered_at
+
+    added_by_group: dict[str, str] = {}
+    initial_mtime = groups[-1].mtime if groups else ''
+    non_initial_asc = list(reversed(groups[:-1]))
+    for cn, reg in first_reg.items():
+        if reg <= initial_mtime:
+            continue
+        for j, g in enumerate(non_initial_asc):
+            lower = initial_mtime if j == 0 else non_initial_asc[j - 1].mtime
+            upper = non_initial_asc[j + 1].mtime if j + 1 < len(non_initial_asc) else None
+            if reg > lower and (upper is None or reg < upper):
+                added_by_group[cn] = g.mtime
+                break
+
+    result = []
+    for i, vi in enumerate(groups):
+        cutoff_mtime = 'now' if i == 0 else groups[i - 1].mtime
+        cutoff_exclusive = i > 0
+        is_initial = i == len(groups) - 1
+        added_classes = [] if is_initial else sorted(
+            cn for cn, gm in added_by_group.items()
+            if gm == vi.mtime and cn not in {e.class_name for e in vi.events}
+        )
+        result.append(
+            {
+                'mtime': vi.mtime,
+                'label': vi.label,
+                'class_names': sorted(set(vi.class_names) | set(added_classes)),
+                'cutoff_mtime': cutoff_mtime,
+                'cutoff_exclusive': cutoff_exclusive,
+            },
+        )
+    return result
+
+
 def _class_version_history(state: AppState, class_name: str) -> list[dict]:
     """Return code versions for a class sorted oldest-first.
 
@@ -410,7 +460,7 @@ def _build_detail_payload(
             ]
         # mtime of the version group this entry's snapshot belongs to — used to
         # highlight the matching row in the Versions card.
-        entry_version_mtime = state.snapshots.get(selected_entry_info.dep_hash) if selected_entry_info.dep_hash else None
+        entry_version_mtime = VersionRegistry.instance().version_mtime_for_dep_hash(selected_entry_info.dep_hash) if selected_entry_info.dep_hash else None
         return {
             **_class_detail_payload(class_info),
             'code_versions': _class_version_history(state, selected_entry_info.class_name),
@@ -438,7 +488,8 @@ def _build_detail_payload(
 
 def _dep_hashes_for_version(state: 'AppState', version_mtime: str) -> set[str]:
     """Return dep_hashes whose snapshot belongs to the selected version group."""
-    return {dep_hash for dep_hash, identity in state.snapshots.items() if identity == version_mtime}
+    vreg = VersionRegistry.instance()
+    return {dh for dh, identity in vreg.dep_hash_to_mtime.items() if identity == version_mtime}
 
 
 # ---------------------------------------------------------------------------
@@ -514,7 +565,7 @@ def build_browser_payload(
         ),
         'diagnostics': diagnostics,
         'spec_options': state.spec_options,
-        'version_options': build_version_groups(state.versions, state.code_groups),
+        'version_options': version_groups_payload(VersionRegistry.instance()),
         'counts': {
             'classes': len(state.classes),
             'classes_loaded': sum(1 for c in state.classes.values() if c.loaded),

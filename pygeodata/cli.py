@@ -15,12 +15,7 @@ from pygeodata.data import Data
 from pygeodata.figure import Figure
 from pygeodata.registry import SourceRegistry, TreeRegistry
 from pygeodata.registry_browser.serve import open_registry_browser
-from pygeodata.versioning import (
-    build_version_groups,
-    snapshot_version_identity,
-    source_hash_version_identity,
-    version_infos,
-)
+from pygeodata.versioning import VersionInfo, VersionRegistry
 
 
 def _fmt_mtime(mtime: str) -> str:
@@ -99,15 +94,14 @@ def _extract_member(tar: tarfile.TarFile, member: tarfile.TarInfo, dest: Path) -
         shutil.copyfileobj(src, out)
 
 
-def _import_project_modules(root: Path) -> int:
+def _import_project_modules(root: Path, verbose: bool = False) -> int:
     """Import all .py files under root, silently skipping failures. Returns import count."""
     if root not in sys.path:
         sys.path.insert(0, str(root))
+    _skip_dirs = {'venv', 'env', '.venv', 'build', 'dist', 'site-packages', 'tests', 'test', 'cache'}
     count = 0
     for py_file in sorted(root.rglob('*.py')):
-        # Skip hidden dirs, virtual envs, build dirs, and test files
         parts = py_file.relative_to(root).parts
-        _skip_dirs = {'venv', 'env', '.venv', 'build', 'dist', 'site-packages', 'tests', 'test'}
         if any(p.startswith(('.', '__pycache__')) or p in _skip_dirs for p in parts):
             continue
         if parts[-1].startswith(('test_', 'conftest', 'setup', 'manage')):
@@ -122,28 +116,35 @@ def _import_project_modules(root: Path) -> int:
                 sys.modules[module_name] = mod
                 spec.loader.exec_module(mod)
                 count += 1
-        except Exception:  # noqa: BLE001
-            pass
+                if verbose:
+                    click.echo(f'  imported {module_name}')
+        except Exception as e:  # noqa: BLE001
+            if verbose:
+                click.echo(f'  skip {module_name}: {e}')
     return count
 
 
 @cli.command('browse')
 @click.option('--port', default=0, show_default=True, help='Port to listen on (0 = random free port).')
 @click.option(
-    '--no-import',
+    '--import-all',
     'do_import',
     is_flag=True,
-    flag_value=False,
-    default=True,
-    help='Skip auto-importing .py files from the current directory.',
+    default=False,
+    help='Import all .py files from the current directory to populate the class registry.',
 )
-def browse(port: int, do_import: bool) -> None:
-    """Launch the registry browser. Auto-imports .py files to populate the class registry."""
+@click.option(
+    '--verbose-import',
+    is_flag=True,
+    default=False,
+    help='Print each module imported (and failures) when used with --import-all.',
+)
+def browse(port: int, do_import: bool, verbose_import: bool) -> None:
+    """Launch the registry browser."""
     if do_import:
         root = Path.cwd()
-        n = _import_project_modules(root)
-        if n:
-            click.echo(f'Imported {n} module(s) from {root}')
+        n = _import_project_modules(root, verbose=verbose_import)
+        click.echo(f'Imported {n} module(s) from {root}')
 
     open_registry_browser(port)
 
@@ -254,8 +255,8 @@ def code_list(registry_path: str | None, full_hash: bool, verbose: bool) -> None
 
     by_type: dict[str, list[str]] = {}
     for class_name in sorted(reg.class_names):
-        snaps = sorted(reg.get_states(class_name), key=lambda s: s.registered_at)
-        object_type = snaps[-1].object_type if snaps else 'Unknown'
+        states = sorted(reg.get_states(class_name), key=lambda s: s.registered_at)
+        object_type = states[-1].object_type if states else 'Unknown'
         by_type.setdefault(object_type, []).append(class_name)
 
     if not by_type:
@@ -267,11 +268,11 @@ def code_list(registry_path: str | None, full_hash: bool, verbose: bool) -> None
         click.echo(f'{object_type} ({len(class_names)} {"class" if len(class_names) == 1 else "classes"})')
         click.echo()
         for class_name in class_names:
-            snaps = sorted(reg.get_states(class_name), key=lambda s: s.registered_at, reverse=True)
-            n = len(snaps)
+            states = sorted(reg.get_states(class_name), key=lambda s: s.registered_at, reverse=True)
+            n = len(states)
             click.echo(f'  {class_name} ({n} {"snapshot" if n == 1 else "snapshots"})')
             if verbose:
-                for s in snaps:
+                for s in states:
                     click.echo(f'    {_fmt_mtime(s.registered_at)}  {_fmt_hash(s.source_hash, full_hash)}')
         click.echo()
 
@@ -298,11 +299,11 @@ def code_show(registry_path: str | None, full_hash: bool, class_name: str | None
         click.echo(f'Hash       {state.source_hash}')
         return
 
-    snaps = reg.get_states(class_name)
-    if not snaps:
+    states = reg.get_states(class_name)
+    if not states:
         raise click.ClickException(f'Class {class_name!r} not found.')
     click.echo(f'{"Registered At":<20}  Hash')
-    for s in sorted(snaps, key=lambda s: s.registered_at, reverse=True):
+    for s in sorted(states, key=lambda s: s.registered_at, reverse=True):
         click.echo(f'{_fmt_mtime(s.registered_at):<20}  {_fmt_hash(s.source_hash, full_hash)}')
 
 
@@ -312,32 +313,24 @@ def code_show(registry_path: str | None, full_hash: bool, class_name: str | None
 @click.option('--hash', 'source_hash', default=None, help='Which version group owns this source hash.')
 def code_versions(registry_path: str | None, class_name: str | None, source_hash: str | None) -> None:
     """Show version groups, newest-first."""
-    reg = SourceRegistry(_get_root(registry_path))
+    vreg = VersionRegistry(_get_root(registry_path))
 
     if source_hash:
-        state = reg.get_state_by_hash(source_hash)
-        if state is None:
-            raise click.ClickException(f'Hash {source_hash!r} not found.')
-        groups = build_version_groups(version_infos(reg), reg.code_groups_dict())
-        identity = source_hash_version_identity(reg, source_hash, state.class_name)
+        identity = vreg.version_mtime_for_source_hash(source_hash)
         if identity is None:
-            raise click.ClickException(f'Could not resolve version for {source_hash!r}.')
-        match = next((g for g in groups if g['mtime'] == identity), None)
-        if match:
-            click.echo(f'{match["label"]}')
-        else:
-            click.echo('initial')
+            raise click.ClickException(f'Hash {source_hash!r} not found.')
+        match = next((vi for vi in vreg.version_groups if vi.mtime == identity), None)
+        click.echo(match.label if match else 'unknown')
         return
 
-    groups = build_version_groups(version_infos(reg), reg.code_groups_dict())
-    if not groups:
+    if not vreg.version_groups:
         click.echo('No version groups found.')
         return
 
-    for g in groups:
-        if class_name and class_name not in g.get('class_names', []):
+    for vi in vreg.version_groups:
+        if class_name and class_name not in vi.class_names:
             continue
-        click.echo(g['label'])
+        click.echo(vi.label)
 
 
 @code.command('source')
@@ -467,18 +460,18 @@ def _echo_source_by_class(
     color: bool,
     full_hash: bool = False,
 ) -> None:
-    snaps = sorted(reg.get_states(class_name), key=lambda s: s.registered_at)
-    if not snaps:
+    states = sorted(reg.get_states(class_name), key=lambda s: s.registered_at)
+    if not states:
         raise click.ClickException(f'Class {class_name!r} not found.')
     if not do_diff:
-        text = reg.get_source(snaps[-1].source_hash)
+        text = reg.get_source(states[-1].source_hash)
         if text is None:
             raise click.ClickException(f'Source file missing for {class_name!r}.')
         click.echo(text, nl=False)
         return
-    if len(snaps) < 2:
+    if len(states) < 2:
         raise click.ClickException(f'{class_name!r} has only one snapshot, nothing to diff.')
-    prev, latest = snaps[-2], snaps[-1]
+    prev, latest = states[-2], states[-1]
     text_a = reg.get_source(prev.source_hash)
     text_b = reg.get_source(latest.source_hash)
     if text_a is None or text_b is None:
@@ -501,43 +494,31 @@ def _echo_source_by_class(
 # ---------------------------------------------------------------------------
 
 
-def _best_entry_at_cutoff(entries: list[dict], cutoff: str, excl: bool) -> dict | None:
-    if cutoff == 'now':
-        candidates = entries
-    elif excl:
-        candidates = [e for e in entries if e['mtime'] < cutoff]
-    else:
-        candidates = [e for e in entries if e['mtime'] <= cutoff]
-    return max(candidates, key=lambda e: e['mtime']) if candidates else None
 
+def _echo_version_group(vi: VersionInfo, vreg: VersionRegistry, full_hash: bool = False) -> None:
+    click.echo(click.style(vi.label, bold=True))
 
-def _echo_version_group(
-    g: dict, code_groups: dict, dep_hash_to_identity: dict, trees: TreeRegistry, full_hash: bool = False
-) -> None:
-    click.echo(click.style(g['label'], bold=True))
-
-    changed = sorted({cn for cn in g['class_names'] if cn in code_groups})
-    if changed:
+    if vi.class_names:
         click.echo('  Classes')
-        col = max(len(cn) for cn in changed)
-        for cn in changed:
-            best = _best_entry_at_cutoff(code_groups.get(cn, []), g['cutoff_mtime'], g['cutoff_exclusive'])
-            src = _fmt_hash(best['source_hash'], full_hash) if best else '?'
-            click.echo(f'    {cn:<{col}}  {src}')
+        col = max(len(cn) for cn in vi.class_names)
+        for cn, sh in zip(vi.class_names, vi.source_hashes):
+            click.echo(f'    {cn:<{col}}  {_fmt_hash(sh, full_hash)}')
 
-    snapshot_hashes = sorted(dh for dh, identity in dep_hash_to_identity.items() if identity == g['mtime'])
-    snap_rows = []
+    snapshot_hashes = sorted(
+        dh for dh, identity in vreg.dep_hash_to_mtime.items() if identity == vi.mtime
+    )
+    tree_rows = []
     for dep_hash in snapshot_hashes:
-        snap = trees.get_snapshot(dep_hash)
-        if snap is None:
+        tree = vreg._tree_registry.get_snapshot(dep_hash)
+        if tree is None:
             continue
         root_class = next(iter(tree.tree), '?')
         n = len(tree.nodes)
-        snap_rows.append((root_class, n, dep_hash))
-    if snap_rows:
+        tree_rows.append((root_class, n, dep_hash))
+    if tree_rows:
         click.echo('  Trees')
         col = max(len(r[0]) for r in tree_rows)
-        for root_class, n, dep_hash in snap_rows:
+        for root_class, n, dep_hash in tree_rows:
             n_label = f'{n} {"class" if n == 1 else "classes"}'
             click.echo(f'    {root_class:<{col}}  {n_label:<12}  {_fmt_hash(dep_hash, full_hash)}')
 
@@ -551,37 +532,30 @@ def _echo_version_group(
 def versions_cmd(registry_path: str | None, full_hash: bool, class_name: str | None) -> None:
     """Show version groups with classes and dep-tree snapshots, newest-first.
 
-    With --class, show that class's full snapshot history instead (mirrors the
+    With --class, show that class's full state history instead (mirrors the
     browser's per-class Versions card).
     """
-    root = _get_root(registry_path)
-    reg = SourceRegistry(root)
-    code_groups = reg.code_groups_dict()
+    vreg = VersionRegistry(_get_root(registry_path))
 
     if class_name:
-        entries = code_groups.get(class_name)
-        if not entries:
+        code_groups = vreg.code_groups
+        states = code_groups.get(class_name)
+        if not states:
             raise click.ClickException(f'Class {class_name!r} not found.')
-        sorted_entries = sorted(entries, key=lambda e: e['mtime'], reverse=True)
-        click.echo(f'{class_name}  ({len(sorted_entries)} {"snapshot" if len(sorted_entries) == 1 else "snapshots"})')
+        sorted_states = sorted(states, key=lambda e: e['mtime'], reverse=True)
+        click.echo(f'{class_name}  ({len(sorted_states)} {"state" if len(sorted_states) == 1 else "states"})')
         click.echo()
-        for e in sorted_entries:
+        for e in sorted_states:
             change_marker = '*' if e['is_version_change'] else ' '
             click.echo(f'  {change_marker} {_fmt_mtime(e["mtime"])}  {_fmt_hash(e["source_hash"], full_hash)}')
         return
 
-    trees = TreeRegistry(root)
-    groups = build_version_groups(version_infos(reg), code_groups)
-    if not groups:
+    if not vreg.version_groups:
         click.echo('No version groups found.')
         return
 
-    dep_hash_to_identity: dict[str, str] = {
-        dh: snapshot_version_identity(reg, dh, tree_registry=trees) for dh in trees.dep_hashes
-    }
-
-    for g in groups:
-        _echo_version_group(g, code_groups, dep_hash_to_identity, trees, full_hash=full_hash)
+    for vi in vreg.version_groups:
+        _echo_version_group(vi, vreg, full_hash=full_hash)
 
 
 # ---------------------------------------------------------------------------
@@ -626,7 +600,7 @@ def snapshot_show(registry_path: str | None, full_hash: bool, dep_hash: str, as_
         raise click.ClickException(f'Dep hash {dep_hash!r} not found.')
 
     if as_json:
-        click.echo(json.dumps(tree.to_dict(), indent=2))
+        click.echo(json.dumps(tree.to_dict(), indent=4))
         return
 
     click.echo(f'Root       {next(iter(tree.tree), "?")}')
@@ -654,20 +628,17 @@ def snapshot_show(registry_path: str | None, full_hash: bool, dep_hash: str, as_
 @click.option('--hash', 'dep_hash', required=True, help='Dep-tree hash to look up.')
 def snapshot_version(registry_path: str | None, dep_hash: str) -> None:
     """Show which version group a dep-tree snapshot belongs to."""
-    root = _get_root(registry_path)
-    reg = SourceRegistry(root)
-    trees = TreeRegistry(root)
+    vreg = VersionRegistry(_get_root(registry_path))
 
-    tree = trees.get_snapshot(dep_hash)
+    tree = vreg._tree_registry.get_snapshot(dep_hash)
     if tree is None:
         raise click.ClickException(f'Dep hash {dep_hash!r} not found.')
 
-    identity = snapshot_version_identity(reg, dep_hash, tree_registry=trees)
-    groups = build_version_groups(version_infos(reg), reg.code_groups_dict())
-    match = next((g for g in groups if g['mtime'] == identity), None)
+    identity = vreg.version_mtime_for_dep_hash(dep_hash)
+    match = next((vi for vi in vreg.version_groups if vi.mtime == identity), None)
     if match:
-        click.echo(match['label'])
+        click.echo(match.label)
         click.echo()
-        click.echo(f'Classes  {", ".join(match["class_names"])}')
+        click.echo(f'Classes  {", ".join(match.class_names)}')
     else:
         click.echo('Initial')

@@ -1,17 +1,14 @@
 import threading
 from dataclasses import dataclass
 
-from pygeodata.config import get_config
-from pygeodata.registry import SourceRegistry
 from pygeodata.registry_browser.class_catalog import (
     discover_loaded_classes,
     merge_unloaded_classes,
 )
 from pygeodata.registry_browser.entry_catalog import discover_entries
 from pygeodata.registry_browser.models import ClassInfo, EntryInfo, GroupInfo
-from pygeodata.registry_types import VersionInfo
 from pygeodata.spec import SpecKeys
-from pygeodata.versioning import snapshot_version_identity, version_infos
+from pygeodata.versioning import VersionRegistry
 
 
 @dataclass(slots=True)
@@ -21,8 +18,6 @@ class AppState:
     groups: dict[str, GroupInfo]
     diagnostics: dict
     spec_options: dict[str, list[str]]
-    versions: list[VersionInfo]
-    snapshots: dict[str, str]
     code_groups: dict[str, list[dict]]
 
 
@@ -49,8 +44,13 @@ class AppContext:
 
 
 def build_state(progress: dict | None = None) -> AppState:
+    from pygeodata.tracked_object import TrackedObject
     entries, groups, diagnostics = discover_entries(progress=progress)
-    classes = merge_unloaded_classes(discover_loaded_classes(), groups)
+    registry = VersionRegistry.instance()
+    for entry in entries.values():
+        if entry.dep_hash and not entry.dep_hash_stale and TrackedObject.find_object_class(entry.class_name) is None:
+            entry.dep_hash_stale = registry.is_dep_hash_stale(entry.dep_hash)
+    classes = merge_unloaded_classes(discover_loaded_classes(), groups, entries=entries, version_registry=registry)
     spec_options = {
         SpecKeys.CRS: sorted({entry.spec.crs for entry in entries.values() if entry.spec.crs}),
         SpecKeys.RESOLUTION: sorted({entry.spec.resolution for entry in entries.values() if entry.spec.resolution}),
@@ -59,18 +59,11 @@ def build_state(progress: dict | None = None) -> AppState:
             {str(list(entry.spec.bounds_latlon)) for entry in entries.values() if entry.spec.bounds_latlon},
         ),
     }
-    registry = SourceRegistry(get_config().path_registry)
-    code_groups = registry.code_groups_dict()
-    versions = version_infos(registry)
-    dep_hashes = {e.dep_hash for e in entries.values() if e.dep_hash}
-    snapshots = {dep_hash: snapshot_version_identity(registry, dep_hash) for dep_hash in dep_hashes}
     return AppState(
         classes=classes,
         entries=entries,
         groups=groups,
         diagnostics=diagnostics,
         spec_options=spec_options,
-        versions=versions,
-        snapshots=snapshots,
-        code_groups=code_groups,
+        code_groups=registry.code_groups,
     )

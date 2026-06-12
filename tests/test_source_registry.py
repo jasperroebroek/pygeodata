@@ -5,7 +5,7 @@ import pytest
 
 from pygeodata.config import JSONKeys
 from pygeodata.registry import SourceRegistry
-from pygeodata.versioning import build_version_groups, merge_version_groups, snapshot_version_identity
+from pygeodata.versioning import VersionRegistry
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -150,19 +150,19 @@ def test_get_snapshot_by_hash_missing_returns_none(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# snapshot_version_identity — windowing algorithm
+# VersionRegistry — version group and dep_hash assignment
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture
 def two_version_registry(tmp_path: Path):
     """
-    MyLoader  h1  2026-01-01  (first registration — NOT a version-change)
+    MyLoader  h1  2026-01-01  (initial registration)
     MyLoader  h2  2026-06-01  (version change)
     MyDep     d1  2026-03-01  (single registration, dep only)
 
-    snapshot_pre  nodes={MyLoader:h1, MyDep:d1}  → max mtime 2026-03-01 → initial
-    snapshot_post nodes={MyLoader:h2, MyDep:d1}  → max mtime 2026-06-01 → newest group
+    snapshot_pre  nodes={MyLoader:h1, MyDep:d1}  → uses h1 (Initial hash) → Initial
+    snapshot_post nodes={MyLoader:h2, MyDep:d1}  → uses h2 (change hash)  → v1
     """
     registry = tmp_path / '.source'
     _write_snapshot(registry, 'h1', 'MyLoader', mtime='2026-01-01T00:00:00+00:00')
@@ -187,116 +187,63 @@ def two_version_registry(tmp_path: Path):
     return registry
 
 
-def test_snapshot_identity_pre_change_is_initial(two_version_registry: Path) -> None:
-    """snapshot_pre max mtime = 2026-03-01, before June change → 'initial'."""
-    reg = SourceRegistry(two_version_registry)
-    assert snapshot_version_identity(reg, 'snapshot_pre') == 'initial'
+def test_version_groups_single_change(two_version_registry: Path) -> None:
+    """One class with two states → one change group (v1) + Initial."""
+    vr = VersionRegistry(two_version_registry)
+    assert len(vr.version_groups) == 2
+    v1, initial = vr.version_groups
+    assert v1.version_number == 1
+    assert v1.class_names == ['MyLoader']
+    assert initial.version_number == 0
+    assert 'MyLoader' in initial.class_names
 
 
-def test_snapshot_identity_post_change_is_newest_group(two_version_registry: Path) -> None:
-    """snapshot_post max mtime = 2026-06-01, equal to cutoff of newest group (≤ inclusive) → newest group."""
-    reg = SourceRegistry(two_version_registry)
-    identity = snapshot_version_identity(reg, 'snapshot_post')
-    assert identity == '2026-06-01T00:00:00+00:00'
+def test_snapshot_pre_change_assigned_to_initial(two_version_registry: Path) -> None:
+    """snapshot_pre uses h1 (Initial hash, not a change event) → assigned to Initial."""
+    vr = VersionRegistry(two_version_registry)
+    initial_mtime = vr.version_groups[-1].mtime
+    assert vr.version_mtime_for_dep_hash('snapshot_pre') == initial_mtime
 
 
-def test_snapshot_identity_missing_dep_hash_returns_initial(two_version_registry: Path) -> None:
-    """dep_hash with no tree.json → falls through to 'initial'."""
-    reg = SourceRegistry(two_version_registry)
-    assert snapshot_version_identity(reg, 'nonexistent') == 'initial'
+def test_snapshot_post_change_assigned_to_v1(two_version_registry: Path) -> None:
+    """snapshot_post uses h2 (the change hash) → assigned to v1."""
+    vr = VersionRegistry(two_version_registry)
+    v1_mtime = vr.version_groups[0].mtime
+    assert vr.version_mtime_for_dep_hash('snapshot_post') == v1_mtime
 
 
-def test_snapshot_identity_no_matching_nodes_returns_initial(tmp_path: Path) -> None:
-    """Nodes whose hashes aren't in the registry index → node_mtimes empty → 'initial'."""
-    registry = tmp_path / '.source'
-    _write_snapshot(registry, 'known', 'A', mtime='2026-01-01T00:00:00+00:00')
-    _write_snapshot(registry, 'known2', 'A', mtime='2026-06-01T00:00:00+00:00')
-    _write_tree(registry, 'snapshot1', {'A': {'hash': 'UNKNOWN_HASH'}})
-    reg = SourceRegistry(registry)
-    assert snapshot_version_identity(reg, 'snapshot1') == 'initial'
+def test_missing_dep_hash_returns_none(two_version_registry: Path) -> None:
+    vr = VersionRegistry(two_version_registry)
+    assert vr.version_mtime_for_dep_hash('nonexistent') is None
 
 
-def test_snapshot_identity_no_version_groups_returns_initial(tmp_path: Path) -> None:
-    """Single registration (no changes) → no version groups → identity is 'initial'."""
-    registry = tmp_path / '.source'
-    _write_snapshot(registry, 'h1', 'A', mtime='2026-01-01T00:00:00+00:00')
-    _write_tree(registry, 'snapshot1', {'A': {'hash': 'h1'}})
-    reg = SourceRegistry(registry)
-    # No is_version_change=True entries → version_infos() empty → build_version_groups returns []
-    assert snapshot_version_identity(reg, 'snapshot1') == 'initial'
-
-
-def test_snapshot_identity_exactly_at_cutoff_inclusive(tmp_path: Path) -> None:
-    """Snapshot max mtime == cutoff_mtime of newest group; cutoff_exclusive=False → newest group."""
+def test_snapshot_with_unknown_node_hash_assigned_to_initial(tmp_path: Path) -> None:
+    """Nodes whose hashes aren't in the registry → falls back to Initial."""
     registry = tmp_path / '.source'
     _write_snapshot(registry, 'h1', 'A', mtime='2026-01-01T00:00:00+00:00')
-    _write_snapshot(registry, 'h2', 'A', mtime='2026-06-01T00:00:00+00:00')  # change
-    _write_tree(registry, 's1', {'A': {'hash': 'h2'}})  # max mtime == cutoff 'now'-group's change
-    reg = SourceRegistry(registry)
-    identity = snapshot_version_identity(reg, 's1')
-    assert identity == '2026-06-01T00:00:00+00:00'
+    _write_snapshot(registry, 'h2', 'A', mtime='2026-06-01T00:00:00+00:00')
+    _write_tree(registry, 'snap1', {'A': {'hash': 'UNKNOWN_HASH'}})
+    vr = VersionRegistry(registry)
+    initial_mtime = vr.version_groups[-1].mtime
+    assert vr.version_mtime_for_dep_hash('snap1') == initial_mtime
 
 
-# ---------------------------------------------------------------------------
-# merge_version_groups / build_version_groups
-# ---------------------------------------------------------------------------
+def test_no_changes_produces_only_initial(tmp_path: Path) -> None:
+    """Single registration per class → no change events → only Initial group."""
+    registry = tmp_path / '.source'
+    _write_snapshot(registry, 'h1', 'A', mtime='2026-01-01T00:00:00+00:00')
+    _write_tree(registry, 'snap1', {'A': {'hash': 'h1'}})
+    vr = VersionRegistry(registry)
+    assert len(vr.version_groups) == 1
+    assert vr.version_groups[0].version_number == 0
 
 
-def test_merge_version_groups_single_class(tmp_path: Path) -> None:
-    from pygeodata.registry_types import VersionInfo
-
-    versions = [
-        VersionInfo(mtime='2026-01-01T00:00:00+00:00', class_name='A'),
-        VersionInfo(mtime='2026-06-01T00:00:00+00:00', class_name='A'),
-    ]
-    groups = merge_version_groups(versions)
-    # Same class → never merged
-    assert len(groups) == 2
-
-
-def test_merge_version_groups_different_classes_merge(tmp_path: Path) -> None:
-    from pygeodata.registry_types import VersionInfo
-
-    versions = [
-        VersionInfo(mtime='2026-01-01T00:00:00+00:00', class_name='A'),
-        VersionInfo(mtime='2026-01-01T00:00:01+00:00', class_name='B'),
-    ]
-    groups = merge_version_groups(versions)
-    # Different classes → merged into one group
-    assert len(groups) == 1
-    assert len(groups[0]) == 2
-
-
-def test_build_version_groups_empty_returns_empty() -> None:
-    assert build_version_groups([], {}) == []
-
-
-def test_build_version_groups_structure(tmp_path: Path) -> None:
-    from pygeodata.registry_types import VersionInfo
-
-    versions = [VersionInfo(mtime='2026-06-01T00:00:00+00:00', class_name='MyLoader')]
-    code_groups = {
-        'MyLoader': [
-            {
-                'source_hash': 'h1',
-                'mtime': '2026-01-01T00:00:00+00:00',
-                'object_type': 'Data',
-                'is_version_change': False,
-            },
-            {
-                'source_hash': 'h2',
-                'mtime': '2026-06-01T00:00:00+00:00',
-                'object_type': 'Data',
-                'is_version_change': True,
-            },
-        ],
-    }
-    result = build_version_groups(versions, code_groups)
-    # Newest-first: change group + Initial
-    assert len(result) == 2
-    assert result[0]['mtime'] == '2026-06-01T00:00:00+00:00'
-    assert result[0]['cutoff_mtime'] == 'now'
-    assert result[0]['cutoff_exclusive'] is False
-    assert result[1]['mtime'] == 'initial'
-    assert result[1]['exclusive'] is True
-    assert result[1]['cutoff_exclusive'] is True
+def test_snapshot_using_change_hash_assigned_to_its_group(tmp_path: Path) -> None:
+    """Snapshot containing the change hash maps to that version group."""
+    registry = tmp_path / '.source'
+    _write_snapshot(registry, 'h1', 'A', mtime='2026-01-01T00:00:00+00:00')
+    _write_snapshot(registry, 'h2', 'A', mtime='2026-06-01T00:00:00+00:00')
+    _write_tree(registry, 'snap1', {'A': {'hash': 'h2'}})
+    vr = VersionRegistry(registry)
+    v1_mtime = vr.version_groups[0].mtime
+    assert vr.version_mtime_for_dep_hash('snap1') == v1_mtime

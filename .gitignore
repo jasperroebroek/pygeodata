@@ -7,6 +7,7 @@
 /data_processed
 /build
 /.source
+/presentations
 
 .DS_Store
 __pycache__

@@ -24,8 +24,6 @@ from pygeodata.config import JSONKeys, set_config
 from pygeodata.registry import SourceRegistry
 from pygeodata.registry_browser.state import AppContext, AppState
 from pygeodata.registry_browser.web import app as flask_app
-from pygeodata.versioning import version_infos
-
 # ---------------------------------------------------------------------------
 # Re-use helpers from test_web (same module, keep in sync with test_web.py)
 # ---------------------------------------------------------------------------
@@ -55,7 +53,7 @@ def _write_code_snapshot(
     )
 
 
-def _make_ready_ctx(versions=None, code_groups=None):
+def _make_ready_ctx(code_groups=None):
     ctx = AppContext()
     ctx.state = AppState(
         classes={},
@@ -63,8 +61,6 @@ def _make_ready_ctx(versions=None, code_groups=None):
         groups={},
         diagnostics={},
         spec_options={},
-        versions=versions or [],
-        snapshots={},
         code_groups=code_groups or {},
     )
     ctx.ready.set()
@@ -168,7 +164,7 @@ def sample_ctx(sample_registry):
         path_registry=registry,
     ):
         reg = SourceRegistry(registry)
-        yield _make_ready_ctx(versions=version_infos(reg), code_groups=reg.code_groups_dict()), tmp_path, registry
+        yield _make_ready_ctx(code_groups=reg.code_groups_dict()), tmp_path, registry
 
 
 # ===========================================================================
@@ -200,13 +196,11 @@ def test_first_entry_is_change_group(sample_ctx):
     first = data[0]
     # The change group carries the v2hash registration time
     assert first['mtime'] == '2026-06-01T00:00:00+00:00'
-    assert first['exclusive'] is False
     assert first['cutoff_mtime'] == 'now'
     assert first['cutoff_exclusive'] is False
     # Newest-first group shows all classes
     assert 'MyLoader' in first['class_names']
-    assert 'MyDep' in first['class_names']
-    assert 'MyLoader' in first['label']
+    assert 'v1' in first['label']
 
 
 def test_second_entry_is_initial_group(sample_ctx):
@@ -218,8 +212,6 @@ def test_second_entry_is_initial_group(sample_ctx):
 
     data = resp.get_json()
     initial = data[1]
-    assert initial['mtime'] == 'initial'
-    assert initial['exclusive'] is True
     assert initial['cutoff_exclusive'] is True
     # cutoff is the oldest version-change event (2026-06-01)
     assert initial['cutoff_mtime'] == '2026-06-01T00:00:00+00:00'
@@ -238,7 +230,7 @@ def test_full_payload_shape(sample_ctx):
         with patch('pygeodata.registry_browser.web._ctx', ctx):
             resp = flask_app.test_client().get('/api/code/versions')
 
-    required_keys = {'mtime', 'all_mtimes', 'class_names', 'label', 'exclusive', 'cutoff_mtime', 'cutoff_exclusive'}
+    required_keys = {'mtime', 'class_names', 'label', 'cutoff_mtime', 'cutoff_exclusive'}
     for entry in resp.get_json():
         assert required_keys <= set(entry.keys()), f'missing keys in {entry}'
 
@@ -260,7 +252,9 @@ def test_pre_change_snapshot_maps_to_initial(sample_ctx):
 
     assert resp.status_code == 200
     data = resp.get_json()
-    assert data == {'version_mtime': 'initial', 'source_hash': 'v1hash'}
+    # snapshot_pre uses v1hash (Initial state) → version_mtime is the Initial group's mtime
+    assert data['source_hash'] == 'v1hash'
+    assert data['version_mtime'] == '2026-01-01T00:00:00+00:00'
 
 
 def test_post_change_snapshot_maps_to_change_mtime(sample_ctx):
@@ -294,7 +288,8 @@ def test_dep_class_not_clicked_but_drives_window(sample_ctx):
     assert resp.status_code == 200
     data = resp.get_json()
     assert data['source_hash'] == 'dep1hash'
-    assert data['version_mtime'] == 'initial'
+    # snapshot_pre uses dep1hash (Initial state) → version_mtime is the Initial group's mtime
+    assert data['version_mtime'] == '2026-01-01T00:00:00+00:00'
 
 
 def test_payload_has_exactly_two_keys(sample_ctx):

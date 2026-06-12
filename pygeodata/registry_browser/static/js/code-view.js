@@ -87,9 +87,8 @@ function renderCodeVersionList() {
 // ---------------------------------------------------------------------------
 
 function _versionClassesUrl(versionMeta) {
-  const cutoff = versionMeta?.cutoff_mtime ?? versionMeta?.mtime ?? 'now';
-  const exclusive = versionMeta?.cutoff_exclusive ? '&exclusive=1' : '';
-  return `/api/code/version-classes?mtime=${encodeURIComponent(cutoff)}${exclusive}`;
+  const mtime = versionMeta?.mtime ?? 'now';
+  return `/api/code/version-classes?mtime=${encodeURIComponent(mtime)}`;
 }
 
 export async function selectCodeVersion(mtime, { silent = false } = {}) {
@@ -730,9 +729,9 @@ async function _showVersionChangeSummary(versionMeta, changedNames) {
 
   const changes = changedNames.map((cn) => {
     const current = _codeClasses.find((c) => c.class_name === cn);
-    const hashA = current?.source_hash ?? null;
-    const hashB = prevHashMap[cn] ?? null;
-    const status = !hashB ? 'added' : !hashA ? 'removed' : hashA === hashB ? 'unchanged' : 'changed';
+    const hashA = prevHashMap[cn] ?? null;
+    const hashB = current?.source_hash ?? null;
+    const status = !hashA ? 'added' : !hashB ? 'removed' : hashA === hashB ? 'unchanged' : 'changed';
     return { class_name: cn, status, hashA, hashB, diff: null };
   }).filter((c) => c.status !== 'unchanged');
 

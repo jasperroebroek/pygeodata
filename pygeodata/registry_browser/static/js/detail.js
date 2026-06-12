@@ -598,7 +598,7 @@ function buildClassCard(detail) {
     <div class="dcard">
       <div class="dcard-hd">
         <span class="dcard-hd-label">Class</span>
-        <span class="dcard-hd-title">${esc(detail.class_name)}${typeBadge ? `<span class="dcard-hd-type">${typeBadge}</span>` : ""}${statusBadges ? `<span class="dcard-hd-sep"></span>${statusBadges}` : ""}</span>
+        <span class="dcard-hd-title">${esc(detail.class_name)}${typeBadge ? `<span class="dcard-hd-type">${typeBadge}</span>` : ""}${statusBadges ? `${statusBadges}` : ""}</span>
         ${actions ? `<span class="dcard-hd-spacer"></span><div class="dcard-hd-actions">${actions}</div>` : ""}
       </div>
       <div class="dcard-body">${rows}</div>

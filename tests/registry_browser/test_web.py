@@ -9,10 +9,7 @@ from pygeodata.registry import SourceRegistry
 from pygeodata.registry_browser.state import AppContext, AppState
 from pygeodata.registry_browser.web import _allowed_roots, _assert_allowed_path
 from pygeodata.registry_browser.web import app as flask_app
-from pygeodata.versioning import version_infos
-
-
-def _make_ready_ctx(versions=None, code_groups=None):
+def _make_ready_ctx(code_groups=None):
     """Return an AppContext with a minimal ready AppState."""
     ctx = AppContext()
     ctx.state = AppState(
@@ -21,8 +18,6 @@ def _make_ready_ctx(versions=None, code_groups=None):
         groups={},
         diagnostics={},
         spec_options={},
-        versions=versions or [],
-        snapshots={},
         code_groups=code_groups or {},
     )
     ctx.ready.set()
@@ -193,7 +188,7 @@ def _write_code_snapshot(
 
 
 def test_api_code_versions_empty(client) -> None:
-    ctx = _make_ready_ctx(versions=[])
+    ctx = _make_ready_ctx()
     with patch('pygeodata.registry_browser.web._ctx', ctx):
         resp = client.get('/api/code/versions')
     assert resp.status_code == 200
@@ -208,13 +203,14 @@ def test_api_code_versions_only_shows_changes(tmp_path: Path) -> None:
     _write_code_snapshot(registry, 'v1hash', 'MyLoader', 'class MyLoader: pass', mtime='2026-01-01T00:00:00+00:00')
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
         reg = SourceRegistry(registry)
-        ctx = _make_ready_ctx(versions=version_infos(reg), code_groups=reg.code_groups_dict())
+        ctx = _make_ready_ctx(code_groups=reg.code_groups_dict())
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
             resp = flask_app.test_client().get('/api/code/versions')
     data = resp.get_json()
-    # No entries — only first registration, no version-changes to report
-    assert len(data) == 0
+    # Single registration → only the Initial group (no change groups)
+    assert len(data) == 1
+    assert 'Initial' in data[0]['label']
 
 
 def test_api_code_versions_shows_second_entry(tmp_path: Path) -> None:
@@ -223,7 +219,7 @@ def test_api_code_versions_shows_second_entry(tmp_path: Path) -> None:
     _write_code_snapshot(registry, 'v2hash', 'MyLoader', 'class MyLoader: pass\n', mtime='2026-06-01T00:00:00+00:00')
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
         reg = SourceRegistry(registry)
-        ctx = _make_ready_ctx(versions=version_infos(reg), code_groups=reg.code_groups_dict())
+        ctx = _make_ready_ctx(code_groups=reg.code_groups_dict())
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
             resp = flask_app.test_client().get('/api/code/versions')
@@ -233,10 +229,10 @@ def test_api_code_versions_shows_second_entry(tmp_path: Path) -> None:
     # First entry: the actual change group
     assert data[0]['class_names'] == ['MyLoader']
     assert data[0]['mtime'] == '2026-06-01T00:00:00+00:00'
-    assert data[0]['exclusive'] is False
-    assert 'MyLoader' in data[0]['label']
-    # Second entry: synthetic Initial baseline (exclusive, loads pre-change code)
-    assert data[1]['exclusive'] is True
+    assert data[0]['cutoff_exclusive'] is False
+    assert 'v1' in data[0]['label']
+    # Second entry: synthetic Initial baseline (cutoff_exclusive, loads pre-change code)
+    assert data[1]['cutoff_exclusive'] is True
     assert 'Initial' in data[1]['label']
     # Initial timestamp uses the oldest registration (Jan 1), not the change time
     assert 'Jan' in data[1]['label']
@@ -269,7 +265,7 @@ def test_api_code_resolve_dep_hash(tmp_path: Path) -> None:
 
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
         reg = SourceRegistry(registry)
-        ctx = _make_ready_ctx(versions=version_infos(reg), code_groups=reg.code_groups_dict())
+        ctx = _make_ready_ctx(code_groups=reg.code_groups_dict())
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
             resp = flask_app.test_client().get('/api/code/resolve-dep-hash?dep_hash=snapshot_old&class_name=MyLoader')
@@ -278,7 +274,8 @@ def test_api_code_resolve_dep_hash(tmp_path: Path) -> None:
     assert data['source_hash'] == 'v1hash'
     # Max node mtime is 2026-03-01 (MyDep), which is before the v2 change at 2026-06-01.
     # The snapshot therefore belongs to the Initial group (pre-change baseline).
-    assert data['version_mtime'] == 'initial'
+    # Initial group mtime = earliest registration across all classes = 2026-01-01.
+    assert data['version_mtime'] == '2026-01-01T00:00:00+00:00'
 
 
 def test_api_code_resolve_dep_hash_missing(client) -> None:
@@ -292,7 +289,7 @@ def test_api_code_resolve_dep_hash_missing_params(client) -> None:
 
 
 def test_api_code_version_classes_empty(app) -> None:
-    ctx = _make_ready_ctx(versions=[], code_groups={})
+    ctx = _make_ready_ctx(code_groups={})
     with patch('pygeodata.registry_browser.web._ctx', ctx):
         resp = app.test_client().get('/api/code/version-classes')
     assert resp.status_code == 200
@@ -305,7 +302,7 @@ def test_api_code_version_classes_returns_latest(tmp_path: Path) -> None:
     _write_code_snapshot(registry, 'v2hash', 'MyLoader', 'class MyLoader: pass\n', mtime='2026-06-01T00:00:00+00:00')
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
         reg = SourceRegistry(registry)
-        ctx = _make_ready_ctx(versions=version_infos(reg), code_groups=reg.code_groups_dict())
+        ctx = _make_ready_ctx(code_groups=reg.code_groups_dict())
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
             resp = flask_app.test_client().get('/api/code/version-classes')
@@ -316,16 +313,17 @@ def test_api_code_version_classes_returns_latest(tmp_path: Path) -> None:
     assert data[0]['is_loaded'] is False
 
 
-def test_api_code_version_classes_mtime_cutoff(tmp_path: Path) -> None:
+def test_api_code_version_classes_initial_group(tmp_path: Path) -> None:
     registry = tmp_path / '.source'
     _write_code_snapshot(registry, 'v1hash', 'MyLoader', 'class MyLoader: pass', mtime='2026-01-01T00:00:00+00:00')
     _write_code_snapshot(registry, 'v2hash', 'MyLoader', 'class MyLoader: pass\n', mtime='2026-06-01T00:00:00+00:00')
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
         reg = SourceRegistry(registry)
-        ctx = _make_ready_ctx(versions=version_infos(reg), code_groups=reg.code_groups_dict())
+        ctx = _make_ready_ctx(code_groups=reg.code_groups_dict())
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
-            resp = flask_app.test_client().get('/api/code/version-classes?mtime=2026-03-01T00:00:00+00:00')
+            # Initial group mtime = earliest registration = 2026-01-01
+            resp = flask_app.test_client().get('/api/code/version-classes?mtime=2026-01-01T00:00:00+00:00')
     data = resp.get_json()
     assert len(data) == 1
     assert data[0]['source_hash'] == 'v1hash'
@@ -469,9 +467,9 @@ def test_api_code_tree_diff_returns_changes(tmp_path: Path) -> None:
 
     entry = _make_entry('rec1', 'snapshot1')
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
-        from pygeodata.registry_browser.class_catalog import scan_code_snapshots
+        from pygeodata.registry import SourceRegistry
 
-        code_groups = scan_code_snapshots()
+        code_groups = SourceRegistry(registry).code_groups_dict()
         ctx = _make_ready_ctx(code_groups=code_groups)
         ctx.state.entries = {'rec1': entry}
         flask_app.config['TESTING'] = True
@@ -516,9 +514,9 @@ def test_api_code_tree_diff_sort_order(tmp_path: Path) -> None:
 
     entry = _make_entry('rec1', 'snapshot1')
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
-        from pygeodata.registry_browser.class_catalog import scan_code_snapshots
+        from pygeodata.registry import SourceRegistry
 
-        code_groups = scan_code_snapshots()
+        code_groups = SourceRegistry(registry).code_groups_dict()
         ctx = _make_ready_ctx(code_groups=code_groups)
         ctx.state.entries = {'rec1': entry}
         flask_app.config['TESTING'] = True

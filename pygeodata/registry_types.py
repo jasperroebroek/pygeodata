@@ -39,7 +39,7 @@ class TreeSnapshot:
         }
 
     def dump(self, path: Path) -> None:
-        path.write_text(json.dumps(self.to_dict()), encoding='utf-8')
+        path.write_text(json.dumps(self.to_dict(), indent=4), encoding='utf-8')
 
     @classmethod
     def from_dict(cls, dep_hash: str, data: dict[str, Any]) -> Self:
@@ -73,7 +73,7 @@ class CodeState:
         }
 
     def dump(self, path: Path) -> None:
-        path.write_text(json.dumps(self.to_dict()), encoding='utf-8')
+        path.write_text(json.dumps(self.to_dict(), indent=4), encoding='utf-8')
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
@@ -90,7 +90,3 @@ class CodeState:
         return cls.from_dict(json.loads(path.read_text(encoding='utf-8')))
 
 
-@dataclass(slots=True)
-class VersionInfo:
-    mtime: str
-    class_name: str

@@ -1,26 +1,15 @@
 import logging
-from pathlib import Path
-from typing import Any
 
 from pygeodata.config import get_config
 from pygeodata.hash import calculate_cls_source_hash
 from pygeodata.paths import CodeRegistryResolver, TreeRegistryResolver
 from pygeodata.registry import SourceRegistry, TreeRegistry
 from pygeodata.registry_browser.io_utils import existing_path_str
-from pygeodata.registry_browser.models import ClassInfo, RegistryClassInfo
+from pygeodata.registry_browser.models import ClassInfo, EntryInfo, GroupInfo, RegistryClassInfo
 from pygeodata.tracked_object import TrackedObject
+from pygeodata.versioning import VersionRegistry
 
 logger = logging.getLogger(__name__)
-
-
-
-def scan_code_snapshots() -> dict[str, list[dict]]:
-    """Return all code versions grouped by class_name.
-
-    Thin wrapper over :class:`SourceRegistry` that preserves the original
-    ``{source_hash, mtime, object_type, is_version_change}`` dict structure.
-    """
-    return SourceRegistry(get_config().path_registry).code_groups_dict()
 
 
 def source_info_from_disk(class_name: str) -> RegistryClassInfo:
@@ -108,7 +97,9 @@ def discover_loaded_classes() -> dict[str, ClassInfo]:
 
 def merge_unloaded_classes(
     classes: dict[str, ClassInfo],
-    groups: dict[str, Any],
+    groups: dict[str, GroupInfo],
+    entries: dict[str, EntryInfo] | None = None,
+    version_registry: VersionRegistry | None = None,
 ) -> dict[str, ClassInfo]:
     merged = dict(classes)
 
@@ -117,9 +108,24 @@ def merge_unloaded_classes(
             continue
 
         info = source_info_from_disk(class_name)
-        object_type = info.object_type or (
-            str(getattr(group, 'object_type')) if getattr(group, 'object_type', None) else None
-        )
+        object_type = info.object_type or group.object_type
+
+        deps_stale = False
+        if entries is not None and version_registry is not None:
+            # Find the most recently versioned entry's dep_hash; older entries
+            # legitimately have stale dep trees (they predate a code change).
+            best_dep_hash: str | None = None
+            best_mtime: str | None = None
+            for rid in group.record_ids:
+                entry = entries.get(rid)
+                if entry is None or not entry.dep_hash:
+                    continue
+                vm = version_registry.version_mtime_for_dep_hash(entry.dep_hash)
+                if vm is not None and (best_mtime is None or vm > best_mtime):
+                    best_mtime = vm
+                    best_dep_hash = entry.dep_hash
+            if best_dep_hash is not None:
+                deps_stale = version_registry.is_dep_hash_stale(best_dep_hash)
 
         merged[class_name] = ClassInfo(
             class_name=class_name,
@@ -131,6 +137,7 @@ def merge_unloaded_classes(
             class_graph_path=info.graph_path,
             class_registry_path=info.registry_path,
             class_tree_path=info.tree_path,
+            deps_stale=deps_stale,
         )
 
     return merged

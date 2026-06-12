@@ -13,7 +13,6 @@ import threading
 from pathlib import Path
 from typing import Callable
 
-from pygeodata.config import get_config
 from pygeodata.paths import CodeRegistryResolver
 from pygeodata.registry import TreeRegistry
 
@@ -53,7 +52,7 @@ def collect_export_files(
 
         if include_snapshots and entry.dep_hash and entry.dep_hash not in seen_dep_hashes:
             seen_dep_hashes.add(entry.dep_hash)
-            trees = TreeRegistry(get_config().path_registry)
+            trees = TreeRegistry.instance()
             tree = trees.get_snapshot(entry.dep_hash)
             if tree is not None:
                 files.append((trees.get_tree_path(entry.dep_hash), f'snapshots/{entry.dep_hash}/tree.json'))

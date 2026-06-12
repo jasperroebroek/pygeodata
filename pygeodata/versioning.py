@@ -1,192 +1,282 @@
-"""Version-group logic for the .source/ code registry.
+"""Version-group logic and VersionRegistry for the .source/ code registry.
 
-Owns all algorithms that map snapshots or source hashes to version-group
-identities:
+VersionRegistry is the single authoritative source for:
 
-    merge_version_groups   — greedy merge of consecutive single-class events
-    version_group_label    — human-readable label for a group
-    build_version_groups   — canonical newest-first list consumed by the API
-    snapshot_version_identity(registry, dep_hash) -> str
-    source_hash_version_identity(registry, source_hash, class_name) -> str | None
+    .version_groups          — list[VersionInfo], newest-first, last entry is Initial
+    .version_mtime_for_source_hash(source_hash) -> str | None
+    .version_mtime_for_dep_hash(dep_hash) -> str | None
+
+Use VersionRegistry.instance() to get a cached, per-root instance that computes
+everything once and serves all lookups in O(1).  Call .reload() after write_registry.
 """
 
 from __future__ import annotations
 
+import itertools
+from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 
+from pygeodata.config import get_config
 from pygeodata.registry import SourceRegistry, TreeRegistry
-from pygeodata.registry_types import VersionInfo
 
 
-def merge_version_groups(versions: list) -> list[list]:
-    """Greedily merge consecutive VersionInfo events touching different classes.
+@dataclass(frozen=True)
+class CodeChangeEvent:
+    """A single class-level code change recorded in the source registry."""
 
-    Input sorted oldest-first.  Returns groups oldest-first.
+    mtime: str
+    class_name: str
+    source_hash: str
+    prev_source_hash: str
+
+
+@dataclass
+class VersionInfo:
+    """A version-change group: one or more CodeChangeEvents that occurred together.
+
+    The last entry in VersionRegistry.version_groups is the Initial group —
+    it holds the states that existed before any version change, with mtime set
+    to the registered_at of the earliest CodeState across all classes.
     """
-    sorted_versions = sorted(versions, key=lambda v: v.mtime)
-    groups: list[list] = []
-    for v in sorted_versions:
-        if groups and v.class_name not in {g.class_name for g in groups[-1]}:
-            groups[-1].append(v)
-        else:
-            groups.append([v])
-    return groups
+
+    events: list[CodeChangeEvent]
+    mtime: str
+
+    @property
+    def class_names(self) -> list[str]:
+        return sorted({e.class_name for e in self.events})
+
+    @property
+    def source_hashes(self) -> list[str]:
+        return [e.source_hash for e in self.events]
+
+    version_number: int = 0  # set by VersionRegistry after construction
+
+    @property
+    def label(self) -> str:
+        v = f'v{self.version_number}' if self.version_number else 'Initial'
+        try:
+            dt = datetime.fromisoformat(self.mtime)
+            return f'{v} · {dt.strftime("%b %-d, %H:%M")}'
+        except (ValueError, AttributeError):
+            return v
 
 
-def version_group_label(
-    group: list,
-    *,
-    is_oldest: bool = False,
-    display_mtime: str | None = None,
-) -> str:
-    prefix = ', '.join(sorted({v.class_name for v in group}))
-    mtime_str = display_mtime if display_mtime is not None else max(v.mtime for v in group)
-    try:
-        dt = datetime.fromisoformat(mtime_str)
-        return f'{prefix} · {dt.strftime("%b %-d, %H:%M")}'
-    except (ValueError, AttributeError):
-        return prefix
+class VersionRegistry:
+    """In-memory index mapping source/dep hashes to their version-group mtime.
 
-
-def build_version_groups(versions: list, code_groups: dict[str, list[dict]]) -> list[dict]:
-    """Canonical version-group list shared by code-tab API and snapshot filter.
-
-    Returns groups newest-first.  Each entry has mtime, all_mtimes, class_names,
-    label, exclusive, cutoff_mtime, cutoff_exclusive.  Final 'Initial' entry
-    has mtime='initial'.
+    Constructed from a SourceRegistry + TreeRegistry scan.  Instances are
+    cached per resolved root path — call reload() after write_registry to
+    refresh without invalidating held references.
     """
-    groups = merge_version_groups(versions)
-    if not groups:
-        return []
 
-    all_class_names = sorted(code_groups.keys())
-    oldest_change_mtime = min(v.mtime for v in groups[0])
+    _instances: dict[Path, VersionRegistry] | None = None
 
-    oldest_registration_mtime = (
-        min(e['mtime'] for entries in code_groups.values() for e in entries if entries)
-        if code_groups
-        else oldest_change_mtime
-    )
+    def __init__(self, registry_root: Path | str) -> None:
+        self._root = Path(registry_root).resolve()
+        self._source_registry = SourceRegistry(self._root)
+        self._tree_registry = TreeRegistry(self._root)
+        self._build()
 
-    result = []
-    groups_newest_first = list(reversed(groups))
-    for i, group in enumerate(groups_newest_first):
-        rep_mtime = max(v.mtime for v in group)
-        if i == 0:
-            cutoff_mtime = 'now'
-            cutoff_exclusive = False
-            group_class_names = all_class_names
-        else:
-            cutoff_mtime = max(v.mtime for v in groups_newest_first[i - 1])
-            cutoff_exclusive = True
-            group_class_names = sorted({v.class_name for v in group})
-        result.append(
-            {
-                'mtime': rep_mtime,
-                'all_mtimes': [v.mtime for v in group],
-                'class_names': group_class_names,
-                'label': version_group_label(group),
-                'exclusive': False,
-                'cutoff_mtime': cutoff_mtime,
-                'cutoff_exclusive': cutoff_exclusive,
-            },
-        )
+    @staticmethod
+    def _collect_events(src: SourceRegistry) -> list[CodeChangeEvent]:
+        """Return all version-change events, oldest-first."""
+        events: list[CodeChangeEvent] = []
+        for class_name in src.class_names:
+            states = sorted(src.get_states(class_name), key=lambda s: s.registered_at)
+            for prev, curr in itertools.pairwise(states):
+                events.append(CodeChangeEvent(curr.registered_at, class_name, curr.source_hash, prev.source_hash))
+        events.sort(key=lambda e: e.mtime)
+        return events
 
-    try:
-        dt = datetime.fromisoformat(oldest_registration_mtime)
-        initial_label = f'Initial · {dt.strftime("%b %-d, %H:%M")}'
-    except (ValueError, AttributeError):
-        initial_label = 'Initial'
+    @staticmethod
+    def _build_hash_to_snapshots(trees: TreeRegistry) -> dict[str, set[str]]:
+        """Index source_hash → set of dep_hashes whose snapshot contains that hash."""
+        index: dict[str, set[str]] = {}
+        for dep_hash in trees.dep_hashes:
+            snapshot = trees.get_snapshot(dep_hash)
+            if snapshot is None:
+                continue
+            for node in snapshot.nodes.values():
+                if isinstance(node, dict) and (h := node.get('hash')):
+                    index.setdefault(h, set()).add(dep_hash)
+        return index
 
-    initial_class_names = sorted(
-        cn for cn, entries in code_groups.items() if any(e['mtime'] < oldest_change_mtime for e in entries)
-    )
-    result.append(
-        {
-            'mtime': 'initial',
-            'all_mtimes': [oldest_change_mtime],
-            'class_names': initial_class_names,
-            'label': initial_label,
-            'exclusive': True,
-            'cutoff_mtime': oldest_change_mtime,
-            'cutoff_exclusive': True,
-        },
-    )
-    return result
+    @staticmethod
+    def _merge_events(
+        events: list[CodeChangeEvent],
+        hash_to_snapshots: dict[str, set[str]],
+    ) -> list[list[CodeChangeEvent]]:
+        """Group change events into version batches using snapshot co-occurrence.
 
+        Greedy merge: consecutive events touching different classes join the same
+        group — unless a snapshot exists that contains a current-group hash alongside
+        the incoming event's prev_source_hash.  Such a snapshot proves a real
+        computation ran between the two changes, so they belong in separate groups.
+        """
+        raw: list[list[CodeChangeEvent]] = []
+        for event in events:
+            if raw and event.class_name not in {e.class_name for e in raw[-1]}:
+                group_snap_sets = [hash_to_snapshots.get(e.source_hash, set()) for e in raw[-1]]
+                prev_snaps = hash_to_snapshots.get(event.prev_source_hash, set())
+                intermediate_exists = any(g & prev_snaps for g in group_snap_sets)
+                if not intermediate_exists:
+                    raw[-1].append(event)
+                    continue
+            raw.append([event])
+        return raw
 
-def version_infos(registry: SourceRegistry) -> list:
-    """Return all code-change events from ``registry`` as VersionInfo, newest-first."""
-    events = []
-    for class_name in registry.class_names:
-        for s in registry.get_states(class_name):
-            if registry.is_version_change(s):
-                events.append(VersionInfo(mtime=s.registered_at, class_name=class_name))
-    events.sort(key=lambda v: v.mtime, reverse=True)
-    return events
+    @staticmethod
+    def _build_initial_group(src: SourceRegistry, oldest_change_mtime: str | None) -> VersionInfo | None:
+        """Build the Initial VersionInfo from CodeStates that predate any version change."""
+        earliest_mtime: str | None = None
+        initial_events: list[CodeChangeEvent] = []
+        for class_name in src.class_names:
+            states = sorted(src.get_states(class_name), key=lambda s: s.registered_at)
+            if not states:
+                continue
+            oldest = states[0]
+            if earliest_mtime is None or oldest.registered_at < earliest_mtime:
+                earliest_mtime = oldest.registered_at
+            if oldest_change_mtime is None or oldest.registered_at < oldest_change_mtime:
+                initial_events.append(CodeChangeEvent(oldest.registered_at, class_name, oldest.source_hash, ''))
+        if earliest_mtime is None:
+            return None
+        return VersionInfo(events=initial_events, mtime=earliest_mtime)
 
+    @staticmethod
+    def _assign_dep_hash(
+        node_version_times: list[str],
+        initial_mtime: str,
+    ) -> str:
+        """Return the version-group mtime for a snapshot.
 
-def _window_mtime(mtime: str, version_opts: list[dict]) -> str:
-    """Walk version_opts newest-first and return the identity for a given mtime scalar."""
-    identity = version_opts[-1]['mtime']  # default: Initial
-    for opt in version_opts:
-        cutoff = opt['cutoff_mtime']
-        excl = opt['cutoff_exclusive']
-        if cutoff == 'now' or (excl and mtime < cutoff) or (not excl and mtime <= cutoff):
-            identity = opt['mtime']
-    return identity
+        Each node hash is looked up in _source_hash_to_mtime to find which version
+        group introduced it.  The snapshot belongs to the newest such group — i.e.
+        the max version time across all its nodes.  Falls back to initial_mtime when
+        no node maps to a change event (snapshot uses only initial-state hashes).
+        """
+        if not node_version_times:
+            return initial_mtime
+        return max(node_version_times)
 
+    def _build(self) -> None:
+        src = self._source_registry
+        trees = self._tree_registry
 
-def snapshot_version_identity(registry, dep_hash: str, tree_registry=None) -> str:
-    """Map dep_hash → the version-group identity mtime it belongs to.
+        events = self._collect_events(src)
+        hash_to_snapshots = self._build_hash_to_snapshots(trees)
+        raw_groups = self._merge_events(events, hash_to_snapshots)
 
-    Returns 'initial' for snapshots predating the first code change, the
-    rep_mtime of the newest group when the snapshot is current, or the
-    rep_mtime of the oldest group whose window covers the snapshot's max
-    node mtime.
+        version_groups: list[VersionInfo] = [
+            VersionInfo(events=group, mtime=max(e.mtime for e in group)) for group in reversed(raw_groups)
+        ]
 
-    ``registry`` is a :class:`~pygeodata.registry.SourceRegistry`.
-    ``tree_registry`` is an optional :class:`~pygeodata.registry.TreeRegistry`;
-    if omitted one is constructed from the same root as ``registry``.
-    """
-    trees = tree_registry or TreeRegistry(registry._root)
-    tree = trees.get_snapshot(dep_hash)
-    if tree is None:
-        return 'initial'
+        oldest_change_mtime = min(e.mtime for e in raw_groups[0]) if raw_groups else None
+        initial = self._build_initial_group(src, oldest_change_mtime)
+        if initial is not None:
+            version_groups.append(initial)
 
-    node_mtimes = [
-        mtime
-        for n in tree.nodes.values()
-        if isinstance(n, dict) and n.get('hash') and (mtime := registry.hash_to_mtime(n['hash'])) is not None
-    ]
-    if not node_mtimes:
-        return 'initial'
+        # Assign version numbers: Initial=0 (last entry), v1=oldest change, counting up.
+        # version_groups is newest-first; the last entry is Initial.
+        non_initial = version_groups[:-1] if version_groups else []
+        for i, vi in enumerate(reversed(non_initial), start=1):
+            vi.version_number = i
+        # Initial group stays at version_number=0 (default)
 
-    tree_max_mtime = max(node_mtimes)
+        self.version_groups: list[VersionInfo] = version_groups
 
-    version_opts = build_version_groups(version_infos(registry), registry.code_groups_dict())
-    if not version_opts:
-        return 'initial'
+        # source_hash → version-group mtime (O(1) lookup)
+        self._source_hash_to_mtime: dict[str, str] = {
+            e.source_hash: vi.mtime for vi in version_groups for e in vi.events
+        }
 
-    return _window_mtime(tree_max_mtime, version_opts)
+        # dep_hash → version-group mtime (O(1) lookup)
+        initial_mtime = version_groups[-1].mtime if version_groups else ''
+        non_initial = version_groups[:-1]  # newest-first, excludes Initial
+        self._dep_hash_to_mtime: dict[str, str] = {}
+        for dep_hash in trees.dep_hashes:
+            snapshot = trees.get_snapshot(dep_hash)
+            if snapshot is None:
+                continue
+            nodes = [n for n in snapshot.nodes.values() if isinstance(n, dict) and n.get('hash')]
+            node_version_times = [vm for n in nodes if (vm := self._source_hash_to_mtime.get(n['hash'])) is not None]
+            if node_version_times:
+                self._dep_hash_to_mtime[dep_hash] = self._assign_dep_hash(node_version_times, initial_mtime)
+            else:
+                # No node maps to a change event: all nodes are from classes that have
+                # never changed.  Find the oldest version group whose mtime is <=
+                # max(registered_at) across the snapshot's nodes — that group was already
+                # in effect when the newest dependency in this snapshot was registered.
+                node_reg_times = [t for n in nodes if (t := src.hash_to_mtime(n['hash'])) is not None]
+                max_reg = max(node_reg_times) if node_reg_times else None
+                assigned = initial_mtime
+                if max_reg is not None:
+                    for vi in reversed(non_initial):  # oldest-first
+                        if vi.mtime <= max_reg:
+                            assigned = vi.mtime
+                            break
+                self._dep_hash_to_mtime[dep_hash] = assigned
 
+    @classmethod
+    def instance(cls, path: Path | str | None = None) -> VersionRegistry:
+        """Return the cached instance for *path*, creating it if necessary."""
+        if cls._instances is None:
+            cls._instances = {}
+        p = Path(path).resolve() if path else Path(get_config().path_registry).resolve()
+        if p not in cls._instances:
+            cls._instances[p] = cls(p)
+        return cls._instances[p]
 
-def source_hash_version_identity(
-    registry: SourceRegistry,
-    source_hash: str,
-    class_name: str,
-) -> str | None:
-    """Map a source_hash + class_name → the version-group identity mtime.
+    def reload(self) -> None:
+        """Recompute all indexes in-place; held references remain valid."""
+        self._source_registry.reload()
+        self._tree_registry.reload()
+        self._build()
 
-    Returns ``None`` if ``source_hash`` is not found for ``class_name``.
-    """
-    states = registry.get_states(class_name)
-    match = next((s for s in snaps if s.source_hash == source_hash), None)
-    if match is None:
-        return None
+    @property
+    def source_registry(self) -> SourceRegistry:
+        """The underlying SourceRegistry (read-only access)."""
+        return self._source_registry
 
-    version_opts = build_version_groups(version_infos(registry), registry.code_groups_dict())
-    if not version_opts:
-        return 'now'
+    @property
+    def tree_registry(self) -> TreeRegistry:
+        """The underlying TreeRegistry (read-only access)."""
+        return self._tree_registry
 
-    return _window_mtime(match.registered_at, version_opts)
+    @property
+    def code_groups(self) -> dict[str, list[dict]]:
+        """Code states grouped by class_name as plain dicts (for API consumers)."""
+        return self._source_registry.code_groups_dict()
+
+    def version_mtime_for_source_hash(self, source_hash: str) -> str | None:
+        """Return the version-group mtime for a source hash, or None if unknown."""
+        return self._source_hash_to_mtime.get(source_hash)
+
+    def version_mtime_for_dep_hash(self, dep_hash: str) -> str | None:
+        """Return the version-group mtime for a dep hash, or None if unknown."""
+        return self._dep_hash_to_mtime.get(dep_hash)
+
+    def is_dep_hash_stale(self, dep_hash: str) -> bool:
+        """Return True if any class in the dep tree has a newer source_hash than stored.
+
+        A dep_hash recorded at v1 is NOT stale at v2 if v2 only changed unrelated classes.
+        Comparing stored vs latest source_hash per node is the only correct check.
+        Returns False if the dep tree snapshot is not found.
+        """
+        snapshot = self._tree_registry.get_snapshot(dep_hash)
+        if snapshot is None:
+            return False
+        for class_name in snapshot.nodes:
+            stored_hash = snapshot.get_source_hash(class_name)
+            latest_state = self._source_registry.latest_for_class(class_name)
+            latest_hash = latest_state.source_hash if latest_state else None
+            if stored_hash != latest_hash:
+                return True
+        return False
+
+    @property
+    def dep_hash_to_mtime(self) -> dict[str, str]:
+        """Full dep_hash → version_mtime mapping (read-only view)."""
+        return self._dep_hash_to_mtime

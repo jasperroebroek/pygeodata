@@ -7,7 +7,8 @@ from pathlib import Path
 
 from pygeodata.ast import get_source_code
 from pygeodata.graphs import plot_class_dependency_graph
-from pygeodata.registry_browser.class_catalog import scan_code_snapshots
+from pygeodata.config import get_config
+from pygeodata.registry import SourceRegistry
 from pygeodata.registry_browser.io_utils import read_text
 from pygeodata.tracked_object import TrackedObject
 
@@ -77,8 +78,8 @@ def build_source_popup(class_name: str, source_path: str | None = None) -> dict[
         logger.error('Cannot build source popup: class not in registry and no source_path: %s', class_name)
         raise KeyError(class_name)
 
-    groups = scan_code_snapshots()
-    known_classes = frozenset(TrackedObject._registry.keys()) | frozenset(groups.keys())
+    code_groups = SourceRegistry(get_config().path_registry).code_groups_dict()
+    known_classes = frozenset(TrackedObject._registry.keys()) | frozenset(code_groups.keys())
     body = render_source_html(source, known_classes, class_name)
 
     return {

@@ -18,6 +18,7 @@ from pygeodata.config import get_config
 from pygeodata.registry_browser import code_service, export_service
 from pygeodata.registry_browser.logging import configure_logging
 from pygeodata.registry_browser.path_actions import open_path, reveal_path
+from pygeodata.registry_browser import payloads
 from pygeodata.registry_browser.payloads import _build_table_rows, build_browser_payload
 from pygeodata.registry_browser.popups import (
     build_graph_popup,
@@ -25,7 +26,7 @@ from pygeodata.registry_browser.popups import (
     build_source_popup,
 )
 from pygeodata.registry_browser.state import AppContext
-from pygeodata.versioning import build_version_groups
+from pygeodata.versioning import VersionRegistry
 
 _ctx = AppContext()
 _loading = ({'loading': True}, 202)
@@ -192,8 +193,7 @@ def api_code_versions():
     """Return merged version groups sorted newest first, with a synthetic Initial entry last."""
     if _ctx.is_loading() or _ctx.state is None:
         return _loading
-    result = build_version_groups(_ctx.state.versions, _ctx.state.code_groups)
-    return jsonify(result)
+    return jsonify(payloads.version_groups_payload(VersionRegistry.instance()))
 
 
 @app.get('/api/code/resolve-dep-hash')
@@ -222,17 +222,12 @@ def api_code_source_hash_version():
     if _ctx.is_loading() or _ctx.state is None:
         return _loading
 
-    from pygeodata.config import get_config
-    from pygeodata.registry import SourceRegistry
-    from pygeodata.versioning import source_hash_version_identity
-
     source_hash = request.args.get('source_hash', '')
     class_name = request.args.get('class_name', '')
     if not source_hash or not class_name:
         abort(400)
 
-    registry = SourceRegistry(get_config().path_registry)
-    version_mtime = source_hash_version_identity(registry, source_hash, class_name)
+    version_mtime = VersionRegistry.instance().version_mtime_for_source_hash(source_hash)
     if version_mtime is None:
         abort(404)
 
@@ -241,19 +236,15 @@ def api_code_source_hash_version():
 
 @app.get('/api/code/version-classes')
 def api_code_version_classes():
-    """Return all classes at their most recent version as of the given mtime.
+    """Return all classes at their state for the given version group.
 
-    Pass ``mtime=now`` (or omit) for the latest version of every class.
-    Pass an ISO-8601 mtime string to get the state at that point in time.
-    Pass ``exclusive=1`` to use strict ``<`` comparison (used for the Initial group,
-    which represents code state just before the first change event).
+    Pass ``mtime=<VersionInfo.mtime>`` to select a specific group, or omit / pass
+    ``mtime=now`` for the newest group.
     """
     if _ctx.is_loading() or _ctx.state is None:
         return _loading
-    mtime_cutoff = request.args.get('mtime', 'now')
-    exclusive = request.args.get('exclusive', '0') == '1'
-    result = code_service.version_classes(_ctx.state.code_groups, mtime_cutoff, exclusive)
-    return jsonify(result)
+    version_mtime = request.args.get('mtime', 'now').replace(' ', '+')
+    return jsonify(code_service.version_classes(version_mtime, VersionRegistry.instance()))
 
 
 @app.get('/api/code/snapshot')

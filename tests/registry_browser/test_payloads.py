@@ -99,8 +99,6 @@ def make_state(entries=None, classes=None, groups=None):
         groups=groups,
         diagnostics={},
         spec_options={},
-        versions=[],
-        snapshots={},
         code_groups={},
     )
 
