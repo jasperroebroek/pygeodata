@@ -5,7 +5,6 @@ import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from pygeodata.formatting.html import format_html_block
 
 if TYPE_CHECKING:
     from graphviz import Digraph
@@ -59,6 +58,7 @@ def _build_runtime_html_label(
         )
 
     if show_params and node.params:
+        from pygeodata.formatting.html import format_html_block
         prim_params: list[str] = []
 
         for k, v in node.params.items():

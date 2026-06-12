@@ -1,11 +1,15 @@
+from __future__ import annotations
+
 import ast
 import functools
 import hashlib
 import json
-
-import numpy as np
+from typing import TYPE_CHECKING
 
 from pygeodata.ast import get_source_ast_tree
+
+if TYPE_CHECKING:
+    import numpy as np
 
 
 @functools.cache

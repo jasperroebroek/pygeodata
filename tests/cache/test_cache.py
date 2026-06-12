@@ -25,8 +25,8 @@ def write_stale_hash(artifact: SimpleLoader, spec: SpatialSpec) -> None:
                 JSONKeys.CLASS_NAME: artifact.get_class_name(),
                 JSONKeys.DEPENDENCY_TREE_HASH: 'stale',
                 JSONKeys.STATE_HASH: 'stale',
-            }
-        )
+            },
+        ),
     )
 
 
@@ -52,7 +52,7 @@ def make_zarr_archive(parent: Path, stem: str, hash_value: str | None = None) ->
                     JSONKeys.FORMAT_VERSION: FORMAT_VERSION,
                     JSONKeys.CLASS_NAME: 'SimpleLoader',
                     JSONKeys.DEPENDENCY_TREE_HASH: hash_value,
-                }
+                },
             ),
         )
     return zarr_dir
@@ -107,34 +107,40 @@ def test_clean_cache_removes_empty_dirs(sample_spatial_spec: SpatialSpec) -> Non
 # --- clean_cache: zarr ---
 
 
-def test_clean_cache_zarr_valid_untouched() -> None:
+def test_clean_cache_zarr_valid_untouched(sample_spatial_spec: SpatialSpec) -> None:
     correct_hash = SimpleLoader.get_dependency_tree_hash()
-    entry_dir = SimpleLoader().get_processed_dir(SpatialSpec())
+    entry_dir = SimpleLoader().get_processed_dir(sample_spatial_spec)
     entry_dir.mkdir(parents=True, exist_ok=True)
     zarr = make_zarr_archive(entry_dir, 'simple_loader', hash_value=correct_hash)
     clean_cache(dry_run=False)
     assert zarr.exists()
 
 
-def test_clean_cache_zarr_stale_hash_reported(capsys: pytest.CaptureFixture) -> None:
-    entry_dir = SimpleLoader().get_processed_dir(SpatialSpec())
+def test_clean_cache_zarr_stale_hash_reported(
+    sample_spatial_spec: SpatialSpec,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    entry_dir = SimpleLoader().get_processed_dir(sample_spatial_spec)
     entry_dir.mkdir(parents=True, exist_ok=True)
     make_zarr_archive(entry_dir, 'simple_loader', hash_value='stale')
     clean_cache(dry_run=True)
     assert 'Hash wrong' in capsys.readouterr().out
 
 
-def test_clean_cache_zarr_stale_hash_deletes() -> None:
-    entry_dir = SimpleLoader().get_processed_dir(SpatialSpec())
+def test_clean_cache_zarr_stale_hash_deletes(sample_spatial_spec: SpatialSpec) -> None:
+    entry_dir = SimpleLoader().get_processed_dir(sample_spatial_spec)
     entry_dir.mkdir(parents=True, exist_ok=True)
     zarr = make_zarr_archive(entry_dir, 'simple_loader', hash_value='stale')
     clean_cache(dry_run=False)
     assert not zarr.exists()
 
 
-def test_clean_cache_zarr_internals_not_visited(capsys: pytest.CaptureFixture) -> None:
+def test_clean_cache_zarr_internals_not_visited(
+    sample_spatial_spec: SpatialSpec,
+    capsys: pytest.CaptureFixture,
+) -> None:
     correct_hash = SimpleLoader.get_dependency_tree_hash()
-    entry_dir = SimpleLoader().get_processed_dir(SpatialSpec())
+    entry_dir = SimpleLoader().get_processed_dir(sample_spatial_spec)
     entry_dir.mkdir(parents=True, exist_ok=True)
     zarr = make_zarr_archive(entry_dir, 'simple_loader', hash_value=correct_hash)
     chunk = zarr / '0' / '0' / 'chunk.bin'
@@ -144,8 +150,11 @@ def test_clean_cache_zarr_internals_not_visited(capsys: pytest.CaptureFixture) -
     assert str(chunk) not in capsys.readouterr().out
 
 
-def test_clean_cache_zarr_missing_hash_reported(capsys: pytest.CaptureFixture) -> None:
-    entry_dir = SimpleLoader().get_processed_dir(SpatialSpec())
+def test_clean_cache_zarr_missing_hash_reported(
+    sample_spatial_spec: SpatialSpec,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    entry_dir = SimpleLoader().get_processed_dir(sample_spatial_spec)
     entry_dir.mkdir(parents=True, exist_ok=True)
     make_zarr_archive(entry_dir, 'simple_loader')
     clean_cache(dry_run=True)
@@ -200,8 +209,8 @@ def test_hash_matches_live_none_when_class_unregistered(tmp_path: Path) -> None:
             {
                 JSONKeys.CLASS_NAME: 'NoSuchClass',
                 JSONKeys.DEPENDENCY_TREE_HASH: 'abc',
-            }
-        )
+            },
+        ),
     )
     assert hash_matches_live(hash_file) is None
 
@@ -233,7 +242,8 @@ def test_format_version_matches_false_when_file_missing(tmp_path: Path) -> None:
 
 
 def test_clean_cache_format_version_mismatch_reported(
-    sample_spatial_spec: SpatialSpec, capsys: pytest.CaptureFixture
+    sample_spatial_spec: SpatialSpec,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     process_touch(SimpleLoader(), sample_spatial_spec, stale=True)
     clean_cache(dry_run=True)

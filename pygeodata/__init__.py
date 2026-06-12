@@ -4,8 +4,8 @@ from pygeodata.cache import clean_cache, clean_registry
 from pygeodata.config import get_config, set_config
 from pygeodata.data import Data
 from pygeodata.figure import Figure
-from pygeodata.tracked_object import TrackedObject
 from pygeodata.spec import SpatialSpec
+from pygeodata.tracked_object import TrackedObject
 
 __all__ = [
     'Artifact',

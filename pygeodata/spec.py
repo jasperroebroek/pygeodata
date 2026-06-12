@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, NamedTuple, Self
 
-import fiona
-import rasterio as rio
-from affine import Affine
-from pyproj import CRS, Transformer
-from pyproj.exceptions import CRSError, ProjError
-from rasterio.coords import BoundingBox
+
+class BoundingBox(NamedTuple):
+    left: float
+    bottom: float
+    right: float
+    top: float
 
 
 class SpecKeys(StrEnum):
@@ -26,8 +26,11 @@ class SpecKeys(StrEnum):
 RasterShape = tuple[float, float]
 
 
-def format_resolution(resolution: Any, crs: str | CRS | None) -> str | None:
+def format_resolution(resolution: Any, crs: Any) -> str | None:
     """Format a resolution value (scalar or 2-tuple) as a human-readable string with units."""
+    from pyproj import CRS
+    from pyproj.exceptions import CRSError
+
     if not resolution:
         return None
     try:
@@ -61,18 +64,22 @@ def format_resolution(resolution: Any, crs: str | CRS | None) -> str | None:
 
 def compute_bounds_latlon(
     bounds: Any,
-    crs: str | CRS | None,
+    crs: Any,
 ) -> tuple[float, float, float, float] | None:
     """Reproject a native bounding box to (lat_min, lon_min, lat_max, lon_max).
 
     Returns None if the inputs are missing or the projection fails.
     """
+    from pyproj import CRS, Transformer
+    from pyproj.exceptions import ProjError
+
     if not bounds or not crs:
         return None
     try:
         coords = list(bounds) if isinstance(bounds, (list, tuple)) else None
         if not coords or len(coords) != 4:
             return None
+
         t = Transformer.from_crs(crs if isinstance(crs, CRS) else CRS.from_user_input(crs), 'EPSG:4326', always_xy=True)
         xmin, ymin, xmax, ymax = coords
         lon_min, lat_min = t.transform(xmin, ymin)
@@ -97,8 +104,8 @@ class Shape:
 
 @dataclass(frozen=True)
 class SpatialSpec:
-    crs: CRS = field(default_factory=lambda: CRS.from_epsg(4326))
-    transform: Affine | None = None
+    crs: Any
+    transform: Any | None = None
     shape: RasterShape | None = None
 
     @property
@@ -141,8 +148,11 @@ class SpatialSpec:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SpatialSpec:
+        from affine import Affine
+        from pyproj import CRS
+
         crs_raw = data.get(SpecKeys.CRS)
-        crs = CRS.from_user_input(crs_raw) if crs_raw else CRS.from_epsg(4326)
+        crs = CRS.from_user_input(crs_raw) if crs_raw else None
         transform_d = data.get(SpecKeys.TRANSFORM)
         transform = (
             Affine(
@@ -161,11 +171,15 @@ class SpatialSpec:
 
     @classmethod
     def from_raster_file(cls, path: str | Path) -> Self:
+        import rasterio as rio
+
         with rio.open(path) as src:
             return cls(crs=src.crs, transform=src.transform, shape=src.shape)
 
     @classmethod
     def from_shape_file(cls, path: str | Path) -> Self:
+        import fiona
+
         with fiona.open(path) as src:
             return cls(crs=src.crs)
 
@@ -183,7 +197,8 @@ class SpatialSpec:
             if self.transform is not None
             else 'None'
         )
-        return f'SpatialSpec(crs={self.crs.to_string()}, transform={transform_str}, shape={self.shape})'
+        crs_str = self.crs.to_string() if self.crs is not None else 'None'
+        return f'SpatialSpec(crs={crs_str}, transform={transform_str}, shape={self.shape})'
 
     def to_dict(self) -> dict[str, Any]:
         transform_dict = (
@@ -200,9 +215,11 @@ class SpatialSpec:
         )
 
         return {
-            SpecKeys.CRS: self.crs.to_string(),
+            SpecKeys.CRS: self.crs.to_string() if self.crs is not None else None,
             SpecKeys.TRANSFORM: transform_dict,
             SpecKeys.SHAPE: self.shape,
             SpecKeys.RESOLUTION: self.resolution if self.transform is not None else None,
-            SpecKeys.BOUNDS: self.bounds if self.transform is not None or self.crs.area_of_use is not None else None,
+            SpecKeys.BOUNDS: self.bounds
+            if self.transform is not None or (self.crs is not None and self.crs.area_of_use is not None)
+            else None,
         }
