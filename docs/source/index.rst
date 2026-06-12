@@ -22,6 +22,7 @@ change, enabling reproducible, incremental pipelines.
 
    installation
    quickstart
+   cli
    api
    whats_new
 

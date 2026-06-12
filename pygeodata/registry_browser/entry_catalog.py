@@ -1,27 +1,26 @@
 import contextlib
-import dataclasses
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from pygeodata import Artifact
 from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config
 from pygeodata.paths import CACHE_DIR_SUFFIXES, CACHE_META_SUFFIXES, CachePathResolver, classify_file
+from pygeodata.registry import EntryRegistry
+from pygeodata.registry_types import GroupRecord
 from pygeodata.registry_browser.class_catalog import source_info_from_disk
 from pygeodata.registry_browser.io_utils import existing_path_str, read_json_dict
 from pygeodata.registry_browser.models import (
     EntryInfo,
     FileRef,
-    GroupInfo,
     LinkedEntry,
     ParamRow,
-    ProcessResult,
     SpecInfo,
 )
 from pygeodata.registry_browser.params_index import flatten_params
-from pygeodata.spec import SpecKeys
+from pygeodata.spec import SpatialSpec, SpecKeys
 from pygeodata.tracked_object import TrackedObject
+from pygeodata.versioning import VersionRegistry
 
 _log = logging.getLogger(__name__)
 
@@ -31,17 +30,17 @@ def _cache_file() -> Path:
 
 
 def _cache_mtime_key(params_path: Path) -> float:
-    """Combined mtime of params + hash + spec files — any change invalidates."""
+    """Combined mtime of params + spec files — any change invalidates the display cache."""
     resolver = CachePathResolver.from_path(params_path)
     total = 0.0
-    for p in (params_path, resolver.state_hash_path, resolver.spec_path):
+    for p in (params_path, resolver.spec_path):
         with contextlib.suppress(OSError):
             total += p.stat().st_mtime
     return total
 
 
 def _load_disk_cache() -> tuple[dict[str, dict], dict[str, float]]:
-    """Load cache from disk. Returns (results, mtimes) or empty dicts."""
+    """Load display cache from disk. Returns (results, mtimes) or empty dicts."""
     path = _cache_file()
     if not path.exists():
         return {}, {}
@@ -64,48 +63,8 @@ def _save_disk_cache(results: dict[str, dict], mtimes: dict[str, float]) -> None
 
 
 # ---------------------------------------------------------------------------
-# Serialise/deserialise ProcessResult for the disk cache (plain JSON types)
+# Per-entry display enrichment
 # ---------------------------------------------------------------------------
-
-
-def _serialise_result(result: ProcessResult) -> dict:
-    d = dataclasses.asdict(result)
-    # bounds_latlon is a tuple — asdict converts it to a list, which is fine for JSON.
-    # No further conversion needed.
-    return d
-
-
-def _deserialise_result(data: dict) -> ProcessResult:
-    spec_d = data.pop(SpecKeys.SPEC)
-    bl = spec_d.get(SpecKeys.BOUNDS_LATLON)
-    spec = SpecInfo(
-        crs=spec_d.get(SpecKeys.CRS),
-        resolution=spec_d.get(SpecKeys.RESOLUTION),
-        shape=spec_d.get(SpecKeys.SHAPE),
-        bounds=spec_d.get(SpecKeys.BOUNDS),
-        bounds_latlon=tuple(bl) if bl else None,
-    )
-    rows = [ParamRow(**r) for r in data.pop('rows')]
-    linked_entries = [LinkedEntry(**le) for le in data.pop('linked_entries')]
-    primary_file_d = data.pop('primary_file')
-    primary_file = FileRef(**primary_file_d) if primary_file_d else None
-    return ProcessResult(spec=spec, rows=rows, linked_entries=linked_entries, primary_file=primary_file, **data)
-
-
-# ---------------------------------------------------------------------------
-# Per-entry processing
-# ---------------------------------------------------------------------------
-
-
-def _object_type_from_class_name(class_name: str) -> str | None:
-    cls = TrackedObject.find_object_class(class_name)
-    if cls is not None:
-        object_type = getattr(cls, 'object_type', None)
-        if object_type is None:
-            return None
-        getter = getattr(object_type, 'get_class_name', None)
-        return str(getter()) if callable(getter) else str(object_type)
-    return source_info_from_disk(class_name).object_type
 
 
 def _is_output_file(path: Path) -> bool:
@@ -129,83 +88,84 @@ def _find_primary_file(resolver: CachePathResolver) -> FileRef | None:
     return None
 
 
-def _unique_record_id(state_hash: str | None, params_path_str: str, taken: set[str]) -> tuple[str, bool]:
-    if state_hash:
-        if state_hash not in taken:
-            return state_hash, False
-        stem = Path(params_path_str).stem.lstrip('.')
-        candidate = f'{state_hash}/{stem}'
-        suffix = 0
-        base = candidate
-        while candidate in taken:
-            suffix += 1
-            candidate = f'{base}_{suffix}'
-        return candidate, True
-    return params_path_str, False
+def _enrich_params_path(params_path: Path) -> EntryInfo:
+    """Read the display-layer files for one entry. Never raises.
 
-
-def _process_params_path(params_path: Path) -> ProcessResult:
-    """Process one params file into a ProcessResult. Never raises."""
+    Returns a partial EntryInfo with all display fields populated but
+    assembly-stage fields (record_id, dep_hash_stale, co_outputs) left
+    at their defaults — those are filled by discover_entries.
+    """
     params_path_str = str(params_path.resolve())
-    warnings: list[str] = []
-
     resolver = CachePathResolver.from_path(params_path)
 
     params = read_json_dict(params_path)
-    state = read_json_dict(resolver.state_hash_path)
     spec = read_json_dict(resolver.spec_path)
-
-    class_name = state.get(JSONKeys.CLASS_NAME) or resolver.stem
-
-    state_hash = state.get(JSONKeys.STATE_HASH)
-    if not state_hash:
-        warnings.append('Missing state hash in hash.json')
-
-    instance_hash = state.get(JSONKeys.INSTANCE_HASH)
-    stored_dep_hash = state.get(JSONKeys.DEPENDENCY_TREE_HASH)
-    co_output_hashes = state.get(JSONKeys.CO_OUTPUTS, [])
-    format_version_stale = state.get(JSONKeys.FORMAT_VERSION) != FORMAT_VERSION
-
-    object_type = _object_type_from_class_name(class_name)
 
     primary_file = _find_primary_file(resolver)
 
     linked_entries: list[LinkedEntry] = []
     rows = flatten_params(params, linked_entries=linked_entries)
 
-    return ProcessResult(
+    # Identity fields come from EntryRegistry; read the hash file only for
+    # fields not already in EntryRecord (spec_path, state_hash_path, etc.)
+    state = read_json_dict(resolver.state_hash_path)
+    class_name = state.get(JSONKeys.CLASS_NAME) or resolver.stem
+    state_hash = state.get(JSONKeys.STATE_HASH)
+    instance_hash = state.get(JSONKeys.INSTANCE_HASH)
+    stored_dep_hash = state.get(JSONKeys.DEPENDENCY_TREE_HASH)
+    co_output_hashes = state.get(JSONKeys.CO_OUTPUTS, [])
+    format_version = state.get(JSONKeys.FORMAT_VERSION, FORMAT_VERSION)
+
+    object_type = None
+    live_cls = TrackedObject.find_object_class(class_name)
+    if live_cls is not None:
+        ot = getattr(live_cls, 'object_type', None)
+        if ot is not None:
+            getter = getattr(ot, 'get_class_name', None)
+            object_type = str(getter()) if callable(getter) else str(ot)
+    else:
+        object_type = source_info_from_disk(class_name).object_type
+
+    warnings: list[str] = []
+    if not state_hash:
+        warnings.append('Missing state hash in hash.json')
+
+    return EntryInfo(
         class_name=class_name,
         object_type=object_type,
-        params_path_str=params_path_str,
+        params_path=params_path_str,
         spec_path=existing_path_str(getattr(resolver, 'spec_path', None)),
         state_hash_path=existing_path_str(getattr(resolver, 'state_hash_path', None)),
         execution_graph_path=existing_path_str(getattr(resolver, 'execution_graph_path', None)),
         state_hash=state_hash,
         instance_hash=instance_hash,
-        stored_dep_hash=stored_dep_hash,
-        co_output_hashes=co_output_hashes,
         params=params,
-        spec=SpecInfo.from_spec_json(spec),
+        spec=SpecInfo.from_spec(SpatialSpec.from_dict(spec)) if spec else SpecInfo(),
         rows=rows,
         linked_entries=linked_entries,
+        co_output_hashes=co_output_hashes,
         primary_file=primary_file,
         warnings=warnings,
-        format_version_stale=format_version_stale,
+        format_version=format_version,
+        dep_hash=stored_dep_hash,
     )
 
 
-def _process_with_cache(
+def _enrich_with_cache(
     params_path: Path,
     cached_results: dict[str, dict],
     cached_mtimes: dict[str, float],
-) -> tuple[ProcessResult, bool]:
-    """Return (result, from_cache). Uses disk cache if mtimes match."""
+) -> tuple[EntryInfo, bool]:
+    """Return (entry, from_cache). Uses display cache if mtimes match."""
     key = str(params_path.resolve())
     current_mtime = _cache_mtime_key(params_path)
     if key in cached_results and cached_mtimes.get(key) == current_mtime:
-        return _deserialise_result(dict(cached_results[key])), True
-    result = _process_params_path(params_path)
-    return result, False
+        try:
+            return EntryInfo.from_dict(dict(cached_results[key])), True
+        except (KeyError, TypeError):
+            pass
+    entry = _enrich_params_path(params_path)
+    return entry, False
 
 
 # ---------------------------------------------------------------------------
@@ -215,19 +175,21 @@ def _process_with_cache(
 
 def discover_entries(
     progress: dict | None = None,
-) -> tuple[dict[str, EntryInfo], dict[str, GroupInfo], dict]:
-    cache_roots = [family.get_cache_root() for family in Artifact.__subclasses__()]
-    params_paths = sorted(
-        {path for root in cache_roots if root.exists() for path in root.rglob('*.params.json')},
-    )
+) -> tuple[dict[str, EntryInfo], dict[str, GroupRecord], dict]:
+    """Enrich EntryRegistry records with display-layer data.
 
-    diagnostics: dict = {
-        'resolver_failures': [],
-        'missing_state_hash': [],
-        'hash_collisions': [],
-        'scanned_params_paths': len(params_paths),
-        'created_entries': 0,
+    Uses EntryRegistry as the single source of params paths (no second rglob).
+    The display cache (.dashboard_cache.json) is keyed by params_path and
+    covers only the browser-specific fields (spec, rows, linked_entries, etc.).
+    """
+    entry_registry = EntryRegistry.instance()
+    # params_path → EntryRecord, for dep_hash_stale and co_output_hashes
+    record_by_params = {
+        str(rec.params_path.resolve()): rec
+        for rec in entry_registry.records.values()
+        if rec.params_path is not None
     }
+    params_paths = sorted(Path(p) for p in record_by_params)
 
     if progress is not None:
         progress['done'] = 0
@@ -235,90 +197,64 @@ def discover_entries(
 
     cached_results, cached_mtimes = _load_disk_cache()
 
-    results: list[ProcessResult] = [None] * len(params_paths)  # type: ignore[list-item]
-    new_results: dict[str, dict] = {}  # path → serialised result, for cache update
+    partial_entries: list[EntryInfo] = [None] * len(params_paths)  # type: ignore[list-item]
+    new_results: dict[str, dict] = {}
     new_mtimes: dict[str, float] = {}
 
-    def _process(i: int, p: Path) -> tuple[int, ProcessResult]:
-        result, from_cache = _process_with_cache(p, cached_results, cached_mtimes)
+    def _process(i: int, p: Path) -> tuple[int, EntryInfo]:
+        entry, from_cache = _enrich_with_cache(p, cached_results, cached_mtimes)
         key = str(p.resolve())
-        if not from_cache and result.error is None:
-            new_results[key] = _serialise_result(result)
+        if not from_cache and entry.error is None:
+            new_results[key] = entry.to_dict()
             new_mtimes[key] = _cache_mtime_key(p)
         elif from_cache:
             new_results[key] = cached_results[key]
             new_mtimes[key] = cached_mtimes[key]
-        return i, result
+        return i, entry
 
     with ThreadPoolExecutor() as pool:
         future_to_idx = {pool.submit(_process, i, p): i for i, p in enumerate(params_paths)}
         for future in as_completed(future_to_idx):
-            idx, result = future.result()
-            results[idx] = result
+            idx, entry = future.result()
+            partial_entries[idx] = entry
             if progress is not None:
                 progress['done'] += 1
 
     _save_disk_cache(new_results, new_mtimes)
 
     entries: dict[str, EntryInfo] = {}
-    groups: dict[str, GroupInfo] = {}
+    diagnostics = dict(entry_registry.diagnostics)
+    diagnostics['created_entries'] = 0
 
-    for result in results:
-        if result.error is not None:
-            diagnostics['resolver_failures'].append({'path': result.params_path_str, 'error': result.error})
+    version_registry = VersionRegistry.instance()
+
+    for entry in partial_entries:
+        if entry.error is not None:
             continue
 
-        if not result.state_hash:
-            diagnostics['missing_state_hash'].append(result.params_path_str)
+        rec = record_by_params.get(str(Path(entry.params_path).resolve()) if entry.params_path else '')
+        if rec is None:
+            continue
 
-        record_id, collision = _unique_record_id(result.state_hash, result.params_path_str, set(entries))
-        warnings = result.warnings
-        if collision:
-            warnings.append(f'State hash shared with another entry; record_id disambiguated to "{record_id}"')
-            diagnostics['hash_collisions'].append(
-                {
-                    'path': result.params_path_str,
-                    JSONKeys.STATE_HASH: result.state_hash,
-                    'record_id': record_id,
-                },
-            )
+        # record_id == state_hash (the key in EntryRegistry.records)
+        record_id = rec.state_hash or entry.params_path
+        entry.record_id = record_id
+        entry.dep_hash_stale = bool(rec.dep_hash_stale)
 
-        class_name = result.class_name
-        dep_hash_stale = False
-        if result.stored_dep_hash:
-            cls = TrackedObject.find_object_class(class_name)
-            if cls is not None:
-                dep_hash_stale = cls.get_dependency_tree_hash() != result.stored_dep_hash
+        # EntryRegistry only marks staleness for classes loaded in this process;
+        # for unloaded classes resolve it against the version registry on disk.
+        if (
+            entry.dep_hash
+            and not entry.dep_hash_stale
+            and TrackedObject.find_object_class(entry.class_name) is None
+        ):
+            entry.dep_hash_stale = version_registry.is_dep_hash_stale(entry.dep_hash)
 
-        entries[record_id] = EntryInfo(
-            record_id=record_id,
-            class_name=class_name,
-            object_type=result.object_type,
-            params_path=result.params_path_str,
-            spec_path=result.spec_path,
-            state_hash_path=result.state_hash_path,
-            execution_graph_path=result.execution_graph_path,
-            state_hash=result.state_hash,
-            instance_hash=result.instance_hash,
-            params=result.params,
-            spec=result.spec,
-            rows=result.rows,
-            linked_entries=result.linked_entries,
-            co_output_hashes=result.co_output_hashes,
-            primary_file=result.primary_file,
-            warnings=warnings,
-            dep_hash_stale=dep_hash_stale,
-            dep_hash=result.stored_dep_hash,
-            format_version_stale=result.format_version_stale,
-        )
-        groups.setdefault(
-            class_name,
-            GroupInfo(class_name=class_name, object_type=result.object_type),
-        ).record_ids.append(record_id)
+        entries[record_id] = entry
 
     # Second pass — resolve co_output_hashes to EntryInfo references
     for entry in entries.values():
         entry.co_outputs = [entries[h] for h in entry.co_output_hashes if h in entries]
 
     diagnostics['created_entries'] = len(entries)
-    return entries, groups, diagnostics
+    return entries, entry_registry.groups, diagnostics

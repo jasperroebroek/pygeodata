@@ -123,7 +123,7 @@ def _sidebar_counts(
         if kind_filter != 'all' and (class_info.object_type or '').lower() != kind_filter:
             continue
         group = state.groups.get(class_name)
-        record_ids = group.record_ids if group else []
+        record_ids = group.state_hashes if group else []
         n = sum(
             1
             for rid in record_ids
@@ -166,7 +166,7 @@ def _build_visible_groups(
             continue
 
         group = state.groups.get(class_name)
-        record_ids = group.record_ids if group else []
+        record_ids = group.state_hashes if group else []
 
         visible_entries = [
             state.entries[rid]
@@ -213,7 +213,7 @@ def _build_class_cards(
     class_cards = []
     for class_name, class_info in sorted(state.classes.items()):
         group = state.groups.get(class_name)
-        record_ids = group.record_ids if group else []
+        record_ids = group.state_hashes if group else []
         format_version_stale = any(
             state.entries[rid].format_version_stale for rid in record_ids if rid in state.entries
         )

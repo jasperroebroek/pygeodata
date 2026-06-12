@@ -1,11 +1,12 @@
-"""Read-side owners for the .source/ tree.
+"""Read-side owners for the .source/ tree and the entry cache.
 
-Two registries, both keyed by resolved root path:
+Three registries, all keyed by resolved root path:
 
     SourceRegistry  — scans code/*/source.json, indexes by class name
     TreeRegistry    — scans snapshots/ directory names, reads tree.json lazily
+    EntryRegistry   — scans cache roots for *.params.json, owns EntryInfo/GroupInfo
 
-Both use a per-path instance cache so repeated calls with the same root
+All use a per-path instance cache so repeated calls with the same root
 return the same object without rescanning.  Call :meth:`reload` on an
 instance to re-scan in place; held references remain valid.
 
@@ -18,15 +19,23 @@ Typical usage::
     tree = TreeRegistry.instance()
     tree = TreeRegistry.instance(path)
     tree.reload()
+
+    reg = EntryRegistry.instance()
+    reg.reload()
 """
 
 from __future__ import annotations
 
+import contextlib
+import dataclasses
+import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from pygeodata.config import get_config
 from pygeodata.paths import CodeRegistryResolver, TreeRegistryResolver
-from pygeodata.registry_types import CodeState, TreeSnapshot
+from pygeodata.registry_types import CodeState, EntryRecord, GroupRecord, TreeSnapshot
+from pygeodata.tracked_object import TrackedObject
 
 
 class SourceRegistry:
@@ -209,3 +218,171 @@ class TreeRegistry:
             if tree is not None and class_name in tree.tree:
                 return dep_hash
         return None
+
+
+class EntryRegistry:
+    """Per-root registry of cache entries, keyed by state_hash.
+
+    The single place that scans for *.hash.json files.  Reads each via
+    :meth:`EntryRecord.from_hash_path`, assembles typed :class:`EntryRecord`
+    and :class:`GroupRecord` dicts, and owns the lightweight disk cache
+    ('.entry_registry_cache.json').
+
+    state_hash is the unique key.  On collision:
+    - If all identity fields match → silently deduplicate (same entry in two locations).
+    - If any field differs → raise ValueError (hash collision with divergent data is a
+      serious integrity problem that must surface immediately).
+
+    Browser display fields (rows, spec strings, linked entries, primary file) are
+    NOT populated here — that enrichment is done by
+    :func:`pygeodata.registry_browser.entry_catalog.discover_entries`.
+
+    Instances are cached in :attr:`_instances` by resolved registry root.
+    Call :meth:`reload` to re-scan; held references stay valid.
+    """
+
+    _instances: dict[Path, EntryRegistry] | None = None
+    _CACHE_FILE = '.entry_registry_cache.json'
+
+    def __init__(self, registry_root: Path) -> None:
+        self._root = registry_root
+        self.records: dict[str, EntryRecord] = {}
+        self.groups: dict[str, GroupRecord] = {}
+        self.diagnostics: dict = {}
+        self._reload()
+
+    @classmethod
+    def instance(cls, path: Path | str | None = None) -> EntryRegistry:
+        """Return the cached instance for *path*, creating it if necessary."""
+        if cls._instances is None:
+            cls._instances = {}
+        p = Path(path).resolve() if path else Path(get_config().path_registry).resolve()
+        if p not in cls._instances:
+            cls._instances[p] = cls(p)
+        return cls._instances[p]
+
+    def reload(self) -> None:
+        """Rescan all cache roots and replace records/groups/diagnostics in place."""
+        self._reload()
+
+    def _cache_path(self) -> Path:
+        return self._root / self._CACHE_FILE
+
+    def _load_disk_cache(self) -> tuple[dict[str, dict], dict[str, float]]:
+        path = self._cache_path()
+        if not path.exists():
+            return {}, {}
+        try:
+            data = json.loads(path.read_text(encoding='utf-8'))
+            return data.get('records', {}), data.get('mtimes', {})
+        except (OSError, json.JSONDecodeError):
+            return {}, {}
+
+    def _save_disk_cache(self, records: dict[str, dict], mtimes: dict[str, float]) -> None:
+        with contextlib.suppress(OSError):
+            self._cache_path().write_text(
+                json.dumps({'records': records, 'mtimes': mtimes}, separators=(',', ':')),
+                encoding='utf-8',
+            )
+
+    @staticmethod
+    def _find_hash_paths() -> list[Path]:
+        cfg = get_config()
+        cache_roots = [cfg.path_cache, cfg.path_figures]
+        return sorted(
+            {p for root in cache_roots if root.exists() for p in root.rglob('*.hash.json')},
+        )
+
+    @staticmethod
+    def _mtime(hash_path: Path) -> float:
+        try:
+            return hash_path.stat().st_mtime
+        except OSError:
+            return 0.0
+
+    def _reload(self) -> None:
+        hash_paths = self._find_hash_paths()
+        cached_records, cached_mtimes = self._load_disk_cache()
+
+        partial: list[EntryRecord | None] = [None] * len(hash_paths)
+        new_cache_records: dict[str, dict] = {}
+        new_cache_mtimes: dict[str, float] = {}
+
+        def _process(i: int, p: Path) -> tuple[int, EntryRecord | None]:
+            key = str(p.resolve())
+            mtime = self._mtime(p)
+            if key in cached_records and cached_mtimes.get(key) == mtime:
+                try:
+                    return i, EntryRecord(**cached_records[key])
+                except (KeyError, TypeError):
+                    pass
+            record = EntryRecord.from_hash_path(p)
+            if record is not None:
+                new_cache_records[key] = dataclasses.asdict(record)
+                new_cache_mtimes[key] = mtime
+            return i, record
+
+        with ThreadPoolExecutor() as pool:
+            futures = {pool.submit(_process, i, p): i for i, p in enumerate(hash_paths)}
+            for future in as_completed(futures):
+                idx, record = future.result()
+                partial[idx] = record
+                key = str(hash_paths[idx].resolve())
+                if key in cached_records and key not in new_cache_records:
+                    new_cache_records[key] = cached_records[key]
+                    new_cache_mtimes[key] = cached_mtimes[key]
+
+        self._save_disk_cache(new_cache_records, new_cache_mtimes)
+
+        # Assemble: keyed by state_hash, collision detection, dep_hash_stale, groups
+        records: dict[str, EntryRecord] = {}
+        groups: dict[str, GroupRecord] = {}
+        diagnostics: dict = {
+            'missing_state_hash': [],
+            'scanned_hash_paths': len(hash_paths),
+            'created_records': 0,
+        }
+
+        _identity_fields = (
+            'class_name',
+            'instance_hash',
+            'dep_hash',
+            'co_output_hashes',
+            'object_type',
+            'format_version',
+        )
+
+        for i, rec in enumerate(partial):
+            if rec is None:
+                diagnostics['missing_state_hash'].append(str(hash_paths[i]))
+                continue
+
+            key = rec.state_hash
+            if key is None:
+                diagnostics['missing_state_hash'].append(rec.hash_path or str(hash_paths[i]))
+                continue
+
+            if key in records:
+                existing = records[key]
+                if all(getattr(rec, f) == getattr(existing, f) for f in _identity_fields):
+                    continue  # exact duplicate — silently skip
+                raise ValueError(
+                    f'state_hash collision with divergent data for hash {rec.state_hash!r}:\n'
+                    f'  differing fields: {[f for f in _identity_fields if getattr(rec, f) != getattr(existing, f)]}',
+                )
+
+            if rec.dep_hash:
+                obj_cls = TrackedObject.find_object_class(rec.class_name)
+                if obj_cls is not None:
+                    rec.dep_hash_stale = obj_cls.get_dependency_tree_hash() != rec.dep_hash
+
+            records[key] = rec
+            groups.setdefault(
+                rec.class_name,
+                GroupRecord(class_name=rec.class_name, object_type=rec.object_type),
+            ).state_hashes.append(key)
+
+        diagnostics['created_records'] = len(records)
+        self.records = records
+        self.groups = groups
+        self.diagnostics = diagnostics

@@ -5,7 +5,8 @@ from pygeodata.hash import calculate_cls_source_hash
 from pygeodata.paths import CodeRegistryResolver, TreeRegistryResolver
 from pygeodata.registry import SourceRegistry, TreeRegistry
 from pygeodata.registry_browser.io_utils import existing_path_str
-from pygeodata.registry_browser.models import ClassInfo, EntryInfo, GroupInfo, RegistryClassInfo
+from pygeodata.registry_browser.models import ClassInfo, EntryInfo, RegistryClassInfo
+from pygeodata.registry_types import GroupRecord
 from pygeodata.tracked_object import TrackedObject
 from pygeodata.versioning import VersionRegistry
 
@@ -97,7 +98,7 @@ def discover_loaded_classes() -> dict[str, ClassInfo]:
 
 def merge_unloaded_classes(
     classes: dict[str, ClassInfo],
-    groups: dict[str, GroupInfo],
+    groups: dict[str, GroupRecord],
     entries: dict[str, EntryInfo] | None = None,
     version_registry: VersionRegistry | None = None,
 ) -> dict[str, ClassInfo]:
@@ -116,7 +117,7 @@ def merge_unloaded_classes(
             # legitimately have stale dep trees (they predate a code change).
             best_dep_hash: str | None = None
             best_mtime: str | None = None
-            for rid in group.record_ids:
+            for rid in group.state_hashes:
                 entry = entries.get(rid)
                 if entry is None or not entry.dep_hash:
                     continue

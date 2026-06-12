@@ -6,6 +6,66 @@ from pathlib import Path
 from typing import Any, Self
 
 from pygeodata.config import FORMAT_VERSION, JSONKeys
+from pygeodata.paths import CachePathResolver
+
+
+@dataclass
+class EntryRecord:
+    """Core identity data for one cache entry.
+
+    Mirrors CodeState / TreeSnapshot — keyed by state_hash in EntryRegistry.
+    Browser display fields (rows, spec strings, linked entries, primary file)
+    live in EntryInfo in registry_browser/models.py.
+
+    dep_hash_stale is set during assembly after comparing against the live
+    class dependency tree hash.
+    """
+
+    class_name: str
+    hash_path: str | None = None
+    state_hash: str | None = None
+    instance_hash: str | None = None
+    dep_hash: str | None = None
+    co_output_hashes: list[str] = field(default_factory=list)
+    object_type: str | None = None
+    format_version: int = field(default=FORMAT_VERSION)
+    dep_hash_stale: bool | None = None
+
+    @property
+    def params_path(self) -> Path | None:
+        if self.hash_path is None:
+            return None
+        return CachePathResolver.from_path(Path(self.hash_path)).params_path
+
+    @classmethod
+    def from_hash_path(cls, hash_path: Path) -> EntryRecord | None:
+        """Construct from a *.hash.json file. Returns None if missing or unreadable."""
+        try:
+            state = json.loads(hash_path.read_text(encoding='utf-8'))
+        except (OSError, json.JSONDecodeError):
+            return None
+
+        return cls(
+            class_name=state.get(JSONKeys.CLASS_NAME),
+            hash_path=str(hash_path),
+            object_type=state.get(JSONKeys.OBJECT_TYPE),
+            state_hash=state.get(JSONKeys.STATE_HASH),
+            instance_hash=state.get(JSONKeys.INSTANCE_HASH),
+            dep_hash=state.get(JSONKeys.DEPENDENCY_TREE_HASH),
+            co_output_hashes=state.get(JSONKeys.CO_OUTPUTS, []),
+            format_version=state.get(JSONKeys.FORMAT_VERSION, FORMAT_VERSION),
+        )
+
+
+
+
+@dataclass(slots=True)
+class GroupRecord:
+    """Group of entry records sharing a class_name — keyed by class_name."""
+
+    class_name: str
+    object_type: str | None
+    state_hashes: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -88,5 +148,3 @@ class CodeState:
     @classmethod
     def from_file(cls, path: Path) -> Self:
         return cls.from_dict(json.loads(path.read_text(encoding='utf-8')))
-
-

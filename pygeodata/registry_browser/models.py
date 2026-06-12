@@ -1,12 +1,11 @@
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 from typing import Any
 
-from pyproj import CRS, Transformer
-from pyproj.exceptions import CRSError, ProjError
-
-from pygeodata.spec import SpecKeys
+from pygeodata.config import FORMAT_VERSION
+from pygeodata.spec import SpatialSpec, SpecKeys, compute_bounds_latlon, format_resolution
 
 
 @dataclass(slots=True)
@@ -38,76 +37,27 @@ class SpecInfo:
     bounds_latlon: tuple | None = None
 
     @classmethod
-    def from_spec_json(cls, spec: dict) -> SpecInfo:
-        """Build a SpecInfo from a raw .spec.json dict."""
-        raw_crs = spec.get(SpecKeys.CRS)
-        resolution = spec.get(SpecKeys.RESOLUTION)
-        shape = spec.get(SpecKeys.SHAPE)
-        bounds = spec.get(SpecKeys.BOUNDS)
-
-        crs_str = None if raw_crs in ('', None) else str(raw_crs)
-
-        # Resolution → human-readable string
-        resolution_fmt = cls._format_resolution(resolution, crs_str)
-
-        # Bounds → lat/lon tuple
-        bounds_latlon = None
-        if bounds and crs_str:
-            try:
-                coords = list(bounds) if isinstance(bounds, (list, tuple)) else None
-                if coords and len(coords) == 4:
-                    t = Transformer.from_crs(crs_str, 'EPSG:4326', always_xy=True)
-                    xmin, ymin, xmax, ymax = coords
-                    lon_min, lat_min = t.transform(xmin, ymin)
-                    lon_max, lat_max = t.transform(xmax, ymax)
-                    bounds_latlon = (
-                        round(lat_min, 1),
-                        round(lon_min, 1),
-                        round(lat_max, 1),
-                        round(lon_max, 1),
-                    )
-            except ProjError:
-                pass
-
+    def from_spec(cls, spec: SpatialSpec) -> SpecInfo:
+        """Build a SpecInfo from a SpatialSpec."""
+        try:
+            bounds = spec.bounds
+            bounds_list = [bounds.left, bounds.bottom, bounds.right, bounds.top]
+            bounds_str = str(bounds_list)
+        except ValueError:
+            bounds_list = None
+            bounds_str = None
+        try:
+            resolution = list(spec.resolution)
+        except ValueError:
+            resolution = None
+        crs_str = spec.crs.to_string()
         return cls(
             crs=crs_str,
-            resolution=resolution_fmt,
-            shape=None if shape in ('', None) else str(shape),
-            bounds=None if bounds in ('', None) else str(bounds),
-            bounds_latlon=bounds_latlon,
+            resolution=format_resolution(resolution, spec.crs),
+            shape=None if spec.shape in ('', None) else str(spec.shape),
+            bounds=bounds_str,
+            bounds_latlon=compute_bounds_latlon(bounds_list, spec.crs),
         )
-
-    @staticmethod
-    def _format_resolution(resolution: Any, crs: str | None) -> str | None:
-        if not resolution:
-            return None
-        try:
-            vals = list(resolution) if isinstance(resolution, (list, tuple)) else None
-            if not vals:
-                return str(resolution)
-
-            unit = 'm'
-            if crs:
-                try:
-                    c = CRS.from_user_input(crs)
-                    axis_unit = c.axis_info[0].unit_name.lower() if c.axis_info else ''
-                    if 'degree' in axis_unit:
-                        unit = '°'
-                    elif 'foot' in axis_unit or 'feet' in axis_unit:
-                        unit = 'ft'
-                except CRSError:
-                    pass
-
-            def fmt(v: Any) -> str:
-                return str(int(v)) if float(v) == int(float(v)) else f'{float(v):.4g}'
-
-            if len(vals) >= 2 and vals[0] == vals[1]:
-                return f'{fmt(vals[0])}{unit}'
-            if len(vals) >= 2:
-                return f'{fmt(vals[0])} × {fmt(vals[1])}{unit}'
-            return f'{fmt(vals[0])}{unit}'
-        except (TypeError, ValueError):
-            return str(resolution)
 
 
 @dataclass(slots=True)
@@ -131,31 +81,9 @@ class LinkedEntry:
     params_summary: dict[str, str]  # plain-text key→value pairs
 
 
-@dataclass(slots=True)
-class ProcessResult:
-    class_name: str
-    object_type: str | None
-    params_path_str: str
-    spec_path: str | None
-    state_hash_path: str | None
-    execution_graph_path: str | None
-    state_hash: str | None
-    instance_hash: str | None
-    stored_dep_hash: str | None
-    co_output_hashes: list[str]
-    params: dict[str, Any]
-    spec: SpecInfo
-    rows: list[ParamRow]
-    linked_entries: list[LinkedEntry]
-    primary_file: FileRef | None
-    warnings: list[str]
-    format_version_stale: bool = False
-    error: str | None = None
-
-
 @dataclass
 class EntryInfo:
-    record_id: str
+    # Fields set during _process_params_path (always present)
     class_name: str
     object_type: str | None
     params_path: str
@@ -169,20 +97,78 @@ class EntryInfo:
     rows: list[ParamRow]
     linked_entries: list[LinkedEntry] = field(default_factory=list)
     co_output_hashes: list[str] = field(default_factory=list)
-    co_outputs: list[EntryInfo] = field(default_factory=list)
     primary_file: FileRef | None = None
     warnings: list[str] = field(default_factory=list)
     error: str | None = None
-    dep_hash_stale: bool = False
+    format_version: int = field(default=0)
+    # Fields filled during assembly by discover_entries
+    # record_id == state_hash (the key in EntryRegistry.records)
+    record_id: str = ''
     dep_hash: str | None = None
-    format_version_stale: bool = False
+    dep_hash_stale: bool = False
+    # Resolved back-references — excluded from serialisation to avoid infinite recursion
+    co_outputs: list[EntryInfo] = field(default_factory=list)
 
+    @property
+    def format_version_stale(self) -> bool:
 
-@dataclass(slots=True)
-class GroupInfo:
-    class_name: str
-    object_type: str | None
-    record_ids: list[str] = field(default_factory=list)
+        return self.format_version != FORMAT_VERSION
+
+    def to_dict(self) -> dict[str, Any]:
+        # co_outputs is intentionally excluded — only hashes are serialised.
+        return {
+            'record_id': self.record_id,
+            'class_name': self.class_name,
+            'object_type': self.object_type,
+            'params_path': self.params_path,
+            'spec_path': self.spec_path,
+            'state_hash_path': self.state_hash_path,
+            'execution_graph_path': self.execution_graph_path,
+            'state_hash': self.state_hash,
+            'instance_hash': self.instance_hash,
+            'params': self.params,
+            SpecKeys.SPEC: dataclasses.asdict(self.spec),
+            'rows': [dataclasses.asdict(r) for r in self.rows],
+            'linked_entries': [dataclasses.asdict(le) for le in self.linked_entries],
+            'co_output_hashes': self.co_output_hashes,
+            'primary_file': dataclasses.asdict(self.primary_file) if self.primary_file else None,
+            'warnings': list(self.warnings),
+            'error': self.error,
+            'format_version': self.format_version,
+            'dep_hash': self.dep_hash,
+            'dep_hash_stale': self.dep_hash_stale,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> EntryInfo:
+        spec_d = data.get(SpecKeys.SPEC, {})
+        pf_d = data.get('primary_file')
+        return cls(
+            record_id=data.get('record_id', ''),
+            class_name=data['class_name'],
+            object_type=data.get('object_type'),
+            params_path=data['params_path'],
+            spec_path=data.get('spec_path'),
+            state_hash_path=data.get('state_hash_path'),
+            execution_graph_path=data.get('execution_graph_path'),
+            state_hash=data.get('state_hash'),
+            instance_hash=data.get('instance_hash'),
+            params=data.get('params', {}),
+            spec=SpecInfo(**spec_d) if spec_d else SpecInfo(),
+            rows=[ParamRow(**r) for r in data.get('rows', [])],
+            linked_entries=[LinkedEntry(**le) for le in data.get('linked_entries', [])],
+            co_output_hashes=data.get('co_output_hashes', []),
+            primary_file=FileRef(**pf_d) if pf_d else None,
+            warnings=data.get('warnings', []),
+            error=data.get('error'),
+            # accept old cache blobs that stored format_version_stale bool
+            format_version=data.get(
+                'format_version',
+                FORMAT_VERSION if not data.get('format_version_stale') else FORMAT_VERSION - 1,
+            ),
+            dep_hash=data.get('dep_hash'),
+            dep_hash_stale=data.get('dep_hash_stale', False),
+        )
 
 
 @dataclass(slots=True)

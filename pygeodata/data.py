@@ -3,7 +3,9 @@ from typing import ClassVar, Generic
 
 from pygeodata.artifact import Artifact
 from pygeodata.config import get_config
+from pygeodata.paths import CachePathResolver
 from pygeodata.protocols import Driver, T
+from pygeodata.registry import EntryRegistry
 from pygeodata.spec import SpatialSpec
 
 
@@ -135,6 +137,38 @@ class Data(Artifact, Generic[T]):
         spec = self.resolve_spec(spec)
         self.process(spec)
         return self._load(self.get_processed_path(spec))
+
+    def load_by_hash(self, state_hash: str) -> T:
+        """Load a cached output by (truncated) state hash.
+
+        Looks up the full hash in :class:`~pygeodata.registry.EntryRegistry`,
+        resolves the processed file path, and returns the data without
+        re-running ``process``.
+
+        Raises
+        ------
+        KeyError
+            If *state_hash* matches zero or more than one entry.
+        FileNotFoundError
+            If the resolved output file does not exist on disk.
+        """
+        registry = EntryRegistry.instance()
+        matches = [h for h in registry.records if h.startswith(state_hash)]
+        if len(matches) == 0:
+            raise KeyError(f'No entry found for hash prefix {state_hash!r}')
+        if len(matches) > 1:
+            raise KeyError(
+                f'Ambiguous hash prefix {state_hash!r} matches {len(matches)} entries: '
+                + ', '.join(matches)
+            )
+        record = registry.records[matches[0]]
+        if record.hash_path is None:
+            raise FileNotFoundError(f'Entry {matches[0]!r} has no hash_path')
+        resolver = CachePathResolver.from_path(Path(record.hash_path))
+        path = resolver.processed_path
+        if not path.exists():
+            raise FileNotFoundError(f'Processed file does not exist: {path}')
+        return self._load(path)
 
     def _load(self, path: Path) -> T:
         return self.driver(path)

@@ -9,16 +9,26 @@ from pygeodata.registry import SourceRegistry
 from pygeodata.registry_browser.state import AppContext, AppState
 from pygeodata.registry_browser.web import _allowed_roots, _assert_allowed_path
 from pygeodata.registry_browser.web import app as flask_app
+class _FakeEntryRegistry:
+    def __init__(self, groups=None):
+        self.groups = groups or {}
+
+
+class _FakeVersionRegistry:
+    def __init__(self, code_groups=None):
+        self.code_groups = code_groups or {}
+
+
 def _make_ready_ctx(code_groups=None):
     """Return an AppContext with a minimal ready AppState."""
     ctx = AppContext()
     ctx.state = AppState(
         classes={},
         entries={},
-        groups={},
         diagnostics={},
         spec_options={},
-        code_groups=code_groups or {},
+        entry_registry=_FakeEntryRegistry(),
+        version_registry=_FakeVersionRegistry(code_groups),
     )
     ctx.ready.set()
     return ctx

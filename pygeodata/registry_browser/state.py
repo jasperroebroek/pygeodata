@@ -1,24 +1,41 @@
 import threading
 from dataclasses import dataclass
 
+from pygeodata.registry import EntryRegistry
 from pygeodata.registry_browser.class_catalog import (
     discover_loaded_classes,
     merge_unloaded_classes,
 )
 from pygeodata.registry_browser.entry_catalog import discover_entries
-from pygeodata.registry_browser.models import ClassInfo, EntryInfo, GroupInfo
+from pygeodata.registry_browser.models import ClassInfo, EntryInfo
+from pygeodata.registry_types import GroupRecord
 from pygeodata.spec import SpecKeys
 from pygeodata.versioning import VersionRegistry
 
 
 @dataclass(slots=True)
 class AppState:
+    """Wires the entry and version registries together for the browser.
+
+    ``entries`` is the browser-enriched view produced by ``discover_entries``;
+    ``groups`` and ``code_groups`` are thin accessors over the held registry
+    instances so there is a single owner for that data.
+    """
+
     classes: dict[str, ClassInfo]
     entries: dict[str, EntryInfo]
-    groups: dict[str, GroupInfo]
     diagnostics: dict
     spec_options: dict[str, list[str]]
-    code_groups: dict[str, list[dict]]
+    entry_registry: EntryRegistry
+    version_registry: VersionRegistry
+
+    @property
+    def groups(self) -> dict[str, GroupRecord]:
+        return self.entry_registry.groups
+
+    @property
+    def code_groups(self) -> dict[str, list[dict]]:
+        return self.version_registry.code_groups
 
 
 class AppContext:
@@ -44,13 +61,12 @@ class AppContext:
 
 
 def build_state(progress: dict | None = None) -> AppState:
-    from pygeodata.tracked_object import TrackedObject
     entries, groups, diagnostics = discover_entries(progress=progress)
-    registry = VersionRegistry.instance()
-    for entry in entries.values():
-        if entry.dep_hash and not entry.dep_hash_stale and TrackedObject.find_object_class(entry.class_name) is None:
-            entry.dep_hash_stale = registry.is_dep_hash_stale(entry.dep_hash)
-    classes = merge_unloaded_classes(discover_loaded_classes(), groups, entries=entries, version_registry=registry)
+    entry_registry = EntryRegistry.instance()
+    version_registry = VersionRegistry.instance()
+    classes = merge_unloaded_classes(
+        discover_loaded_classes(), groups, entries=entries, version_registry=version_registry,
+    )
     spec_options = {
         SpecKeys.CRS: sorted({entry.spec.crs for entry in entries.values() if entry.spec.crs}),
         SpecKeys.RESOLUTION: sorted({entry.spec.resolution for entry in entries.values() if entry.spec.resolution}),
@@ -62,8 +78,8 @@ def build_state(progress: dict | None = None) -> AppState:
     return AppState(
         classes=classes,
         entries=entries,
-        groups=groups,
         diagnostics=diagnostics,
         spec_options=spec_options,
-        code_groups=registry.code_groups,
+        entry_registry=entry_registry,
+        version_registry=version_registry,
     )

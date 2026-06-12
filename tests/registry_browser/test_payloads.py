@@ -6,11 +6,11 @@ from pygeodata.registry_browser.models import (
     ClassInfo,
     EntryInfo,
     FileRef,
-    GroupInfo,
     LinkedEntry,
     ParamRow,
     SpecInfo,
 )
+from pygeodata.registry_types import GroupRecord
 from pygeodata.registry_browser.payloads import (
     _build_class_cards,
     _build_detail_payload,
@@ -89,23 +89,33 @@ def make_class_info(class_name='MyLoader', object_type='data', loaded=True, sour
     )
 
 
-def make_state(entries=None, classes=None, groups=None):
+class _FakeEntryRegistry:
+    def __init__(self, groups):
+        self.groups = groups
+
+
+class _FakeVersionRegistry:
+    def __init__(self, code_groups):
+        self.code_groups = code_groups
+
+
+def make_state(entries=None, classes=None, groups=None, code_groups=None):
     entries = entries or {}
     classes = classes or {}
     groups = groups or {}
     return AppState(
         entries=entries,
         classes=classes,
-        groups=groups,
         diagnostics={},
         spec_options={},
-        code_groups={},
+        entry_registry=_FakeEntryRegistry(groups),
+        version_registry=_FakeVersionRegistry(code_groups or {}),
     )
 
 
 def simple_state():
     entry = make_entry(record_id='rec1', class_name='MyLoader')
-    group = GroupInfo(class_name='MyLoader', object_type='data', record_ids=['rec1'])
+    group = GroupRecord(class_name='MyLoader', object_type='data', state_hashes=['rec1'])
     cls = make_class_info('MyLoader')
     return make_state(
         entries={'rec1': entry},
@@ -239,7 +249,7 @@ def test_sidebar_counts_kind_filter_excludes():
 
 def test_sidebar_counts_zero_not_included():
     entry = make_entry(spec=make_spec(crs='EPSG:4326'))
-    group = GroupInfo(class_name='MyLoader', object_type='data', record_ids=['rec1'])
+    group = GroupRecord(class_name='MyLoader', object_type='data', state_hashes=['rec1'])
     cls = make_class_info('MyLoader')
     state = make_state(entries={'rec1': entry}, classes={'MyLoader': cls}, groups={'MyLoader': group})
     counts = _sidebar_counts(state, kind_filter='all', spec_filters={SpecKeys.CRS: 'EPSG:3857'}, filters=[], logic_mode='AND')
@@ -249,7 +259,7 @@ def test_sidebar_counts_zero_not_included():
 def test_sidebar_counts_multiple_entries():
     e1 = make_entry(record_id='r1', class_name='MyLoader')
     e2 = make_entry(record_id='r2', class_name='MyLoader')
-    group = GroupInfo(class_name='MyLoader', object_type='data', record_ids=['r1', 'r2'])
+    group = GroupRecord(class_name='MyLoader', object_type='data', state_hashes=['r1', 'r2'])
     cls = make_class_info('MyLoader')
     state = make_state(entries={'r1': e1, 'r2': e2}, classes={'MyLoader': cls}, groups={'MyLoader': group})
     counts = _sidebar_counts(state, kind_filter='all', spec_filters={}, filters=[], logic_mode='AND')
@@ -285,8 +295,8 @@ def test_build_visible_groups_sorted_by_class_name():
         entries={'r1': e1, 'r2': e2},
         classes={'ZLoader': make_class_info('ZLoader'), 'ALoader': make_class_info('ALoader')},
         groups={
-            'ZLoader': GroupInfo(class_name='ZLoader', object_type='data', record_ids=['r1']),
-            'ALoader': GroupInfo(class_name='ALoader', object_type='data', record_ids=['r2']),
+            'ZLoader': GroupRecord(class_name='ZLoader', object_type='data', state_hashes=['r1']),
+            'ALoader': GroupRecord(class_name='ALoader', object_type='data', state_hashes=['r2']),
         },
     )
     groups = _build_visible_groups(state, selected_classes=[], kind_filter='all',
