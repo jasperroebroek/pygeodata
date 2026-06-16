@@ -53,8 +53,8 @@ def _write_tree(registry: Path, dep_hash: str, nodes: dict) -> None:
 def test_empty_registry(tmp_path: Path) -> None:
     reg = SourceRegistry(tmp_path / '.source')
     assert reg.class_names == []
-    assert reg.latest_for_class('Anything') is None
-    assert reg.hash_to_mtime('anything') is None
+    assert reg.get_latest_state_for_class('Anything') is None
+    assert reg.get_mtime_from_hash('anything') is None
 
 
 def test_single_snapshot_not_version_change(tmp_path: Path) -> None:
@@ -81,7 +81,7 @@ def test_latest_for_class_returns_newest(tmp_path: Path) -> None:
     _write_snapshot(registry, 'h1', 'MyClass', mtime='2026-01-01T00:00:00+00:00')
     _write_snapshot(registry, 'h2', 'MyClass', mtime='2026-06-01T00:00:00+00:00')
     reg = SourceRegistry(registry)
-    latest = reg.latest_for_class('MyClass')
+    latest = reg.get_latest_state_for_class('MyClass')
     assert latest is not None
     assert latest.source_hash == 'h2'
 
@@ -91,9 +91,9 @@ def test_hash_to_mtime_covers_all_hashes(tmp_path: Path) -> None:
     _write_snapshot(registry, 'h1', 'A', mtime='2026-01-01T00:00:00+00:00')
     _write_snapshot(registry, 'h2', 'B', mtime='2026-03-01T00:00:00+00:00')
     reg = SourceRegistry(registry)
-    assert reg.hash_to_mtime('h1') == '2026-01-01T00:00:00+00:00'
-    assert reg.hash_to_mtime('h2') == '2026-03-01T00:00:00+00:00'
-    assert reg.hash_to_mtime('unknown') is None
+    assert reg.get_mtime_from_hash('h1') == '2026-01-01T00:00:00+00:00'
+    assert reg.get_mtime_from_hash('h2') == '2026-03-01T00:00:00+00:00'
+    assert reg.get_mtime_from_hash('unknown') is None
 
 
 def test_missing_class_name_skipped(tmp_path: Path) -> None:

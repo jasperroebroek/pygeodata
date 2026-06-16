@@ -4,27 +4,25 @@ ProcessResult, _serialise_result, and _deserialise_result no longer exist.
 Round-trip coverage is now in test_entry_registry.py (EntryInfo.to_dict/from_dict).
 This file covers the display-enrichment helpers and discover_entries integration.
 """
+
 import json
 from pathlib import Path
 
 import pytest
 
 from pygeodata.config import JSONKeys, set_config
+from pygeodata.paths import CachePathConstructor
 from pygeodata.registry import EntryRegistry
 from pygeodata.registry_browser.entry_catalog import (
     _cache_mtime_key,
     _enrich_params_path,
     _enrich_with_cache,
-    _find_primary_file,
     _is_output_file,
     _load_disk_cache,
     _save_disk_cache,
     discover_entries,
 )
-from pygeodata.registry_browser.models import FileRef, SpecInfo
-from pygeodata.paths import CachePathResolver
 from pygeodata.tracked_object import TrackedObject
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -39,9 +37,9 @@ def isolated_config(tmp_path: Path):
         path_figures=tmp_path / 'figures',
         path_registry=tmp_path / '.source',
     ):
-        EntryRegistry._instances = None
+        EntryRegistry._instance = None
         yield tmp_path
-        EntryRegistry._instances = None
+        EntryRegistry._instance = None
 
 
 @pytest.fixture(autouse=True)
@@ -62,13 +60,13 @@ def write_cache_entry(
 ) -> Path:
     """Write a complete set of cache files for one entry. Returns the params path."""
     directory.mkdir(parents=True, exist_ok=True)
-    params_path = directory / f'.{stem}.params.json'
-    params_path.write_text(json.dumps(params or {}))
-    (directory / f'.{stem}.hash.json').write_text(json.dumps(state or {}))
-    (directory / f'.{stem}.spec.json').write_text(json.dumps(spec or {}))
+    resolver = CachePathConstructor(directory)
+    resolver.params_path.write_text(json.dumps(params or {}))
+    resolver.state_hash_path.write_text(json.dumps(state or {}))
+    resolver.spec_path.write_text(json.dumps(spec or {}))
     if output_ext:
         (directory / f'{stem}.{output_ext}').write_bytes(b'data')
-    return params_path
+    return resolver.params_path
 
 
 # ---------------------------------------------------------------------------
@@ -82,15 +80,9 @@ def test_is_output_file_regular_tif(tmp_path):
     assert _is_output_file(f)
 
 
-def test_is_output_file_hidden_file(tmp_path):
-    f = tmp_path / '.result.params.json'
-    f.write_bytes(b'x')
-    assert not _is_output_file(f)
-
-
-def test_is_output_file_meta_suffix(tmp_path):
-    for suffix in ('.params.json', '.hash.json', '.spec.json', '.graph.pdf'):
-        f = tmp_path / f'file{suffix}'
+def test_is_output_file_meta_files(tmp_path):
+    for name in ('parameters.json', 'meta.json', 'spec.json', 'graph.pdf', 'process.lock'):
+        f = tmp_path / name
         f.write_bytes(b'x')
         assert not _is_output_file(f)
 
@@ -153,9 +145,9 @@ def test_cache_mtime_key_sums_existing_files(tmp_path):
 def test_cache_mtime_key_missing_files_contribute_zero(tmp_path):
     d = tmp_path / 'data_processed' / 'MyLoader'
     d.mkdir(parents=True)
-    p = d / '.abc.params.json'
-    p.write_text('{}')
-    total = _cache_mtime_key(p)
+    resolver = CachePathConstructor(d)
+    resolver.params_path.write_text('{}')
+    total = _cache_mtime_key(resolver.params_path)
     assert isinstance(total, float)
 
 
@@ -167,7 +159,8 @@ def test_cache_mtime_key_missing_files_contribute_zero(tmp_path):
 def test_enrich_params_path_basic(tmp_path):
     d = tmp_path / 'data_processed' / 'MyLoader'
     params_path = write_cache_entry(
-        d, 'abc',
+        d,
+        'abc',
         params={'year': 2020},
         state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc123'},
         spec={'crs': 'EPSG:4326'},
@@ -183,7 +176,8 @@ def test_enrich_params_path_basic(tmp_path):
 def test_enrich_params_path_missing_state_hash_warns(tmp_path):
     d = tmp_path / 'data_processed' / 'MyLoader'
     params_path = write_cache_entry(
-        d, 'abc',
+        d,
+        'abc',
         state={JSONKeys.CLASS_NAME: 'MyLoader'},  # no STATE_HASH
     )
     entry = _enrich_params_path(params_path)
@@ -194,7 +188,8 @@ def test_enrich_params_path_missing_state_hash_warns(tmp_path):
 def test_enrich_params_path_finds_primary_file(tmp_path):
     d = tmp_path / 'data_processed' / 'MyLoader'
     params_path = write_cache_entry(
-        d, 'abc',
+        d,
+        'abc',
         state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'},
         output_ext='tif',
     )
@@ -206,7 +201,8 @@ def test_enrich_params_path_finds_primary_file(tmp_path):
 def test_enrich_params_path_no_primary_file_when_missing(tmp_path):
     d = tmp_path / 'data_processed' / 'MyLoader'
     params_path = write_cache_entry(
-        d, 'abc',
+        d,
+        'abc',
         state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'},
         output_ext=None,
     )
@@ -217,7 +213,8 @@ def test_enrich_params_path_no_primary_file_when_missing(tmp_path):
 def test_enrich_params_path_co_output_hashes(tmp_path):
     d = tmp_path / 'data_processed' / 'MyLoader'
     params_path = write_cache_entry(
-        d, 'abc',
+        d,
+        'abc',
         state={
             JSONKeys.CLASS_NAME: 'MyLoader',
             JSONKeys.STATE_HASH: 'abc',
@@ -236,7 +233,8 @@ def test_enrich_params_path_co_output_hashes(tmp_path):
 def test_enrich_with_cache_cold_miss(tmp_path):
     d = tmp_path / 'data_processed' / 'MyLoader'
     params_path = write_cache_entry(
-        d, 'abc',
+        d,
+        'abc',
         state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'},
     )
     entry, from_cache = _enrich_with_cache(params_path, {}, {})
@@ -247,7 +245,8 @@ def test_enrich_with_cache_cold_miss(tmp_path):
 def test_enrich_with_cache_hit(tmp_path):
     d = tmp_path / 'data_processed' / 'MyLoader'
     params_path = write_cache_entry(
-        d, 'abc',
+        d,
+        'abc',
         state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'},
     )
     key = str(params_path.resolve())
@@ -264,7 +263,8 @@ def test_enrich_with_cache_hit(tmp_path):
 def test_enrich_with_cache_miss_on_mtime_change(tmp_path):
     d = tmp_path / 'data_processed' / 'MyLoader'
     params_path = write_cache_entry(
-        d, 'abc',
+        d,
+        'abc',
         state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'},
     )
     key = str(params_path.resolve())
@@ -282,24 +282,24 @@ def test_enrich_with_cache_miss_on_mtime_change(tmp_path):
 
 
 def test_discover_entries_empty_cache(tmp_path):
-    entries, groups, diag = discover_entries()
+    entries, entry_registry, diag = discover_entries()
     assert entries == {}
-    assert groups == {}
+    assert entry_registry.records == {}
     assert diag['created_entries'] == 0
 
 
 def test_discover_entries_single_entry(tmp_path):
-    from pygeodata.data import Data
 
     d = tmp_path / 'data_processed' / 'MyLoader'
     write_cache_entry(
-        d, 'abc',
+        d,
+        'abc',
         params={'year': 2020},
         state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'},
         spec={'crs': 'EPSG:4326'},
     )
 
-    entries, groups, diag = discover_entries()
+    entries, entry_registry, diag = discover_entries()
     assert diag['created_entries'] == 1
     assert 'abc' in entries
     entry = entries['abc']
@@ -309,30 +309,32 @@ def test_discover_entries_single_entry(tmp_path):
 
 
 def test_discover_entries_groups_populated(tmp_path):
-    d = tmp_path / 'data_processed' / 'MyLoader'
-    write_cache_entry(d, 'abc', state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'})
-    write_cache_entry(d, 'def', state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'def'})
+    base = tmp_path / 'data_processed' / 'MyLoader'
+    write_cache_entry(base / 'abc', 'abc', state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'})
+    write_cache_entry(base / 'def', 'def', state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'def'})
 
-    entries, groups, diag = discover_entries()
-    assert 'MyLoader' in groups
-    assert len(groups['MyLoader'].state_hashes) == 2
+    entries, entry_registry, diag = discover_entries()
+    assert 'MyLoader' in entry_registry.class_names
+    assert len(entry_registry.get_state_hashes('MyLoader')) == 2
 
 
 def test_discover_entries_missing_state_hash_diagnostic(tmp_path):
     d = tmp_path / 'data_processed' / 'MyLoader'
     write_cache_entry(
-        d, 'abc',
+        d,
+        'abc',
         state={JSONKeys.CLASS_NAME: 'MyLoader'},  # no STATE_HASH
     )
     _, _, diag = discover_entries()
-    assert len(diag['missing_state_hash']) == 1
+    assert diag['missing_state_hash'] == 1
 
 
 def test_discover_entries_co_outputs_resolved(tmp_path):
-    d = tmp_path / 'data_processed' / 'MyLoader'
-    write_cache_entry(d, 'child', state={JSONKeys.CLASS_NAME: 'Child', JSONKeys.STATE_HASH: 'child_hash'})
+    base = tmp_path / 'data_processed'
+    write_cache_entry(base / 'Child', 'child', state={JSONKeys.CLASS_NAME: 'Child', JSONKeys.STATE_HASH: 'child_hash'})
     write_cache_entry(
-        d, 'parent',
+        base / 'Parent',
+        'parent',
         state={
             JSONKeys.CLASS_NAME: 'Parent',
             JSONKeys.STATE_HASH: 'parent_hash',

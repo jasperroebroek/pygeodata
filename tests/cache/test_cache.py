@@ -41,12 +41,14 @@ def process_touch(artifact: SimpleLoader, spec: SpatialSpec, stale: bool = False
 
 
 def make_zarr_archive(parent: Path, stem: str, hash_value: str | None = None) -> Path:
+    from pygeodata.paths import CachePathConstructor
+
     zarr_dir = parent / f'{stem}.zarr'
     zarr_dir.mkdir(parents=True, exist_ok=True)
     (zarr_dir / 'zarr.json').touch()
     (zarr_dir / '0' / '0').mkdir(parents=True)
     if hash_value is not None:
-        (parent / f'.{stem}.hash.json').write_text(
+        CachePathConstructor(parent).state_hash_path.write_text(
             json.dumps(
                 {
                     JSONKeys.FORMAT_VERSION: FORMAT_VERSION,
@@ -77,7 +79,7 @@ def test_clean_cache_stale_hash_dry_run_keeps_file(sample_spatial_spec: SpatialS
 
 def test_clean_cache_stale_hash_deletes_dir(sample_spatial_spec: SpatialSpec) -> None:
     process_touch(SimpleLoader(), sample_spatial_spec, stale=True)
-    entry_dir = SimpleLoader().get_processed_dir(sample_spatial_spec)
+    entry_dir = SimpleLoader().resolve_cache_paths(sample_spatial_spec).directory
     clean_cache(dry_run=False)
     assert not entry_dir.exists()
 
@@ -99,7 +101,7 @@ def test_clean_cache_valid_entry_untouched(sample_spatial_spec: SpatialSpec) -> 
 
 def test_clean_cache_removes_empty_dirs(sample_spatial_spec: SpatialSpec) -> None:
     process_touch(SimpleLoader(), sample_spatial_spec, stale=True)
-    entry_dir = SimpleLoader().get_processed_dir(sample_spatial_spec)
+    entry_dir = SimpleLoader().resolve_cache_paths(sample_spatial_spec).directory
     clean_cache(dry_run=False)
     assert not entry_dir.exists()
 
@@ -109,7 +111,7 @@ def test_clean_cache_removes_empty_dirs(sample_spatial_spec: SpatialSpec) -> Non
 
 def test_clean_cache_zarr_valid_untouched(sample_spatial_spec: SpatialSpec) -> None:
     correct_hash = SimpleLoader.get_dependency_tree_hash()
-    entry_dir = SimpleLoader().get_processed_dir(sample_spatial_spec)
+    entry_dir = SimpleLoader().resolve_cache_paths(sample_spatial_spec).directory
     entry_dir.mkdir(parents=True, exist_ok=True)
     zarr = make_zarr_archive(entry_dir, 'simple_loader', hash_value=correct_hash)
     clean_cache(dry_run=False)
@@ -120,7 +122,7 @@ def test_clean_cache_zarr_stale_hash_reported(
     sample_spatial_spec: SpatialSpec,
     capsys: pytest.CaptureFixture,
 ) -> None:
-    entry_dir = SimpleLoader().get_processed_dir(sample_spatial_spec)
+    entry_dir = SimpleLoader().resolve_cache_paths(sample_spatial_spec).directory
     entry_dir.mkdir(parents=True, exist_ok=True)
     make_zarr_archive(entry_dir, 'simple_loader', hash_value='stale')
     clean_cache(dry_run=True)
@@ -128,7 +130,7 @@ def test_clean_cache_zarr_stale_hash_reported(
 
 
 def test_clean_cache_zarr_stale_hash_deletes(sample_spatial_spec: SpatialSpec) -> None:
-    entry_dir = SimpleLoader().get_processed_dir(sample_spatial_spec)
+    entry_dir = SimpleLoader().resolve_cache_paths(sample_spatial_spec).directory
     entry_dir.mkdir(parents=True, exist_ok=True)
     zarr = make_zarr_archive(entry_dir, 'simple_loader', hash_value='stale')
     clean_cache(dry_run=False)
@@ -140,7 +142,7 @@ def test_clean_cache_zarr_internals_not_visited(
     capsys: pytest.CaptureFixture,
 ) -> None:
     correct_hash = SimpleLoader.get_dependency_tree_hash()
-    entry_dir = SimpleLoader().get_processed_dir(sample_spatial_spec)
+    entry_dir = SimpleLoader().resolve_cache_paths(sample_spatial_spec).directory
     entry_dir.mkdir(parents=True, exist_ok=True)
     zarr = make_zarr_archive(entry_dir, 'simple_loader', hash_value=correct_hash)
     chunk = zarr / '0' / '0' / 'chunk.bin'
@@ -154,7 +156,7 @@ def test_clean_cache_zarr_missing_hash_reported(
     sample_spatial_spec: SpatialSpec,
     capsys: pytest.CaptureFixture,
 ) -> None:
-    entry_dir = SimpleLoader().get_processed_dir(sample_spatial_spec)
+    entry_dir = SimpleLoader().resolve_cache_paths(sample_spatial_spec).directory
     entry_dir.mkdir(parents=True, exist_ok=True)
     make_zarr_archive(entry_dir, 'simple_loader')
     clean_cache(dry_run=True)
@@ -172,11 +174,11 @@ def test_read_cache_class_name_returns_name(sample_spatial_spec: SpatialSpec) ->
 
 
 def test_read_cache_class_name_none_when_missing(tmp_path: Path) -> None:
-    assert read_cache_class_name(tmp_path / '.data.hash.json') is None
+    assert read_cache_class_name(tmp_path / 'meta.json') is None
 
 
 def test_read_cache_class_name_none_when_key_absent(tmp_path: Path) -> None:
-    hash_file = tmp_path / '.data.hash.json'
+    hash_file = tmp_path / 'meta.json'
     hash_file.write_text(json.dumps({'other_key': 'value'}))
     assert read_cache_class_name(hash_file) is None
 
@@ -199,11 +201,11 @@ def test_hash_matches_live_false_when_stale(sample_spatial_spec: SpatialSpec) ->
 
 
 def test_hash_matches_live_false_when_missing(tmp_path: Path) -> None:
-    assert hash_matches_live(tmp_path / '.data.hash.json') is False
+    assert hash_matches_live(tmp_path / 'meta.json') is False
 
 
 def test_hash_matches_live_none_when_class_unregistered(tmp_path: Path) -> None:
-    hash_file = tmp_path / '.data.hash.json'
+    hash_file = tmp_path / 'meta.json'
     hash_file.write_text(
         json.dumps(
             {
@@ -226,19 +228,19 @@ def test_format_version_matches_true(sample_spatial_spec: SpatialSpec) -> None:
 
 
 def test_format_version_matches_false_when_missing_key(tmp_path: Path) -> None:
-    hash_file = tmp_path / '.data.hash.json'
+    hash_file = tmp_path / 'meta.json'
     hash_file.write_text(json.dumps({JSONKeys.CLASS_NAME: 'SimpleLoader'}))
     assert format_version_matches(hash_file) is False
 
 
 def test_format_version_matches_false_when_wrong_version(tmp_path: Path) -> None:
-    hash_file = tmp_path / '.data.hash.json'
+    hash_file = tmp_path / 'meta.json'
     hash_file.write_text(json.dumps({JSONKeys.FORMAT_VERSION: FORMAT_VERSION + 1}))
     assert format_version_matches(hash_file) is False
 
 
 def test_format_version_matches_false_when_file_missing(tmp_path: Path) -> None:
-    assert format_version_matches(tmp_path / '.data.hash.json') is False
+    assert format_version_matches(tmp_path / 'meta.json') is False
 
 
 def test_clean_cache_format_version_mismatch_reported(
@@ -252,7 +254,7 @@ def test_clean_cache_format_version_mismatch_reported(
 
 def test_clean_cache_format_version_mismatch_deletes(sample_spatial_spec: SpatialSpec) -> None:
     process_touch(SimpleLoader(), sample_spatial_spec, stale=True)
-    entry_dir = SimpleLoader().get_processed_dir(sample_spatial_spec)
+    entry_dir = SimpleLoader().resolve_cache_paths(sample_spatial_spec).directory
     clean_cache(dry_run=False)
     assert not entry_dir.exists()
 

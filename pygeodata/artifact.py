@@ -9,13 +9,14 @@ from filelock import FileLock
 
 from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config
 from pygeodata.extraction import extract_instances
+from pygeodata.graph_types import RuntimeDependencyGraph, RuntimeNode, RuntimeParamEdge
 from pygeodata.graphs import plot_compact_execution_graph
 from pygeodata.hash import calculate_cls_source_hash, calculate_dict_hash
-from pygeodata.paths import CachePathResolver
-from pygeodata.tracked_object import TrackedObject
-from pygeodata.graph_types import RuntimeDependencyGraph, RuntimeNode, RuntimeParamEdge
+from pygeodata.paths import CachePathConstructor
 from pygeodata.protocols import Processor
+from pygeodata.registry_types import EntryRecord
 from pygeodata.spec import SpatialSpec, SpecKeys
+from pygeodata.tracked_object import TrackedObject
 
 
 class Artifact(TrackedObject, ABC):
@@ -49,32 +50,16 @@ class Artifact(TrackedObject, ABC):
         resolved_ext = ext or self.get_ext()
         return f'{self.get_file_stem()}.{resolved_ext}'
 
-    def get_processed_dir(self, spec: SpatialSpec) -> Path:
-        """
-        Return the directory where this artifact's output is stored for the given spec.
-
-        Parameters
-        ----------
-        spec : SpatialSpec
-            The spatial specification.
-
-        Returns
-        -------
-        Path
-            The output directory path.
-        """
+    def resolve_cache_paths(self, spec: SpatialSpec) -> CachePathConstructor:
         spec = self.resolve_spec(spec)
-        return self.get_cache_root() / self.get_state_hash(spec)
-
-    def resolve_cache_paths(self, spec: SpatialSpec) -> CachePathResolver:
-        spec = self.resolve_spec(spec)
-        return CachePathResolver.from_path(self.get_processed_dir(spec) / self.get_filename(spec=spec))
+        return CachePathConstructor.from_state_hash(self.get_state_hash(spec), self.get_cache_root())
 
     def format_for_display(self) -> str:
         return self.get_class_name()
 
     def format_as_json(self, spec: SpatialSpec | None = None) -> Any:
         from pygeodata.formatting.json import format_json
+
         d = {
             JSONKeys.CLASS_NAME: self.get_class_name(),
             JSONKeys.PARAMS: format_json(self.get_params(), spec=spec),
@@ -138,6 +123,7 @@ class Artifact(TrackedObject, ABC):
 
     def get_params_as_json(self, spec: SpatialSpec | None = None) -> dict[str, Any]:
         from pygeodata.formatting.json import format_json
+
         return format_json(self.get_params(), spec=spec)  # type: ignore[return-value]
 
     def get_src_path(self) -> Path:
@@ -184,7 +170,8 @@ class Artifact(TrackedObject, ABC):
         ValueError
             If no extension is available from either the argument or :attr:`ext`.
         """
-        return self.resolve_cache_paths(spec).processed_path
+        spec = self.resolve_spec(spec)
+        return self.resolve_cache_paths(spec).directory / self.get_filename(spec=spec)
 
     def ensure_processed_path(self, spec: SpatialSpec) -> Path:
         path = self.get_processed_path(spec)
@@ -206,6 +193,7 @@ class Artifact(TrackedObject, ABC):
     def get_instance_hash(self) -> str:
         """Hash of class code and params — spec-independent. Stable identifier for this artifact instance."""
         from pygeodata.formatting.json import format_json
+
         state = {
             JSONKeys.DEPENDENCY_TREE_HASH: self.get_dependency_tree_hash(),
             JSONKeys.PARAMS: {k: format_json(v) for k, v in self.get_params().items()},
@@ -238,21 +226,17 @@ class Artifact(TrackedObject, ABC):
         """
         hash_path = self.resolve_cache_paths(spec).state_hash_path
         hash_path.parent.mkdir(parents=True, exist_ok=True)
-        with Path.open(hash_path, 'w', encoding='utf-8') as f:
-            json.dump(
-                {
-                    JSONKeys.FORMAT_VERSION: FORMAT_VERSION,
-                    JSONKeys.CLASS_NAME: self.get_class_name(),
-                    JSONKeys.OBJECT_TYPE: self.object_type.get_class_name(),
-                    JSONKeys.SOURCE_HASH: calculate_cls_source_hash(self.__class__),
-                    JSONKeys.DEPENDENCY_TREE_HASH: self.get_dependency_tree_hash(),
-                    JSONKeys.INSTANCE_HASH: self.get_instance_hash(),
-                    JSONKeys.STATE_HASH: self.get_state_hash(spec),
-                    JSONKeys.CO_OUTPUTS: list(co_outputs),
-                },
-                f,
-                indent=4,
-            )
+        EntryRecord(
+            class_name=self.get_class_name(),
+            source_hash=calculate_cls_source_hash(self.__class__),
+            dependency_tree_hash=self.get_dependency_tree_hash(),
+            instance_hash=self.get_instance_hash(),
+            state_hash=self.get_state_hash(spec),
+            object_type=self.object_type.get_class_name(),
+            hash_path=str(hash_path),
+            co_output_hashes=list(co_outputs),
+            format_version=FORMAT_VERSION,
+        ).dump(hash_path)
 
     def read_state_hash(self, spec: SpatialSpec) -> str | None:
         """
@@ -270,8 +254,7 @@ class Artifact(TrackedObject, ABC):
         hash_path = self.resolve_cache_paths(spec).state_hash_path
         if not hash_path.exists():
             return None
-        with Path.open(hash_path, encoding='utf-8') as f:
-            return json.load(f).get(JSONKeys.STATE_HASH, None)
+        return EntryRecord.from_file(hash_path).state_hash
 
     def processed_path_exists(self, spec: SpatialSpec) -> bool:
         return self.get_processed_path(spec).exists()
@@ -296,15 +279,13 @@ class Artifact(TrackedObject, ABC):
         if not hash_file.exists():
             return False
 
-        with hash_file.open(encoding='utf-8') as _f:
-            if json.load(_f).get(JSONKeys.FORMAT_VERSION) != FORMAT_VERSION:
-                return False
-
-        saved_state_hash = self.read_state_hash(spec)
-        if saved_state_hash is None:
+        record = EntryRecord.from_file(hash_file)
+        if record.format_version != FORMAT_VERSION:
+            return False
+        if record.state_hash is None:
             return False
 
-        return saved_state_hash == self.get_state_hash(spec)
+        return record.state_hash == self.get_state_hash(spec)
 
     def get_runtime_dependency_graph(self, spec: SpatialSpec) -> RuntimeDependencyGraph:
         nodes: dict[str, RuntimeNode] = {}

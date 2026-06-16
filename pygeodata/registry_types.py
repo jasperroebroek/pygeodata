@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Self
+from typing import Self
 
-from pygeodata.config import FORMAT_VERSION, JSONKeys
-from pygeodata.paths import CachePathResolver
+from pygeodata.config import FORMAT_VERSION
+from pygeodata.paths import CachePathConstructor
 
 
 @dataclass
@@ -17,62 +19,53 @@ class EntryRecord:
     Browser display fields (rows, spec strings, linked entries, primary file)
     live in EntryInfo in registry_browser/models.py.
 
-    dep_hash_stale is set during assembly after comparing against the live
-    class dependency tree hash.
     """
 
-    class_name: str
-    hash_path: str | None = None
-    state_hash: str | None = None
+    class_name: str | None = None
+    source_hash: str | None = None
+    dependency_tree_hash: str | None = None
     instance_hash: str | None = None
-    dep_hash: str | None = None
-    co_output_hashes: list[str] = field(default_factory=list)
+    state_hash: str | None = None
     object_type: str | None = None
-    format_version: int = field(default=FORMAT_VERSION)
-    dep_hash_stale: bool | None = None
+    hash_path: str | None = field(default=None, compare=False)
+    co_output_hashes: list[str] = field(default_factory=list)
+    format_version: int | None = None
 
     @property
     def params_path(self) -> Path | None:
         if self.hash_path is None:
             return None
-        return CachePathResolver.from_path(Path(self.hash_path)).params_path
+        return CachePathConstructor.from_path(Path(self.hash_path)).params_path
 
     @classmethod
-    def from_hash_path(cls, hash_path: Path) -> EntryRecord | None:
-        """Construct from a *.hash.json file. Returns None if missing or unreadable."""
-        try:
-            state = json.loads(hash_path.read_text(encoding='utf-8'))
-        except (OSError, json.JSONDecodeError):
-            return None
-
+    def from_file(cls, hash_path: Path) -> EntryRecord:
+        data = json.loads(hash_path.read_text(encoding='utf-8'))
         return cls(
-            class_name=state.get(JSONKeys.CLASS_NAME),
+            class_name=data.get('class_name'),
             hash_path=str(hash_path),
-            object_type=state.get(JSONKeys.OBJECT_TYPE),
-            state_hash=state.get(JSONKeys.STATE_HASH),
-            instance_hash=state.get(JSONKeys.INSTANCE_HASH),
-            dep_hash=state.get(JSONKeys.DEPENDENCY_TREE_HASH),
-            co_output_hashes=state.get(JSONKeys.CO_OUTPUTS, []),
-            format_version=state.get(JSONKeys.FORMAT_VERSION, FORMAT_VERSION),
+            object_type=data.get('object_type'),
+            state_hash=data.get('state_hash'),
+            instance_hash=data.get('instance_hash'),
+            source_hash=data.get('source_hash'),
+            dependency_tree_hash=data.get('dependency_tree_hash'),
+            co_output_hashes=data.get('co_output_hashes', []),
+            format_version=data.get('format_version'),
         )
 
-
-
-
-@dataclass(slots=True)
-class GroupRecord:
-    """Group of entry records sharing a class_name — keyed by class_name."""
-
-    class_name: str
-    object_type: str | None
-    state_hashes: list[str] = field(default_factory=list)
+    def dump(self, path: Path) -> None:
+        d = dataclasses.asdict(self)
+        d.pop('hash_path', None)
+        path.write_text(json.dumps(d, indent=4), encoding='utf-8')
 
 
 @dataclass(slots=True)
 class TreeSnapshot:
-    dep_hash: str
-    nodes: dict[str, dict]  # {class_name: {hash, object_type}}
-    tree: dict  # full topology
+    dependency_tree_hash: str
+    nodes: dict[str, dict]
+    call_edges: list[list[str]]
+    inheritance_edges: list[list[str]]
+    root_class: str
+    registered_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     format_version: int = field(default=FORMAT_VERSION)
 
     def get_source_hash(self, class_name: str) -> str | None:
@@ -83,36 +76,29 @@ class TreeSnapshot:
         node = self.nodes.get(class_name)
         return node.get('object_type') if isinstance(node, dict) else None
 
-    def get_call_deps(self) -> list[str]:
-        root_node = next(iter(self.tree.values()), {})
-        return sorted(root_node.get(JSONKeys.CALL_DEPENDENCIES, {}).keys())
+    def get_call_dependencies(self) -> list[str]:
+        """Direct call dependencies of the root class."""
+        return sorted({t for s, t in self.call_edges if s == self.root_class})
 
-    def get_inheritance_deps(self) -> list[str]:
-        root_node = next(iter(self.tree.values()), {})
-        return sorted(root_node.get(JSONKeys.INHERITANCE_DEPENDENCIES, {}).keys())
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            JSONKeys.FORMAT_VERSION: self.format_version,
-            JSONKeys.NODES: self.nodes,
-            JSONKeys.TREE: self.tree,
-        }
+    def get_inheritance_dependencies(self) -> list[str]:
+        """Direct inheritance dependencies of the root class."""
+        return sorted({t for s, t in self.inheritance_edges if s == self.root_class})
 
     def dump(self, path: Path) -> None:
-        path.write_text(json.dumps(self.to_dict(), indent=4), encoding='utf-8')
+        path.write_text(json.dumps(dataclasses.asdict(self), indent=4), encoding='utf-8')
 
     @classmethod
-    def from_dict(cls, dep_hash: str, data: dict[str, Any]) -> Self:
+    def from_file(cls, path: Path) -> Self:
+        data = json.loads(path.read_text(encoding='utf-8'))
         return cls(
-            dep_hash=dep_hash,
-            nodes=data.get(JSONKeys.NODES, data.get('nodes', {})),
-            tree=data.get(JSONKeys.TREE, data.get('tree', {})),
-            format_version=data.get(JSONKeys.FORMAT_VERSION, FORMAT_VERSION),
+            dependency_tree_hash=data.get('dependency_tree_hash', ''),
+            nodes=data.get('nodes', {}),
+            call_edges=data.get('call_edges', []),
+            inheritance_edges=data.get('inheritance_edges', []),
+            root_class=data.get('root_class', ''),
+            registered_at=data.get('registered_at', ''),
+            format_version=data.get('format_version', FORMAT_VERSION),
         )
-
-    @classmethod
-    def from_file(cls, dep_hash: str, path: Path) -> Self:
-        return cls.from_dict(dep_hash, json.loads(path.read_text(encoding='utf-8')))
 
 
 @dataclass(slots=True)
@@ -120,31 +106,19 @@ class CodeState:
     source_hash: str
     class_name: str
     object_type: str
-    registered_at: str  # ISO-8601
+    registered_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     format_version: int = field(default=FORMAT_VERSION)
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            JSONKeys.FORMAT_VERSION: self.format_version,
-            JSONKeys.SOURCE_HASH: self.source_hash,
-            JSONKeys.CLASS_NAME: self.class_name,
-            JSONKeys.OBJECT_TYPE: self.object_type,
-            JSONKeys.REGISTERED_AT: self.registered_at,
-        }
-
     def dump(self, path: Path) -> None:
-        path.write_text(json.dumps(self.to_dict(), indent=4), encoding='utf-8')
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Self:
-        return cls(
-            source_hash=data[JSONKeys.SOURCE_HASH],
-            class_name=data[JSONKeys.CLASS_NAME],
-            object_type=data[JSONKeys.OBJECT_TYPE],
-            registered_at=data[JSONKeys.REGISTERED_AT],
-            format_version=data.get(JSONKeys.FORMAT_VERSION, FORMAT_VERSION),
-        )
+        path.write_text(json.dumps(dataclasses.asdict(self), indent=4), encoding='utf-8')
 
     @classmethod
     def from_file(cls, path: Path) -> Self:
-        return cls.from_dict(json.loads(path.read_text(encoding='utf-8')))
+        data = json.loads(path.read_text(encoding='utf-8'))
+        return cls(
+            source_hash=data['source_hash'],
+            class_name=data['class_name'],
+            object_type=data['object_type'],
+            registered_at=data['registered_at'],
+            format_version=data.get('format_version', FORMAT_VERSION),
+        )

@@ -353,6 +353,32 @@
   justify-content: flex-end;
 }
 
+.rebuild-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.rebuild-opt {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--fg);
+  cursor: pointer;
+  user-select: none;
+}
+
+.rebuild-opt-hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.rebuild-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .modal-bar {
   padding: 11px 14px;
   border-bottom: 1px solid var(--border);

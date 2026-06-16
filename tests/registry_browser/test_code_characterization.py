@@ -21,7 +21,7 @@ from unittest.mock import patch
 import pytest
 
 from pygeodata.config import JSONKeys, set_config
-from pygeodata.registry import SourceRegistry
+from pygeodata.versioning import VersionRegistry
 from pygeodata.registry_browser.state import AppContext, AppState
 from pygeodata.registry_browser.web import app as flask_app
 # ---------------------------------------------------------------------------
@@ -54,16 +54,14 @@ def _write_code_snapshot(
 
 
 class _FakeEntryRegistry:
-    def __init__(self, groups=None):
-        self.groups = groups or {}
+    def get_state_hashes(self, class_name: str) -> list[str]:
+        return []
+
+    def get_object_type(self, class_name: str) -> str | None:
+        return None
 
 
-class _FakeVersionRegistry:
-    def __init__(self, code_groups=None):
-        self.code_groups = code_groups or {}
-
-
-def _make_ready_ctx(code_groups=None):
+def _make_ready_ctx(version_registry: VersionRegistry | None = None):
     ctx = AppContext()
     ctx.state = AppState(
         classes={},
@@ -71,7 +69,7 @@ def _make_ready_ctx(code_groups=None):
         diagnostics={},
         spec_options={},
         entry_registry=_FakeEntryRegistry(),
-        version_registry=_FakeVersionRegistry(code_groups),
+        version_registry=version_registry if version_registry is not None else VersionRegistry(),
     )
     ctx.ready.set()
     return ctx
@@ -173,8 +171,8 @@ def sample_ctx(sample_registry):
         path_figures=tmp_path / 'figs',
         path_registry=registry,
     ):
-        reg = SourceRegistry(registry)
-        yield _make_ready_ctx(code_groups=reg.code_groups_dict()), tmp_path, registry
+        vreg = VersionRegistry(registry)
+        yield _make_ready_ctx(vreg), tmp_path, registry
 
 
 # ===========================================================================

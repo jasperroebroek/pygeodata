@@ -4,6 +4,7 @@ Covers: scan→records, disk-cache hit/miss by mtime, co-output resolution,
 hash-collision behaviour, EntryInfo.to_dict/from_dict round-trips (including
 the co_outputs no-recursion guarantee), and old-format cache degradation.
 """
+
 import dataclasses
 import json
 from pathlib import Path
@@ -12,11 +13,10 @@ import pytest
 
 from pygeodata.config import FORMAT_VERSION, JSONKeys, set_config
 from pygeodata.registry import EntryRegistry
-from pygeodata.registry_types import EntryRecord
 from pygeodata.registry_browser.entry_catalog import discover_entries
 from pygeodata.registry_browser.models import EntryInfo, FileRef, SpecInfo
+from pygeodata.registry_types import EntryRecord
 from pygeodata.tracked_object import TrackedObject
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -30,9 +30,9 @@ def isolated_config(tmp_path: Path):
         path_figures=tmp_path / 'figures',
         path_registry=tmp_path / '.source',
     ):
-        EntryRegistry._instances = None
+        EntryRegistry._instance = None
         yield tmp_path
-        EntryRegistry._instances = None
+        EntryRegistry._instance = None
 
 
 @pytest.fixture(autouse=True)
@@ -52,60 +52,65 @@ def write_hash_file(
     output_ext: str | None = 'tif',
 ) -> Path:
     """Write cache files for one entry. Returns the hash file path."""
+    from pygeodata.paths import CachePathConstructor
+
     directory.mkdir(parents=True, exist_ok=True)
-    hash_path = directory / f'.{stem}.hash.json'
-    hash_path.write_text(json.dumps(state or {}))
-    (directory / f'.{stem}.params.json').write_text(json.dumps(params or {}))
-    (directory / f'.{stem}.spec.json').write_text(json.dumps(spec or {}))
+    resolver = CachePathConstructor(directory)
+    resolver.state_hash_path.write_text(json.dumps(state or {}))
+    resolver.params_path.write_text(json.dumps(params or {}))
+    resolver.spec_path.write_text(json.dumps(spec or {}))
     if output_ext:
         (directory / f'{stem}.{output_ext}').write_bytes(b'data')
-    return hash_path
+    return resolver.state_hash_path
 
 
 # ---------------------------------------------------------------------------
-# EntryRecord.from_hash_path
+# EntryRecord.from_file
 # ---------------------------------------------------------------------------
 
 
-def test_from_hash_path_reads_identity(tmp_path):
+def test_from_file_reads_identity(tmp_path):
     d = tmp_path / 'data_processed' / 'MyLoader'
-    write_hash_file(d, 'abc', state={
-        JSONKeys.CLASS_NAME: 'MyLoader',
-        JSONKeys.OBJECT_TYPE: 'data',
-        JSONKeys.STATE_HASH: 'abc123',
-        JSONKeys.INSTANCE_HASH: 'inst1',
-        JSONKeys.DEPENDENCY_TREE_HASH: 'dep1',
-        JSONKeys.CO_OUTPUTS: ['x', 'y'],
-        JSONKeys.FORMAT_VERSION: FORMAT_VERSION,
-    })
-    hash_path = d / '.abc.hash.json'
-    rec = EntryRecord.from_hash_path(hash_path)
+    write_hash_file(
+        d,
+        'abc',
+        state={
+            JSONKeys.CLASS_NAME: 'MyLoader',
+            JSONKeys.OBJECT_TYPE: 'data',
+            JSONKeys.STATE_HASH: 'abc123',
+            JSONKeys.INSTANCE_HASH: 'inst1',
+            JSONKeys.DEPENDENCY_TREE_HASH: 'dep1',
+            JSONKeys.CO_OUTPUTS: ['x', 'y'],
+            JSONKeys.FORMAT_VERSION: FORMAT_VERSION,
+        },
+    )
+    rec = EntryRecord.from_file(d / 'meta.json')
     assert rec.class_name == 'MyLoader'
     assert rec.object_type == 'data'
     assert rec.state_hash == 'abc123'
     assert rec.instance_hash == 'inst1'
-    assert rec.dep_hash == 'dep1'
+    assert rec.dependency_tree_hash == 'dep1'
     assert rec.co_output_hashes == ['x', 'y']
     assert rec.format_version == FORMAT_VERSION
     assert rec.params_path is not None
-    assert rec.params_path.name == '.abc.params.json'
+    assert rec.params_path.name == 'parameters.json'
 
 
-def test_from_hash_path_missing_hash_file(tmp_path):
+def test_from_file_missing_raises(tmp_path):
     d = tmp_path / 'data_processed' / 'MyLoader'
     d.mkdir(parents=True)
-    hash_path = d / '.abc.hash.json'
-    # File doesn't exist — returns None
-    rec = EntryRecord.from_hash_path(hash_path)
-    assert rec is None
+    import pytest
+
+    with pytest.raises(OSError):
+        EntryRecord.from_file(d / 'meta.json')
 
 
-def test_from_hash_path_params_path_derivation(tmp_path):
+def test_from_file_params_path_derivation(tmp_path):
     d = tmp_path / 'data_processed' / 'MyLoader'
     hash_path = write_hash_file(d, 'abc', state={JSONKeys.CLASS_NAME: 'MyLoader'})
-    rec = EntryRecord.from_hash_path(hash_path)
+    rec = EntryRecord.from_file(hash_path)
     assert rec.params_path is not None
-    assert rec.params_path.name == '.abc.params.json'
+    assert rec.params_path.name == 'parameters.json'
 
 
 # ---------------------------------------------------------------------------
@@ -114,18 +119,17 @@ def test_from_hash_path_params_path_derivation(tmp_path):
 
 
 def test_entry_record_round_trip(tmp_path):
-    hash_path = tmp_path / '.abc.hash.json'
+    hash_path = tmp_path / 'meta.json'
     hash_path.write_text('{}')
     rec = EntryRecord(
         class_name='MyLoader',
         hash_path=str(hash_path),
         state_hash='abc123',
         instance_hash='inst1',
-        dep_hash='dep1',
+        dependency_tree_hash='dep1',
         co_output_hashes=['x'],
         object_type='data',
         format_version=FORMAT_VERSION,
-        dep_hash_stale=False,
     )
     recovered = EntryRecord(**dataclasses.asdict(rec))
     assert recovered.class_name == rec.class_name
@@ -133,7 +137,7 @@ def test_entry_record_round_trip(tmp_path):
     assert recovered.co_output_hashes == rec.co_output_hashes
     assert recovered.format_version == rec.format_version
     assert recovered.hash_path == str(hash_path)
-    assert recovered.params_path == hash_path.parent / '.abc.params.json'
+    assert recovered.params_path == hash_path.parent / 'parameters.json'
 
 
 # ---------------------------------------------------------------------------
@@ -179,7 +183,7 @@ def test_entry_info_bounds_latlon_tuple_survives():
 
 def test_entry_info_primary_file_round_trip():
     entry = _make_entry_info(
-        primary_file=FileRef(label='out.tif', path='/data/out.tif', kind='raster')
+        primary_file=FileRef(label='out.tif', path='/data/out.tif', kind='raster'),
     )
     recovered = EntryInfo.from_dict(entry.to_dict())
     assert recovered.primary_file is not None
@@ -283,37 +287,41 @@ def test_entry_info_from_dict_old_format_version_stale_false():
 
 
 def test_entry_registry_empty(tmp_path):
-    reg = EntryRegistry.instance()
+    reg = EntryRegistry()
     assert reg.records == {}
-    assert reg.groups == {}
-    assert reg.diagnostics['created_records'] == 0
+    assert reg.class_names == []
+    assert reg.diagnostics()['created_records'] == 0
 
 
 def test_entry_registry_single_entry(tmp_path):
     d = tmp_path / 'data_processed' / 'MyLoader'
-    write_hash_file(d, 'abc', state={
-        JSONKeys.CLASS_NAME: 'MyLoader',
-        JSONKeys.STATE_HASH: 'abc123',
-    })
-    reg = EntryRegistry.instance()
+    write_hash_file(
+        d,
+        'abc',
+        state={
+            JSONKeys.CLASS_NAME: 'MyLoader',
+            JSONKeys.STATE_HASH: 'abc123',
+        },
+    )
+    reg = EntryRegistry()
     assert 'abc123' in reg.records
     assert reg.records['abc123'].class_name == 'MyLoader'
 
 
 def test_entry_registry_groups_populated(tmp_path):
-    d = tmp_path / 'data_processed' / 'MyLoader'
-    write_hash_file(d, 'abc', state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'})
-    write_hash_file(d, 'def', state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'def'})
-    reg = EntryRegistry.instance()
-    assert 'MyLoader' in reg.groups
-    assert len(reg.groups['MyLoader'].state_hashes) == 2
+    base = tmp_path / 'data_processed' / 'MyLoader'
+    write_hash_file(base / 'abc', 'abc', state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'})
+    write_hash_file(base / 'def', 'def', state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'def'})
+    reg = EntryRegistry()
+    assert 'MyLoader' in reg.class_names
+    assert len(reg.get_state_hashes('MyLoader')) == 2
 
 
 def test_entry_registry_missing_state_hash(tmp_path):
     d = tmp_path / 'data_processed' / 'MyLoader'
     write_hash_file(d, 'abc', state={JSONKeys.CLASS_NAME: 'MyLoader'})  # no STATE_HASH
-    reg = EntryRegistry.instance()
-    assert len(reg.diagnostics['missing_state_hash']) == 1
+    reg = EntryRegistry()
+    assert reg.diagnostics()['missing_state_hash'] == 1
 
 
 def test_entry_registry_collision_identical_silently_deduplicates(tmp_path):
@@ -331,7 +339,7 @@ def test_entry_registry_collision_identical_silently_deduplicates(tmp_path):
     }
     write_hash_file(d1, 'abc', state=state)
     write_hash_file(d2, 'abc', state=state)
-    reg = EntryRegistry.instance()
+    reg = EntryRegistry()
     assert 'same_hash' in reg.records
     assert len(reg.records) == 1
 
@@ -343,7 +351,7 @@ def test_entry_registry_collision_divergent_raises(tmp_path):
     write_hash_file(d1, 'abc', state={JSONKeys.CLASS_NAME: 'Foo', JSONKeys.STATE_HASH: 'clash'})
     write_hash_file(d2, 'xyz', state={JSONKeys.CLASS_NAME: 'Bar', JSONKeys.STATE_HASH: 'clash'})
     with pytest.raises(ValueError, match='divergent'):
-        EntryRegistry.instance()
+        EntryRegistry()
 
 
 # ---------------------------------------------------------------------------
@@ -357,14 +365,14 @@ def test_entry_registry_disk_cache_hit(tmp_path):
     (tmp_path / '.source').mkdir(parents=True, exist_ok=True)
 
     # First scan — populates disk cache
-    EntryRegistry._instances = None
-    EntryRegistry.instance()
-    cache_file = tmp_path / '.source' / EntryRegistry._CACHE_FILE
+    EntryRegistry._instance = None
+    EntryRegistry()
+    cache_file = tmp_path / '.source' / '.entry_registry_cache.json'
     assert cache_file.exists()
 
     # Second scan — should use disk cache (mtime unchanged)
-    EntryRegistry._instances = None
-    reg2 = EntryRegistry.instance()
+    EntryRegistry._instance = None
+    reg2 = EntryRegistry()
     assert 'abc' in reg2.records
 
 
@@ -373,17 +381,21 @@ def test_entry_registry_disk_cache_invalidated_on_mtime_change(tmp_path):
     (tmp_path / '.source').mkdir(parents=True, exist_ok=True)
     hash_path = write_hash_file(d, 'abc', state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'})
 
-    EntryRegistry._instances = None
-    EntryRegistry.instance()
+    EntryRegistry._instance = None
+    EntryRegistry()
 
     # Touch the hash file — mtime changes
-    hash_path.write_text(json.dumps({
-        JSONKeys.CLASS_NAME: 'MyLoader',
-        JSONKeys.STATE_HASH: 'abc_new',
-    }))
+    hash_path.write_text(
+        json.dumps(
+            {
+                JSONKeys.CLASS_NAME: 'MyLoader',
+                JSONKeys.STATE_HASH: 'abc_new',
+            }
+        )
+    )
 
-    EntryRegistry._instances = None
-    reg2 = EntryRegistry.instance()
+    EntryRegistry._instance = None
+    reg2 = EntryRegistry()
     assert 'abc_new' in reg2.records
     assert 'abc' not in reg2.records
 
@@ -394,13 +406,17 @@ def test_entry_registry_disk_cache_invalidated_on_mtime_change(tmp_path):
 
 
 def test_discover_entries_co_output_resolution(tmp_path):
-    d = tmp_path / 'data_processed' / 'MyLoader'
-    write_hash_file(d, 'child', state={JSONKeys.CLASS_NAME: 'Child', JSONKeys.STATE_HASH: 'child_hash'})
-    write_hash_file(d, 'parent', state={
-        JSONKeys.CLASS_NAME: 'Parent',
-        JSONKeys.STATE_HASH: 'parent_hash',
-        JSONKeys.CO_OUTPUTS: ['child_hash'],
-    })
+    base = tmp_path / 'data_processed'
+    write_hash_file(base / 'Child', 'child', state={JSONKeys.CLASS_NAME: 'Child', JSONKeys.STATE_HASH: 'child_hash'})
+    write_hash_file(
+        base / 'Parent',
+        'parent',
+        state={
+            JSONKeys.CLASS_NAME: 'Parent',
+            JSONKeys.STATE_HASH: 'parent_hash',
+            JSONKeys.CO_OUTPUTS: ['child_hash'],
+        },
+    )
     entries, _, _ = discover_entries()
     parent = entries['parent_hash']
     assert any(e.record_id == 'child_hash' for e in parent.co_outputs)

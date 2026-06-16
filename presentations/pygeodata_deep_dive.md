@@ -193,20 +193,20 @@ Every processed output lands in a **content-addressed** directory named by its s
 ```
 data_processed/
   {state_hash}/
-    elevation_loader.tif          ← the actual output
-    .elevation_loader.hash.json   ← metadata + state_hash for validation
-    .elevation_loader.params.json ← params at time of processing
-    .elevation_loader.spec.json   ← spatial spec at time of processing
-    .elevation_loader.graph.pdf   ← runtime dependency graph (if applicable)
+    elevation_loader.tif      ← the actual output
+    meta.json                 ← metadata + state_hash for validation
+    parameters.json           ← params at time of processing
+    spec.json                 ← spatial spec at time of processing
+    graph.pdf                 ← runtime dependency graph (if applicable)
 
 figures/
   {state_hash}/
     figure_slope.png
-    .figure_slope.hash.json
+    meta.json
     ...
 ```
 
-The `.hash.json` file is the source of truth for cache validity. It stores:
+The `meta.json` file is the source of truth for cache validity. It stores:
 
 ```json
 {
@@ -265,9 +265,9 @@ process(LAILoader('mean'), spec)
     │
     └─ for each produced artifact:
         ├─ update_registry()           ← write .source/ entries
-        ├─ write_parameters(spec)      ← .params.json
-        ├─ write_spec(spec)            ← .spec.json
-        └─ write_cache_metadata(spec)  ← .hash.json
+        ├─ write_parameters(spec)      ← parameters.json
+        ├─ write_spec(spec)            ← spec.json
+        └─ write_cache_metadata(spec)  ← meta.json
 ```
 
 The file lock (`filelock`) ensures that parallel workers don't race to write the same output. After locking, `is_processed` is checked again inside the lock.

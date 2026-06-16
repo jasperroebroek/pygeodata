@@ -9,20 +9,18 @@ from __future__ import annotations
 from difflib import unified_diff
 
 from pygeodata.hash import calculate_cls_source_hash
-from pygeodata.paths import CodeRegistryResolver
-from pygeodata.registry_browser.io_utils import read_text
+from pygeodata.paths import CodeRegistryConstructor
 from pygeodata.registry_browser.popups import render_source_html
 from pygeodata.tracked_object import TrackedObject
 from pygeodata.versioning import VersionRegistry
 
 
-def resolve_dep_hash(dep_hash: str, class_name: str) -> dict | None:
+def resolve_dep_hash(dep_hash: str, class_name: str, vreg: VersionRegistry) -> dict | None:
     """Return {'version_mtime': ..., 'source_hash': ...} or None if not found.
 
     None signals a 404; callers should abort(404).
     """
-    vreg = VersionRegistry.instance()
-    tree = vreg.tree_registry.get_snapshot(dep_hash)
+    tree = vreg.tree_registry.get_snapshot_from_hash(dep_hash)
     if tree is None:
         return None
 
@@ -34,13 +32,11 @@ def resolve_dep_hash(dep_hash: str, class_name: str) -> dict | None:
     return {'version_mtime': version_mtime, 'source_hash': source_hash}
 
 
-def version_classes(version_mtime: str, vreg: VersionRegistry | None = None) -> list[dict]:
+def version_classes(version_mtime: str, vreg: VersionRegistry) -> list[dict]:
     """Return per-class best CodeState as of the given version group, with live staleness.
 
     Pass a VersionInfo.mtime to select that group, or 'now' for the newest group.
     """
-    if vreg is None:
-        vreg = VersionRegistry.instance()
     src = vreg.source_registry
 
     if version_mtime == 'now':
@@ -54,13 +50,11 @@ def version_classes(version_mtime: str, vreg: VersionRegistry | None = None) -> 
     groups = vreg.version_groups
     vi_idx = groups.index(vi)
     is_newest = vi_idx == 0
-    # Upper bound: the group newer than vi (exclusive), or None for the newest group.
-    # A class is visible in vi's window if it was registered before the next (newer) group's change.
     upper = groups[vi_idx - 1].mtime if vi_idx > 0 else None
 
     result = []
     for class_name in sorted(src.class_names):
-        states = sorted(src.get_states(class_name), key=lambda s: s.registered_at)
+        states = src.get_states(class_name)
         if is_newest:
             candidates = states
         elif upper is not None:
@@ -85,29 +79,27 @@ def version_classes(version_mtime: str, vreg: VersionRegistry | None = None) -> 
     return result
 
 
-def snapshot_html(source_hash: str, state_code_groups: dict | None) -> dict | None:
+def snapshot_html(source_hash: str, vreg: VersionRegistry) -> dict | None:
     """Return {'class_name': ..., 'html': ...} for the given source hash.
 
     Returns None if the snapshot is not found (caller should abort(404)).
     """
-    vreg = VersionRegistry.instance()
-    source_text = vreg.source_registry.get_source(source_hash)
+    src = vreg.source_registry
+    source_text = src.get_source(source_hash)
     if source_text is None:
         return None
 
-    state = vreg.source_registry.get_state_by_hash(source_hash)
-    class_name = state.class_name if state else ''
-    known_classes = frozenset(TrackedObject._registry.keys()) | frozenset(
-        (state_code_groups or {}).keys(),
-    )
+    class_name = src.get_class_name_from_hash(source_hash)
+    known_classes = frozenset(TrackedObject._registry.keys()) | frozenset(src.class_names)
     html_body = render_source_html(source_text, known_classes, class_name)
     return {'class_name': class_name, 'html': html_body}
 
 
-def diff_hashes(hash_a: str, hash_b: str, full: bool) -> dict | None:
+def diff_hashes(hash_a: str, hash_b: str, full: bool, vreg: VersionRegistry) -> dict | None:
     """Return {'diff': ..., ['full_a': ..., 'full_b': ...]} or None if either file is missing."""
-    text_a = read_text(CodeRegistryResolver.from_source_hash(hash_a).source_path)
-    text_b = read_text(CodeRegistryResolver.from_source_hash(hash_b).source_path)
+    src = vreg.source_registry
+    text_a = src.get_source(hash_a)
+    text_b = src.get_source(hash_b)
     if text_a is None or text_b is None:
         return None
 
@@ -131,6 +123,7 @@ def unified_diff_payload(
     hash_b: str,
     full: bool,
     assert_allowed_path: callable,
+    vreg: VersionRegistry,
 ) -> dict | None:
     """HTTP-boundary wrapper around diff_hashes that enforces the path guard.
 
@@ -138,12 +131,12 @@ def unified_diff_payload(
     the security check provably on the HTTP boundary for user-facing diffs.
     Returns None when either source file does not exist (caller should abort(404)).
     """
-    assert_allowed_path(str(CodeRegistryResolver.from_source_hash(hash_a).source_path))
-    assert_allowed_path(str(CodeRegistryResolver.from_source_hash(hash_b).source_path))
-    return diff_hashes(hash_a, hash_b, full)
+    assert_allowed_path(str(CodeRegistryConstructor.from_source_hash(hash_a).source_path))
+    assert_allowed_path(str(CodeRegistryConstructor.from_source_hash(hash_b).source_path))
+    return diff_hashes(hash_a, hash_b, full, vreg)
 
 
-def tree_diff(record_id: str, entries: dict, code_groups: dict[str, list[dict]]) -> dict:
+def tree_diff(record_id: str, entries: dict, vreg: VersionRegistry) -> dict:
     """Compare the stored dep tree for an entry against the live code registry.
 
     Returns the jsonifiable response dict.  Never raises — errors are encoded
@@ -157,17 +150,14 @@ def tree_diff(record_id: str, entries: dict, code_groups: dict[str, list[dict]])
     if not dep_hash:
         return {'error': 'no_snapshot', 'message': 'Snapshot not available for this entry'}
 
-    vreg = VersionRegistry.instance()
-    stored_tree = vreg.tree_registry.get_snapshot(dep_hash)
+    stored_tree = vreg.tree_registry.get_snapshot_from_hash(dep_hash)
     if stored_tree is None:
         return {'error': 'no_snapshot', 'message': 'Snapshot not available for this entry'}
 
-    live_nodes: dict[str, str] = {}
-    for class_name, class_entries in code_groups.items():
-        if not class_entries:
-            continue
-        best = max(class_entries, key=lambda e: e['mtime'])
-        live_nodes[class_name] = best['source_hash']
+    src = vreg.source_registry
+    live_nodes: dict[str, str] = {
+        cn: s.source_hash for cn in src.class_names if (s := src.get_latest_state_for_class(cn)) is not None
+    }
 
     changes = []
     all_classes = set(stored_tree.nodes.keys()) | set(live_nodes.keys())
@@ -180,7 +170,7 @@ def tree_diff(record_id: str, entries: dict, code_groups: dict[str, list[dict]])
             if stored_hash == live_hash:
                 changes.append({'class_name': class_name, 'status': 'unchanged', 'diff': None})
             else:
-                payload = diff_hashes(stored_hash, live_hash, full=True)
+                payload = diff_hashes(stored_hash, live_hash, full=True, vreg=vreg)
                 if payload is not None:
                     changes.append(
                         {

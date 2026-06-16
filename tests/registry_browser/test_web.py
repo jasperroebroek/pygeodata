@@ -5,21 +5,21 @@ from unittest.mock import patch
 import pytest
 
 from pygeodata.config import set_config
-from pygeodata.registry import SourceRegistry
 from pygeodata.registry_browser.state import AppContext, AppState
 from pygeodata.registry_browser.web import _allowed_roots, _assert_allowed_path
 from pygeodata.registry_browser.web import app as flask_app
+from pygeodata.versioning import VersionRegistry
+
+
 class _FakeEntryRegistry:
-    def __init__(self, groups=None):
-        self.groups = groups or {}
+    def get_state_hashes(self, class_name: str) -> list[str]:
+        return []
+
+    def get_object_type(self, class_name: str) -> str | None:
+        return None
 
 
-class _FakeVersionRegistry:
-    def __init__(self, code_groups=None):
-        self.code_groups = code_groups or {}
-
-
-def _make_ready_ctx(code_groups=None):
+def _make_ready_ctx(version_registry: VersionRegistry | None = None):
     """Return an AppContext with a minimal ready AppState."""
     ctx = AppContext()
     ctx.state = AppState(
@@ -28,7 +28,7 @@ def _make_ready_ctx(code_groups=None):
         diagnostics={},
         spec_options={},
         entry_registry=_FakeEntryRegistry(),
-        version_registry=_FakeVersionRegistry(code_groups),
+        version_registry=version_registry if version_registry is not None else VersionRegistry(),
     )
     ctx.ready.set()
     return ctx
@@ -63,7 +63,8 @@ def test_app_context_initial_state() -> None:
 def test_app_context_start_reload_clears_ready() -> None:
     ctx = AppContext()
     ctx.ready.set()
-    with patch.object(ctx, 'start_load'):
+    ctx.progress['x'] = 1
+    with patch('pygeodata.registry_browser.state.threading.Thread'):
         ctx.start_reload()
     assert not ctx.ready.is_set()
     assert ctx.progress == {}
@@ -124,6 +125,18 @@ def test_api_status_returns_ready_flag(client, app) -> None:
     data = resp.get_json()
     assert 'ready' in data
     assert 'progress' in data
+    assert 'load_error' in data
+
+
+def test_api_status_surfaces_load_error(client, app) -> None:
+    from pygeodata.registry_browser import web as web_mod
+
+    web_mod._ctx.load_error = 'something went wrong'
+    resp = client.get('/api/status')
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data['load_error'] == 'something went wrong'
+    web_mod._ctx.load_error = None
 
 
 def test_api_dashboard_returns_202_while_loading(client) -> None:
@@ -212,8 +225,7 @@ def test_api_code_versions_only_shows_changes(tmp_path: Path) -> None:
     # Single entry for MyLoader — first registration, not a version change
     _write_code_snapshot(registry, 'v1hash', 'MyLoader', 'class MyLoader: pass', mtime='2026-01-01T00:00:00+00:00')
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
-        reg = SourceRegistry(registry)
-        ctx = _make_ready_ctx(code_groups=reg.code_groups_dict())
+        ctx = _make_ready_ctx(VersionRegistry(registry))
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
             resp = flask_app.test_client().get('/api/code/versions')
@@ -228,8 +240,7 @@ def test_api_code_versions_shows_second_entry(tmp_path: Path) -> None:
     _write_code_snapshot(registry, 'v1hash', 'MyLoader', 'class MyLoader: pass', mtime='2026-01-01T00:00:00+00:00')
     _write_code_snapshot(registry, 'v2hash', 'MyLoader', 'class MyLoader: pass\n', mtime='2026-06-01T00:00:00+00:00')
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
-        reg = SourceRegistry(registry)
-        ctx = _make_ready_ctx(code_groups=reg.code_groups_dict())
+        ctx = _make_ready_ctx(VersionRegistry(registry))
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
             resp = flask_app.test_client().get('/api/code/versions')
@@ -274,8 +285,7 @@ def test_api_code_resolve_dep_hash(tmp_path: Path) -> None:
     )
 
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
-        reg = SourceRegistry(registry)
-        ctx = _make_ready_ctx(code_groups=reg.code_groups_dict())
+        ctx = _make_ready_ctx(VersionRegistry(registry))
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
             resp = flask_app.test_client().get('/api/code/resolve-dep-hash?dep_hash=snapshot_old&class_name=MyLoader')
@@ -299,7 +309,7 @@ def test_api_code_resolve_dep_hash_missing_params(client) -> None:
 
 
 def test_api_code_version_classes_empty(app) -> None:
-    ctx = _make_ready_ctx(code_groups={})
+    ctx = _make_ready_ctx()
     with patch('pygeodata.registry_browser.web._ctx', ctx):
         resp = app.test_client().get('/api/code/version-classes')
     assert resp.status_code == 200
@@ -311,8 +321,7 @@ def test_api_code_version_classes_returns_latest(tmp_path: Path) -> None:
     _write_code_snapshot(registry, 'v1hash', 'MyLoader', 'class MyLoader: pass', mtime='2026-01-01T00:00:00+00:00')
     _write_code_snapshot(registry, 'v2hash', 'MyLoader', 'class MyLoader: pass\n', mtime='2026-06-01T00:00:00+00:00')
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
-        reg = SourceRegistry(registry)
-        ctx = _make_ready_ctx(code_groups=reg.code_groups_dict())
+        ctx = _make_ready_ctx(VersionRegistry(registry))
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
             resp = flask_app.test_client().get('/api/code/version-classes')
@@ -328,8 +337,7 @@ def test_api_code_version_classes_initial_group(tmp_path: Path) -> None:
     _write_code_snapshot(registry, 'v1hash', 'MyLoader', 'class MyLoader: pass', mtime='2026-01-01T00:00:00+00:00')
     _write_code_snapshot(registry, 'v2hash', 'MyLoader', 'class MyLoader: pass\n', mtime='2026-06-01T00:00:00+00:00')
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
-        reg = SourceRegistry(registry)
-        ctx = _make_ready_ctx(code_groups=reg.code_groups_dict())
+        ctx = _make_ready_ctx(VersionRegistry(registry))
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
             # Initial group mtime = earliest registration = 2026-01-01
@@ -343,16 +351,22 @@ def test_api_code_snapshot_returns_html(tmp_path: Path) -> None:
     registry = tmp_path / '.source'
     _write_code_snapshot(registry, 'abc123', 'MyLoader', 'class MyLoader: pass')
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
+        ctx = _make_ready_ctx(VersionRegistry(registry))
         flask_app.config['TESTING'] = True
-        resp = flask_app.test_client().get('/api/code/snapshot?source_hash=abc123')
+        with patch('pygeodata.registry_browser.web._ctx', ctx):
+            resp = flask_app.test_client().get('/api/code/snapshot?source_hash=abc123')
     data = resp.get_json()
     assert data['class_name'] == 'MyLoader'
     assert 'diff-table' in data['html']
     assert 'MyLoader' in data['html']
 
 
-def test_api_code_snapshot_not_found(client) -> None:
-    resp = client.get('/api/code/snapshot?source_hash=doesnotexist')
+def test_api_code_snapshot_not_found(tmp_path: Path) -> None:
+    with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=tmp_path / '.source'):
+        ctx = _make_ready_ctx()
+        flask_app.config['TESTING'] = True
+        with patch('pygeodata.registry_browser.web._ctx', ctx):
+            resp = flask_app.test_client().get('/api/code/snapshot?source_hash=doesnotexist')
     assert resp.status_code == 404
 
 
@@ -477,10 +491,7 @@ def test_api_code_tree_diff_returns_changes(tmp_path: Path) -> None:
 
     entry = _make_entry('rec1', 'snapshot1')
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
-        from pygeodata.registry import SourceRegistry
-
-        code_groups = SourceRegistry(registry).code_groups_dict()
-        ctx = _make_ready_ctx(code_groups=code_groups)
+        ctx = _make_ready_ctx(VersionRegistry(registry))
         ctx.state.entries = {'rec1': entry}
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
@@ -524,10 +535,7 @@ def test_api_code_tree_diff_sort_order(tmp_path: Path) -> None:
 
     entry = _make_entry('rec1', 'snapshot1')
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
-        from pygeodata.registry import SourceRegistry
-
-        code_groups = SourceRegistry(registry).code_groups_dict()
-        ctx = _make_ready_ctx(code_groups=code_groups)
+        ctx = _make_ready_ctx(VersionRegistry(registry))
         ctx.state.entries = {'rec1': entry}
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
@@ -598,12 +606,15 @@ def test_api_export_while_loading(client) -> None:
 def test_api_export_returns_tar(tmp_path: Path) -> None:
     cache_root = tmp_path / 'data_processed'
     cache_dir = cache_root / 'abc123'
+    from pygeodata.paths import CachePathConstructor
+
     cache_dir.mkdir(parents=True)
-    (cache_dir / '.myloader.params.json').write_text('{}')
-    (cache_dir / '.myloader.hash.json').write_text('{}')
+    resolver = CachePathConstructor(cache_dir)
+    resolver.params_path.write_text('{}')
+    resolver.state_hash_path.write_text('{}')
     (cache_dir / 'output.tif').write_bytes(b'TIFFDATA')
 
-    entry = _make_entry_with_path('abc123', str(cache_dir / '.myloader.params.json'))
+    entry = _make_entry_with_path('abc123', str(resolver.params_path))
     ctx = _make_ready_ctx()
     ctx.state.entries = {'abc123': entry}
 
@@ -616,8 +627,8 @@ def test_api_export_returns_tar(tmp_path: Path) -> None:
         with patch('pygeodata.registry_browser.web._ctx', ctx):
             names = _run_export(flask_app.test_client(), ['abc123'], include_snapshots=False)
 
-    assert 'cache/abc123/.myloader.params.json' in names
-    assert 'cache/abc123/.myloader.hash.json' in names
+    assert 'cache/abc123/parameters.json' in names
+    assert 'cache/abc123/meta.json' in names
     assert 'cache/abc123/output.tif' in names
     assert not any(n.startswith('code/') for n in names)
     assert not any(n.startswith('snapshots/') for n in names)
@@ -627,8 +638,11 @@ def test_api_export_includes_snapshots(tmp_path: Path) -> None:
     registry = tmp_path / '.source'
     cache_root = tmp_path / 'data_processed'
     cache_dir = cache_root / 'abc123'
+    from pygeodata.paths import CachePathConstructor
+
     cache_dir.mkdir(parents=True)
-    (cache_dir / '.myloader.params.json').write_text('{}')
+    resolver = CachePathConstructor(cache_dir)
+    resolver.params_path.write_text('{}')
 
     src_hash = 'srchash1'
     code_dir = registry / 'code' / src_hash
@@ -643,7 +657,7 @@ def test_api_export_includes_snapshots(tmp_path: Path) -> None:
         json.dumps({'nodes': {'MyLoader': {'hash': src_hash, 'object_type': 'Data'}}, 'tree': {}}),
     )
 
-    entry = _make_entry_with_path('abc123', str(cache_dir / '.myloader.params.json'), dep_hash=dep_hash)
+    entry = _make_entry_with_path('abc123', str(resolver.params_path), dep_hash=dep_hash)
     ctx = _make_ready_ctx()
     ctx.state.entries = {'abc123': entry}
 
@@ -656,7 +670,7 @@ def test_api_export_includes_snapshots(tmp_path: Path) -> None:
         with patch('pygeodata.registry_browser.web._ctx', ctx):
             names = _run_export(flask_app.test_client(), ['abc123'], include_snapshots=True)
 
-    assert 'cache/abc123/.myloader.params.json' in names
+    assert 'cache/abc123/parameters.json' in names
     assert f'code/{src_hash}/source.py' in names
     assert f'code/{src_hash}/source.json' in names
     assert f'snapshots/{dep_hash}/tree.json' in names

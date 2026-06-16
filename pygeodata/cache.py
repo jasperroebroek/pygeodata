@@ -5,7 +5,8 @@ from pathlib import Path
 
 from pygeodata.artifact import Artifact
 from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config
-from pygeodata.paths import CachePathResolver
+from pygeodata.paths import CachePathConstructor
+from pygeodata.registry_types import EntryRecord
 from pygeodata.tracked_object import TrackedObject
 
 ZARR_MARKERS = (
@@ -27,32 +28,27 @@ def is_zarr_root(path: Path) -> bool:
 def read_cache_class_name(hash_path: Path) -> str | None:
     if not hash_path.exists():
         return None
-    with hash_path.open(encoding='utf-8') as f:
-        return json.load(f).get(JSONKeys.CLASS_NAME, None)
+    return EntryRecord.from_file(hash_path).class_name
 
 
 def format_version_matches(hash_path: Path) -> bool:
     """Return False if the cache entry was written by a different format version."""
     if not hash_path.exists():
         return False
-    with hash_path.open(encoding='utf-8') as f:
-        return json.load(f).get(JSONKeys.FORMAT_VERSION) == FORMAT_VERSION
+    return EntryRecord.from_file(hash_path).format_version == FORMAT_VERSION
 
 
 def hash_matches_live(hash_path: Path) -> bool | None:
     if not hash_path.exists():
         return False
 
-    class_name = read_cache_class_name(hash_path)
-    class_object = TrackedObject.find_object_class(class_name)
+    record = EntryRecord.from_file(hash_path)
+    class_object = TrackedObject.find_object_class(record.class_name)
 
     if class_object is None:
         return None
 
-    with hash_path.open(encoding='utf-8') as f:
-        saved_state = json.load(f)
-
-    return saved_state.get(JSONKeys.DEPENDENCY_TREE_HASH, None) == class_object.get_dependency_tree_hash()
+    return record.dependency_tree_hash == class_object.get_dependency_tree_hash()
 
 
 def handle_invalid(path: Path, dry_run: bool, label: str, class_name: str | None = None) -> None:
@@ -97,51 +93,21 @@ def _delete_manually(hash_path: Path, delete_unregistered: bool) -> bool:
     return _confirm_class_deletion(class_name)
 
 
-def _find_hash_files(dirpath: Path, files: list[str]) -> list[Path]:
-    return [dirpath / f for f in files if f.startswith('.') and f.endswith('.hash.json')]
-
-
-def _stem_from_hash_file(hash_path: Path) -> str:
-    return hash_path.name.removeprefix('.').removesuffix('.hash.json')
-
-
-def _purge_dir(dirpath: Path, hash_files: list[Path], dry_run: bool, delete_unregistered: bool) -> bool:
+def _purge_dir(dirpath: Path, dry_run: bool, delete_unregistered: bool) -> bool:
     """
     Validate a single cache directory. Returns True if the directory was deleted.
 
-    No hash files   → delete as invalid.
-    One hash file   → validate; delete directory if stale or unregistered.
-    Two+ hash files → ask the user which entry to keep; delete the rest (or all).
+    No meta.json  → delete as invalid.
+    meta.json     → validate; delete directory if stale or unregistered.
     """
-    if not hash_files:
-        data_files = [dirpath / f for f in dirpath.iterdir() if not f.name.startswith('.')]
-        if not data_files:
-            label = 'Invalid (empty dir)'
-        else:
-            expected_hash = CachePathResolver.from_path(data_files[0]).state_hash_path if len(data_files) == 1 else None
-            label = 'Hash missing' if (expected_hash is not None and not expected_hash.exists()) else 'Invalid'
+    resolver = CachePathConstructor(dirpath)
+    hash_path = resolver.state_hash_path
+
+    if not hash_path.exists():
+        label = 'Invalid (empty dir)' if not any(dirpath.iterdir()) else 'Hash missing'
         handle_invalid(dirpath, dry_run=dry_run, label=label)
         return True
 
-    if len(hash_files) > 1:
-        print(f'\nMultiple cache entries found in {dirpath}:')
-        for i, hp in enumerate(hash_files):
-            print(f'  [{i}] {hp.name}  (class: {read_cache_class_name(hp)})')
-        raw = input('Enter index to keep (or blank to delete all): ').strip()
-        if raw.isdigit() and int(raw) < len(hash_files):
-            keep = hash_files[int(raw)]
-            for hp in hash_files:
-                if hp == keep:
-                    continue
-                stem = _stem_from_hash_file(hp)
-                zarr_candidate = dirpath / f'{stem}.zarr'
-                data_path = zarr_candidate if zarr_candidate.exists() else dirpath / stem
-                handle_invalid(data_path, dry_run=dry_run, label='Hash wrong', class_name=read_cache_class_name(hp))
-            return False
-        handle_invalid(dirpath, dry_run=dry_run, label='Invalid')
-        return True
-
-    hash_path = hash_files[0]
     class_name = read_cache_class_name(hash_path)
 
     if not format_version_matches(hash_path):
@@ -154,8 +120,7 @@ def _purge_dir(dirpath: Path, hash_files: list[Path], dry_run: bool, delete_unre
         valid = False
 
     if not valid:
-        label = 'Hash missing' if not hash_path.exists() else 'Hash wrong'
-        handle_invalid(dirpath, dry_run=dry_run, label=label, class_name=class_name)
+        handle_invalid(dirpath, dry_run=dry_run, label='Hash wrong', class_name=class_name)
         return True
 
     return False
@@ -173,10 +138,9 @@ def _purge_cache(dry_run: bool = True, delete_unregistered: bool = True) -> None
 
             dirs[:] = [d for d in dirs if not is_zarr_root(dirpath / d)]
 
-            hash_files = _find_hash_files(dirpath, files)
-            if dirs and not hash_files:
+            if dirs:
                 continue
-            deleted = _purge_dir(dirpath, hash_files, dry_run=dry_run, delete_unregistered=delete_unregistered)
+            deleted = _purge_dir(dirpath, dry_run=dry_run, delete_unregistered=delete_unregistered)
             if deleted:
                 dirs.clear()
 

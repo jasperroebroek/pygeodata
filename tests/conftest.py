@@ -83,11 +83,11 @@ def cache_tree(tmp_path):
       region1/
         SimpleLoader/
           tile.tif
-          tile.hash.json          <- correct hash
+          meta.json               <- correct hash
       region2/
         SimpleLoader/
           other.tif
-          other.hash.json         <- wrong hash
+          meta.json               <- wrong hash
       region3/
         SimpleLoader/
           no_hash.tif             <- hash file absent
@@ -95,9 +95,12 @@ def cache_tree(tmp_path):
         SimpleLoader/
           ignored.tif             <- should be skipped entirely
     """
+    from pygeodata.paths import CachePathConstructor
 
-    def write_hash(path: Path, hash_value: str) -> None:
-        path.write_text(json.dumps({JSONKeys.DEPENDENCY_TREE_HASH: hash_value}))
+    def write_hash(directory: Path, hash_value: str) -> None:
+        CachePathConstructor(directory).state_hash_path.write_text(
+            json.dumps({JSONKeys.DEPENDENCY_TREE_HASH: hash_value}),
+        )
 
     correct_hash = 'abc123'
 
@@ -105,13 +108,13 @@ def cache_tree(tmp_path):
     r1 = tmp_path / 'region1' / 'SimpleLoader'
     r1.mkdir(parents=True)
     (r1 / 'tile.tif').write_bytes(b'data')
-    write_hash(r1 / 'tile.hash.json', correct_hash)
+    write_hash(r1, correct_hash)
 
     # region2 — wrong hash
     r2 = tmp_path / 'region2' / 'SimpleLoader'
     r2.mkdir(parents=True)
     (r2 / 'other.tif').write_bytes(b'data')
-    write_hash(r2 / 'other.hash.json', 'stale_hash')
+    write_hash(r2, 'stale_hash')
 
     # region3 — missing hash
     r3 = tmp_path / 'region3' / 'SimpleLoader'

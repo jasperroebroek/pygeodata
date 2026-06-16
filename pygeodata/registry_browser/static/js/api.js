@@ -51,8 +51,8 @@ export function fetchDashboard(payload) {
 // Rebuild (refresh state from disk)
 // ---------------------------------------------------------------------------
 
-export function postRebuild() {
-  return postJSON("/api/rebuild");
+export function postRebuild(reimport = false) {
+  return postJSON("/api/rebuild", { reimport });
 }
 
 

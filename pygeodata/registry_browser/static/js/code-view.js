@@ -740,8 +740,8 @@ async function _showVersionChangeSummary(versionMeta, changedNames) {
   wrap.innerHTML = changes.map((c) => {
     const open = c.status === 'changed' ? ' open' : '';
     const canExpand = (c.status === 'changed' && c.hashA && c.hashB)
-                   || (c.status === 'added'   && c.hashA)
-                   || (c.status === 'removed' && c.hashB);
+                   || (c.status === 'added'   && c.hashB)
+                   || (c.status === 'removed' && c.hashA);
     return `<div class="tree-diff-class ${esc(c.status)}${open}" data-class="${esc(c.class_name)}"
                  data-hash-a="${esc(c.hashA ?? '')}" data-hash-b="${esc(c.hashB ?? '')}">
       <div class="tree-diff-header">
