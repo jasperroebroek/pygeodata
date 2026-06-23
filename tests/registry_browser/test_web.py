@@ -250,10 +250,8 @@ def test_api_code_versions_shows_second_entry(tmp_path: Path) -> None:
     # First entry: the actual change group
     assert data[0]['class_names'] == ['MyLoader']
     assert data[0]['mtime'] == '2026-06-01T00:00:00+00:00'
-    assert data[0]['cutoff_exclusive'] is False
     assert 'v1' in data[0]['label']
-    # Second entry: synthetic Initial baseline (cutoff_exclusive, loads pre-change code)
-    assert data[1]['cutoff_exclusive'] is True
+    # Second entry: synthetic Initial baseline
     assert 'Initial' in data[1]['label']
     # Initial timestamp uses the oldest registration (Jan 1), not the change time
     assert 'Jan' in data[1]['label']
@@ -293,9 +291,8 @@ def test_api_code_resolve_dep_hash(tmp_path: Path) -> None:
     data = resp.get_json()
     assert data['source_hash'] == 'v1hash'
     # Max node mtime is 2026-03-01 (MyDep), which is before the v2 change at 2026-06-01.
-    # The snapshot therefore belongs to the Initial group (pre-change baseline).
-    # Initial group mtime = earliest registration across all classes = 2026-01-01.
-    assert data['version_mtime'] == '2026-01-01T00:00:00+00:00'
+    # The snapshot therefore belongs to the Initial group.
+    assert data['version_id'] == ctx.state.version_registry.versions[-1].version_id
 
 
 def test_api_code_resolve_dep_hash_missing(client) -> None:
@@ -340,8 +337,8 @@ def test_api_code_version_classes_initial_group(tmp_path: Path) -> None:
         ctx = _make_ready_ctx(VersionRegistry(registry))
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
-            # Initial group mtime = earliest registration = 2026-01-01
-            resp = flask_app.test_client().get('/api/code/version-classes?mtime=2026-01-01T00:00:00+00:00')
+            initial_id = ctx.state.version_registry.versions[-1].version_id
+            resp = flask_app.test_client().get(f'/api/code/version-classes?version_id={initial_id}')
     data = resp.get_json()
     assert len(data) == 1
     assert data[0]['source_hash'] == 'v1hash'
@@ -384,21 +381,24 @@ def test_api_code_diff_returns_unified_diff(tmp_path: Path) -> None:
     _write_code_snapshot(registry, 'bbb', 'MyLoader', 'class MyLoader:\n    x = 2\n')
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
         flask_app.config['TESTING'] = True
-        resp = flask_app.test_client().get('/api/code/diff?hash_a=aaa&hash_b=bbb')
+        ctx = _make_ready_ctx(VersionRegistry(registry))
+        with patch('pygeodata.registry_browser.web._ctx', ctx):
+            resp = flask_app.test_client().get('/api/code/diff?hash_old=aaa&hash_new=bbb')
     assert resp.status_code == 200
     data = resp.get_json()
-    assert 'diff' in data
-    assert '-    x = 1' in data['diff']
-    assert '+    x = 2' in data['diff']
+    assert 'hunks' in data
+    all_lines = [l for h in data['hunks'] for l in h['lines']]
+    assert any('x = 1' in l['text'] for l in all_lines if l['type'] == 'del')
+    assert any('x = 2' in l['text'] for l in all_lines if l['type'] == 'add')
 
 
 def test_api_code_diff_missing_params(client) -> None:
-    resp = client.get('/api/code/diff?hash_a=aaa')
+    resp = client.get('/api/code/diff?hash_old=aaa')
     assert resp.status_code == 400
 
 
 def test_api_code_diff_not_found(client, tmp_path: Path, app) -> None:
-    resp = client.get('/api/code/diff?hash_a=doesnotexist&hash_b=alsonotexist')
+    resp = client.get('/api/code/diff?hash_old=doesnotexist&hash_new=alsonotexist')
     assert resp.status_code == 404
 
 
@@ -408,10 +408,12 @@ def test_api_code_diff_identical_files(tmp_path: Path) -> None:
     _write_code_snapshot(registry, 'bbb', 'MyLoader', 'class MyLoader: pass\n')
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
         flask_app.config['TESTING'] = True
-        resp = flask_app.test_client().get('/api/code/diff?hash_a=aaa&hash_b=bbb')
+        ctx = _make_ready_ctx(VersionRegistry(registry))
+        with patch('pygeodata.registry_browser.web._ctx', ctx):
+            resp = flask_app.test_client().get('/api/code/diff?hash_old=aaa&hash_new=bbb')
     assert resp.status_code == 200
     data = resp.get_json()
-    assert data['diff'] == ''
+    assert data['hunks'] == []
 
 
 # --- /api/code/tree-diff ---
@@ -504,9 +506,10 @@ def test_api_code_tree_diff_returns_changes(tmp_path: Path) -> None:
     c = changes[0]
     assert c['class_name'] == 'MyLoader'
     assert c['status'] == 'changed'
-    assert c['diff'] is not None
-    assert '-    x = 1' in c['diff']
-    assert '+    x = 2' in c['diff']
+    assert c['hunks'] is not None
+    all_lines = [l for h in c['hunks'] for l in h['lines']]
+    assert any('x = 1' in l['text'] for l in all_lines if l['type'] == 'del')
+    assert any('x = 2' in l['text'] for l in all_lines if l['type'] == 'add')
 
 
 def test_api_code_tree_diff_sort_order(tmp_path: Path) -> None:

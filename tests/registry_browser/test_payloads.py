@@ -110,10 +110,10 @@ class _FakeSourceRegistry:
 
 class _FakeVersionRegistry:
     source_registry = _FakeSourceRegistry()
-    version_groups: list = []
-    dep_hash_to_mtime: dict = {}
+    versions: list = []
+    dep_hash_to_version: dict = {}
 
-    def version_mtime_for_dep_hash(self, dep_hash: str) -> str | None:
+    def version_for_dep_hash(self, dep_hash: str):
         return None
 
 

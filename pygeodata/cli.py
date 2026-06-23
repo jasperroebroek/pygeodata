@@ -1,3 +1,4 @@
+import dataclasses
 import importlib.util
 import json
 import shutil
@@ -16,10 +17,11 @@ from pygeodata.figure import Figure
 from pygeodata.paths import CachePathConstructor
 from pygeodata.registry import EntryRegistry, SourceRegistry, TreeRegistry
 from pygeodata.tracked_object import TrackedObject
-from pygeodata.versioning import VersionInfo, VersionRegistry
+from pygeodata.versioning import Version, VersionRegistry
 
 
 def _fmt_mtime(mtime: str) -> str:
+
     try:
         return datetime.fromisoformat(mtime).strftime('%Y-%m-%d %H:%M')
     except (ValueError, AttributeError):
@@ -322,21 +324,20 @@ def code_versions(registry_path: str | None, class_name: str | None, source_hash
 
     if source_hash:
         source_hash = _resolve_source_hash(vreg.source_registry, source_hash)
-        identity = vreg.version_mtime_for_source_hash(source_hash)
-        if identity is None:
+        match = vreg.version_for_source_hash(source_hash)
+        if match is None:
             raise click.ClickException(f'Hash {source_hash!r} not found.')
-        match = next((vi for vi in vreg.version_groups if vi.mtime == identity), None)
-        click.echo(match.label if match else 'unknown')
+        click.echo(vreg.label(match))
         return
 
-    if not vreg.version_groups:
+    if not vreg.versions:
         click.echo('No version groups found.')
         return
 
-    for vi in vreg.version_groups:
+    for vi in vreg.versions:
         if class_name and class_name not in vi.class_names:
             continue
-        click.echo(vi.label)
+        click.echo(vreg.label(vi))
 
 
 @code.command('source')
@@ -504,8 +505,8 @@ def _echo_source_by_class(
 # ---------------------------------------------------------------------------
 
 
-def _echo_version_group(vi: VersionInfo, vreg: VersionRegistry, full_hash: bool = False) -> None:
-    click.echo(click.style(vi.label, bold=True))
+def _echo_version_group(vi: Version, vreg: VersionRegistry, full_hash: bool = False) -> None:
+    click.echo(click.style(vreg.label(vi), bold=True))
 
     if vi.class_names:
         click.echo('  Classes')
@@ -513,7 +514,7 @@ def _echo_version_group(vi: VersionInfo, vreg: VersionRegistry, full_hash: bool 
         for cn, sh in zip(vi.class_names, vi.source_hashes):
             click.echo(f'    {cn:<{col}}  {_fmt_hash(sh, full_hash)}')
 
-    snapshot_hashes = sorted(dh for dh, identity in vreg.dep_hash_to_mtime.items() if identity == vi.mtime)
+    snapshot_hashes = sorted(vreg.dep_hashes_for_version(vi))
     tree_rows = []
     for dep_hash in snapshot_hashes:
         tree = vreg.tree_registry.get_snapshot_from_hash(dep_hash)
@@ -558,11 +559,11 @@ def versions_cmd(registry_path: str | None, full_hash: bool, class_name: str | N
             click.echo(f'  {change_marker} {_fmt_mtime(s.registered_at)}  {_fmt_hash(s.source_hash, full_hash)}')
         return
 
-    if not vreg.version_groups:
+    if not vreg.versions:
         click.echo('No version groups found.')
         return
 
-    for vi in vreg.version_groups:
+    for vi in vreg.versions:
         _echo_version_group(vi, vreg, full_hash=full_hash)
 
 
@@ -609,7 +610,7 @@ def snapshot_show(registry_path: str | None, full_hash: bool, dep_hash: str, as_
         raise click.ClickException(f'Dep hash {dep_hash!r} not found.')
 
     if as_json:
-        click.echo(json.dumps(tree.to_dict(), indent=4))
+        click.echo(json.dumps(dataclasses.asdict(tree), indent=4))
         return
 
     click.echo(f'Root       {tree.root_class or "?"}')
@@ -644,10 +645,9 @@ def snapshot_version(registry_path: str | None, dep_hash: str) -> None:
     if tree is None:
         raise click.ClickException(f'Dep hash {dep_hash!r} not found.')
 
-    identity = vreg.version_mtime_for_dep_hash(dep_hash)
-    match = next((vi for vi in vreg.version_groups if vi.mtime == identity), None)
+    match = vreg.version_for_dep_hash(dep_hash)
     if match:
-        click.echo(match.label)
+        click.echo(vreg.label(match))
         click.echo()
         click.echo(f'Classes  {", ".join(match.class_names)}')
     else:
@@ -679,16 +679,16 @@ def entry(ctx: click.Context, do_import: bool, verbose_import: bool, full_hash: 
     ctx.obj['full_hash'] = full_hash
 
 
-def _stale_indicator(rec) -> str:
+def _stale_indicator(rec, vreg: VersionRegistry | None = None) -> str:
     """Single-char staleness marker: S=dep stale, F=format stale, blank=ok."""
     if rec.format_version != FORMAT_VERSION:
         return 'F'
-    if rec.dep_hash:
+    if rec.dependency_tree_hash:
         obj_cls = TrackedObject.find_object_class(rec.class_name)
         if obj_cls is not None:
-            dep_stale = obj_cls.get_dependency_tree_hash() != rec.dep_hash
+            dep_stale = obj_cls.get_dependency_tree_hash() != rec.dependency_tree_hash
         else:
-            dep_stale = VersionRegistry().is_dep_hash_stale(rec.dep_hash)
+            dep_stale = (vreg or VersionRegistry()).is_dep_hash_stale(rec.dependency_tree_hash)
         if dep_stale:
             return 'S'
     return ' '
@@ -756,11 +756,12 @@ def entry_list(ctx: click.Context, class_name: str | None, hide_stale: bool, ful
         click.echo('No entries found.')
         return
 
+    vreg = VersionRegistry()
     rows = []
     for state_hash, rec in sorted(records.items(), key=lambda kv: (kv[1].class_name or '', kv[0])):
         if class_name and rec.class_name != class_name:
             continue
-        stale = _stale_indicator(rec)
+        stale = _stale_indicator(rec, vreg)
         if hide_stale and stale.strip():
             continue
         spec_raw = _read_json(CachePathConstructor.from_path(Path(rec.hash_path)).spec_path if rec.hash_path else None)
@@ -825,8 +826,8 @@ def entry_show(ctx: click.Context, hash_prefix: str, show_params: bool, full_has
     click.echo(f'State hash   {_fmt_hash(state_hash, full_hash)}')
     if rec.instance_hash:
         click.echo(f'Instance     {_fmt_hash(rec.instance_hash, full_hash)}')
-    if rec.dep_hash:
-        click.echo(f'Dep hash     {_fmt_hash(rec.dep_hash, full_hash)}')
+    if rec.dependency_tree_hash:
+        click.echo(f'Dep hash     {_fmt_hash(rec.dependency_tree_hash, full_hash)}')
     click.echo(f'Staleness    {stale_label}')
 
     spatial = _spec_info_from_raw(spec)

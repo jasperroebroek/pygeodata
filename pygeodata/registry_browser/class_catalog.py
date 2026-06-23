@@ -120,14 +120,14 @@ def merge_unloaded_classes(
             # Find the most recently versioned entry's dep_hash; older entries
             # legitimately have stale dep trees (they predate a code change).
             best_dep_hash: str | None = None
-            best_mtime: str | None = None
+            best_version = None
             for rid in entry_registry.get_state_hashes(class_name):
                 entry = entries.get(rid)
                 if entry is None or not entry.dep_hash:
                     continue
-                vm = version_registry.version_mtime_for_dep_hash(entry.dep_hash)
-                if vm is not None and (best_mtime is None or vm > best_mtime):
-                    best_mtime = vm
+                v = version_registry.version_for_dep_hash(entry.dep_hash)
+                if v is not None and (best_version is None or v > best_version):
+                    best_version = v
                     best_dep_hash = entry.dep_hash
             if best_dep_hash is not None:
                 deps_stale = version_registry.is_dep_hash_stale(best_dep_hash)

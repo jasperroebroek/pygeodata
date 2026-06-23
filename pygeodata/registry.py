@@ -166,6 +166,11 @@ class TreeRegistry:
         """Return the TreeSnapshot for dep_hash, or None if absent."""
         return self._hash_index.get(dependency_hash)
 
+    def get_class_source_hash(self, dependency_hash: str, class_name: str) -> str | None:
+        """Return the source_hash for class_name within the snapshot for dep_hash, or None."""
+        snapshot = self._hash_index.get(dependency_hash)
+        return snapshot.get_source_hash(class_name) if snapshot is not None else None
+
     def get_nodes(self, dependency_hash: str) -> dict[str, dict] | None:
         """Return the nodes dict for dep_hash, or None if tree is absent."""
         tree = self._hash_index.get(dependency_hash)

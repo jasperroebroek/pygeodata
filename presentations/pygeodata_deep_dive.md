@@ -127,9 +127,9 @@ The spec participates in the **state hash**: the same class + same params proces
 
 ---
 
-## Slide 4 — Hashing: Three Levels
+## Slide 4 — Hashing: Four Levels
 
-pygeodata maintains three nested levels of identity.
+pygeodata maintains four nested levels of identity.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -383,7 +383,7 @@ Each worker acquires its own file lock on the output directory. The file-lock-th
 
 ## Slide 13 — The Registry Browser
 
-`pygeodata serve` launches a local web server exposing a dashboard that shows the full state of a project's cache and source registry.
+`pygeodata browse` launches a local web server exposing a dashboard that shows the full state of a project's cache and source registry.
 
 **Classes view** — all `TrackedObject` subclasses found in the registry, with staleness indicators:
 

@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from enum import StrEnum
+from functools import lru_cache
 from pathlib import Path
-from typing import Any, NamedTuple, Self
+from typing import TYPE_CHECKING, Any, NamedTuple
+
+if TYPE_CHECKING:
+    from pyproj import CRS
 
 
 class BoundingBox(NamedTuple):
@@ -62,15 +67,23 @@ def format_resolution(resolution: Any, crs: Any) -> str | None:
         return str(resolution)
 
 
+@lru_cache(maxsize=32)
+def _get_transformer(crs_wkt: str):
+    from pyproj import CRS, Transformer
+
+    crs_obj = CRS.from_user_input(crs_wkt)
+    return Transformer.from_crs(crs_obj, 'EPSG:4326', always_xy=True)
+
+
 def compute_bounds_latlon(
     bounds: Any,
-    crs: Any,
+    crs: CRS | str,
 ) -> tuple[float, float, float, float] | None:
     """Reproject a native bounding box to (lat_min, lon_min, lat_max, lon_max).
 
     Returns None if the inputs are missing or the projection fails.
     """
-    from pyproj import CRS, Transformer
+    from pyproj import CRS
     from pyproj.exceptions import ProjError
 
     if not bounds or not crs:
@@ -80,7 +93,8 @@ def compute_bounds_latlon(
         if not coords or len(coords) != 4:
             return None
 
-        t = Transformer.from_crs(crs if isinstance(crs, CRS) else CRS.from_user_input(crs), 'EPSG:4326', always_xy=True)
+        crs_key = crs.to_wkt() if isinstance(crs, CRS) else crs
+        t = _get_transformer(crs_key)
         xmin, ymin, xmax, ymax = coords
         lon_min, lat_min = t.transform(xmin, ymin)
         lon_max, lat_max = t.transform(xmax, ymax)
@@ -170,18 +184,22 @@ class SpatialSpec:
         return cls(crs=crs, transform=transform, shape=tuple(shape) if shape else None)
 
     @classmethod
-    def from_raster_file(cls, path: str | Path) -> Self:
+    def from_raster_file(cls, path: str | Path) -> SpatialSpec:
         import rasterio as rio
 
         with rio.open(path) as src:
             return cls(crs=src.crs, transform=src.transform, shape=src.shape)
 
     @classmethod
-    def from_shape_file(cls, path: str | Path) -> Self:
+    def from_shape_file(cls, path: str | Path) -> SpatialSpec:
         import fiona
 
         with fiona.open(path) as src:
             return cls(crs=src.crs)
+
+    @classmethod
+    def from_file(cls, path: str | Path) -> SpatialSpec:
+        return cls.from_dict(json.loads(Path(path).read_text(encoding='utf-8')))
 
     def __repr__(self):
         transform_str = (

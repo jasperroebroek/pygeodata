@@ -4,11 +4,62 @@ import dataclasses
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
 from typing import Self
 
 from pygeodata.config import FORMAT_VERSION
 from pygeodata.paths import CachePathConstructor
+
+
+class ChangeStatus(str, Enum):
+    """Classification of a class's state between two adjacent version groups."""
+
+    ADDED = 'added'
+    CHANGED = 'changed'
+    REMOVED = 'removed'
+    UNCHANGED = 'unchanged'
+
+
+@dataclass(frozen=True)
+class CodeEvent:
+    """A class-level code event: first appearance, change, removal, or no-change.
+
+    state_new is None for REMOVED; state_old is None for ADDED.
+    """
+
+    state_new: CodeState | None
+    state_old: CodeState | None
+
+    def __post_init__(self):
+        if self.state_new is None and self.state_old is None:
+            raise ValueError('CodeEvent must have at least one state')
+
+    @property
+    def class_name(self) -> str:
+        return (self.state_new or self.state_old).class_name
+
+    @property
+    def mtime(self) -> str:
+        return (self.state_new or self.state_old).registered_at
+
+    @property
+    def status(self) -> ChangeStatus:
+        if self.state_old is None:
+            return ChangeStatus.ADDED
+        if self.state_new is None:
+            return ChangeStatus.REMOVED
+        if self.state_old.source_hash == self.state_new.source_hash:
+            return ChangeStatus.UNCHANGED
+        return ChangeStatus.CHANGED
+
+    def to_dict(self) -> dict:
+        return {
+            'class_name': self.class_name,
+            'status': self.status.value,
+            'hash_old': self.state_old.source_hash if self.state_old else None,
+            'hash_new': self.state_new.source_hash if self.state_new else None,
+        }
 
 
 @dataclass

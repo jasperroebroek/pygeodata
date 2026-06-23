@@ -134,8 +134,8 @@ class TrackedObject:
                 }
                 for name in names
             },
-            'call_edges': [[s, t] for s, t in call_edges],
-            'inheritance_edges': [[s, t] for s, t in inheritance_edges],
+            'call_edges': sorted([s, t] for s, t in call_edges),
+            'inheritance_edges': sorted([s, t] for s, t in inheritance_edges),
         }
 
     @classmethod

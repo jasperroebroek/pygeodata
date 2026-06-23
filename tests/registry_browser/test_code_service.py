@@ -115,11 +115,15 @@ def test_tree_diff_changed(tmp_path: Path):
     c = changes[0]
     assert c['status'] == 'changed'
     assert c['class_name'] == 'MyLoader'
-    assert c['diff'] is not None
-    assert '-    x = 1' in c['diff']
-    assert '+    x = 2' in c['diff']
-    assert c['full_a'] == 'class MyLoader:\n    x = 1\n'
-    assert c['full_b'] == 'class MyLoader:\n    x = 2\n'
+    assert c['hunks'] is not None
+    assert len(c['hunks']) > 0
+    all_lines = [line for hunk in c['hunks'] for line in hunk['lines']]
+    del_texts = [l['text'] for l in all_lines if l['type'] == 'del']
+    add_texts = [l['text'] for l in all_lines if l['type'] == 'add']
+    assert any('x = 1' in t for t in del_texts)
+    assert any('x = 2' in t for t in add_texts)
+    assert c['full_old'] == 'class MyLoader:\n    x = 1\n'
+    assert c['full_new'] == 'class MyLoader:\n    x = 2\n'
 
 
 def test_tree_diff_added(tmp_path: Path):
@@ -185,4 +189,4 @@ def test_tree_diff_unchanged(tmp_path: Path):
 
     c = result['changes'][0]
     assert c['status'] == 'unchanged'
-    assert c['diff'] is None
+    assert c['hunks'] is None
