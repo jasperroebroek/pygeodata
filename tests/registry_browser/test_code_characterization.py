@@ -21,7 +21,7 @@ from unittest.mock import patch
 import pytest
 
 from pygeodata.config import JSONKeys, set_config
-from pygeodata.registry import SourceRegistry
+from pygeodata.versioning import VersionRegistry
 from pygeodata.registry_browser.state import AppContext, AppState
 from pygeodata.registry_browser.web import app as flask_app
 # ---------------------------------------------------------------------------
@@ -54,16 +54,14 @@ def _write_code_snapshot(
 
 
 class _FakeEntryRegistry:
-    def __init__(self, groups=None):
-        self.groups = groups or {}
+    def get_state_hashes(self, class_name: str) -> list[str]:
+        return []
+
+    def get_object_type(self, class_name: str) -> str | None:
+        return None
 
 
-class _FakeVersionRegistry:
-    def __init__(self, code_groups=None):
-        self.code_groups = code_groups or {}
-
-
-def _make_ready_ctx(code_groups=None):
+def _make_ready_ctx(version_registry: VersionRegistry | None = None):
     ctx = AppContext()
     ctx.state = AppState(
         classes={},
@@ -71,7 +69,7 @@ def _make_ready_ctx(code_groups=None):
         diagnostics={},
         spec_options={},
         entry_registry=_FakeEntryRegistry(),
-        version_registry=_FakeVersionRegistry(code_groups),
+        version_registry=version_registry if version_registry is not None else VersionRegistry(),
     )
     ctx.ready.set()
     return ctx
@@ -173,8 +171,8 @@ def sample_ctx(sample_registry):
         path_figures=tmp_path / 'figs',
         path_registry=registry,
     ):
-        reg = SourceRegistry(registry)
-        yield _make_ready_ctx(code_groups=reg.code_groups_dict()), tmp_path, registry
+        vreg = VersionRegistry(registry)
+        yield _make_ready_ctx(vreg), tmp_path, registry
 
 
 # ===========================================================================
@@ -206,9 +204,6 @@ def test_first_entry_is_change_group(sample_ctx):
     first = data[0]
     # The change group carries the v2hash registration time
     assert first['mtime'] == '2026-06-01T00:00:00+00:00'
-    assert first['cutoff_mtime'] == 'now'
-    assert first['cutoff_exclusive'] is False
-    # Newest-first group shows all classes
     assert 'MyLoader' in first['class_names']
     assert 'v1' in first['label']
 
@@ -222,12 +217,7 @@ def test_second_entry_is_initial_group(sample_ctx):
 
     data = resp.get_json()
     initial = data[1]
-    assert initial['cutoff_exclusive'] is True
-    # cutoff is the oldest version-change event (2026-06-01)
-    assert initial['cutoff_mtime'] == '2026-06-01T00:00:00+00:00'
     assert 'Initial' in initial['label']
-    # Only classes with a registration before the first change are in initial_class_names
-    # MyLoader v1 and MyDep dep1 both predate the June change
     assert 'MyLoader' in initial['class_names']
     assert 'MyDep' in initial['class_names']
 
@@ -240,7 +230,7 @@ def test_full_payload_shape(sample_ctx):
         with patch('pygeodata.registry_browser.web._ctx', ctx):
             resp = flask_app.test_client().get('/api/code/versions')
 
-    required_keys = {'mtime', 'class_names', 'label', 'cutoff_mtime', 'cutoff_exclusive'}
+    required_keys = {'mtime', 'class_names', 'label', 'version_id'}
     for entry in resp.get_json():
         assert required_keys <= set(entry.keys()), f'missing keys in {entry}'
 
@@ -251,7 +241,7 @@ def test_full_payload_shape(sample_ctx):
 
 
 def test_pre_change_snapshot_maps_to_initial(sample_ctx):
-    """snapshot_pre max mtime = 2026-03-01 (MyDep), before the June change → 'initial'."""
+    """snapshot_pre max mtime = 2026-03-01 (MyDep), before the June change → Initial group."""
     ctx, tmp_path, registry = sample_ctx
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
         flask_app.config['TESTING'] = True
@@ -262,13 +252,13 @@ def test_pre_change_snapshot_maps_to_initial(sample_ctx):
 
     assert resp.status_code == 200
     data = resp.get_json()
-    # snapshot_pre uses v1hash (Initial state) → version_mtime is the Initial group's mtime
     assert data['source_hash'] == 'v1hash'
-    assert data['version_mtime'] == '2026-01-01T00:00:00+00:00'
+    # snapshot_pre nodes are pre-change → assigned to the Initial group
+    assert data['version_id'] == ctx.state.version_registry.versions[-1].version_id
 
 
-def test_post_change_snapshot_maps_to_change_mtime(sample_ctx):
-    """snapshot_post max mtime = 2026-06-01 (MyLoader v2), equal to the change → 'now' group."""
+def test_post_change_snapshot_maps_to_v1(sample_ctx):
+    """snapshot_post max mtime = 2026-06-01 (MyLoader v2), equal to the change → v1 group."""
     ctx, tmp_path, registry = sample_ctx
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
         flask_app.config['TESTING'] = True
@@ -280,13 +270,11 @@ def test_post_change_snapshot_maps_to_change_mtime(sample_ctx):
     assert resp.status_code == 200
     data = resp.get_json()
     assert data['source_hash'] == 'v2hash'
-    # max mtime equals the cutoff of the newest group (cutoff_mtime='now', ≤ included),
-    # so it resolves to the newest group's mtime
-    assert data['version_mtime'] == '2026-06-01T00:00:00+00:00'
+    assert data['version_id'] == ctx.state.version_registry.versions[0].version_id
 
 
 def test_dep_class_not_clicked_but_drives_window(sample_ctx):
-    """Asking for MyDep on snapshot_pre: source_hash=dep1hash, version still initial."""
+    """Asking for MyDep on snapshot_pre: source_hash=dep1hash, version still Initial."""
     ctx, tmp_path, registry = sample_ctx
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
         flask_app.config['TESTING'] = True
@@ -298,8 +286,7 @@ def test_dep_class_not_clicked_but_drives_window(sample_ctx):
     assert resp.status_code == 200
     data = resp.get_json()
     assert data['source_hash'] == 'dep1hash'
-    # snapshot_pre uses dep1hash (Initial state) → version_mtime is the Initial group's mtime
-    assert data['version_mtime'] == '2026-01-01T00:00:00+00:00'
+    assert data['version_id'] == ctx.state.version_registry.versions[-1].version_id
 
 
 def test_payload_has_exactly_two_keys(sample_ctx):
@@ -312,7 +299,7 @@ def test_payload_has_exactly_two_keys(sample_ctx):
             )
 
     data = resp.get_json()
-    assert set(data.keys()) == {'version_mtime', 'source_hash'}
+    assert set(data.keys()) == {'version_id', 'source_hash'}
 
 
 # ===========================================================================
@@ -353,11 +340,12 @@ def test_changed_class_payload(sample_ctx):
     assert statuses['MyDep'] == 'unchanged'
 
     loader_change = next(c for c in changes if c['class_name'] == 'MyLoader')
-    assert loader_change['diff'] is not None
-    assert '-    x = 1' in loader_change['diff']
-    assert '+    x = 2' in loader_change['diff']
-    assert loader_change['full_a'] == 'class MyLoader:\n    x = 1\n'
-    assert loader_change['full_b'] == 'class MyLoader:\n    x = 2\n'
+    assert loader_change['hunks'] is not None
+    all_lines = [l for h in loader_change['hunks'] for l in h['lines']]
+    assert any('x = 1' in l['text'] for l in all_lines if l['type'] == 'del')
+    assert any('x = 2' in l['text'] for l in all_lines if l['type'] == 'add')
+    assert loader_change['full_old'] == 'class MyLoader:\n    x = 1\n'
+    assert loader_change['full_new'] == 'class MyLoader:\n    x = 2\n'
 
 
 def test_unchanged_class_diff_is_none(sample_ctx):
@@ -372,7 +360,7 @@ def test_unchanged_class_diff_is_none(sample_ctx):
 
     changes = resp.get_json()['changes']
     dep_change = next(c for c in changes if c['class_name'] == 'MyDep')
-    assert dep_change == {'class_name': 'MyDep', 'status': 'unchanged', 'diff': None}
+    assert dep_change == {'class_name': 'MyDep', 'status': 'unchanged', 'hunks': None}
 
 
 def test_sort_order_changed_before_unchanged(sample_ctx):
@@ -422,7 +410,7 @@ def test_top_level_keys_when_changes_present(sample_ctx):
 
 
 def test_changed_entry_keys(sample_ctx):
-    """A 'changed' entry must carry class_name, status, diff, full_a, full_b."""
+    """A 'changed' entry must carry class_name, status, diff, full_old, full_new."""
     ctx, tmp_path, registry = sample_ctx
     entry = _make_entry('rec1', 'snapshot_pre')
     ctx.state.entries = {'rec1': entry}
@@ -434,4 +422,4 @@ def test_changed_entry_keys(sample_ctx):
 
     changes = resp.get_json()['changes']
     changed = next(c for c in changes if c['status'] == 'changed')
-    assert set(changed.keys()) == {'class_name', 'status', 'diff', 'full_a', 'full_b'}
+    assert set(changed.keys()) == {'class_name', 'status', 'hunks', 'full_old', 'full_new'}

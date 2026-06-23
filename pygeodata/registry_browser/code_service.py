@@ -6,131 +6,189 @@ result.  No Flask imports here.
 
 from __future__ import annotations
 
-from difflib import unified_diff
+from difflib import SequenceMatcher, unified_diff
 
 from pygeodata.hash import calculate_cls_source_hash
-from pygeodata.paths import CodeRegistryResolver
-from pygeodata.registry_browser.io_utils import read_text
+from pygeodata.paths import CodeRegistryConstructor
+from pygeodata.registry_browser.models import CodeClassState
 from pygeodata.registry_browser.popups import render_source_html
 from pygeodata.tracked_object import TrackedObject
 from pygeodata.versioning import VersionRegistry
 
 
-def resolve_dep_hash(dep_hash: str, class_name: str) -> dict | None:
-    """Return {'version_mtime': ..., 'source_hash': ...} or None if not found.
+def _word_segments(text_old: str, text_new: str) -> tuple[list[dict], list[dict]]:
+    """Compute word-level diff segments for a paired del/add line.
 
-    None signals a 404; callers should abort(404).
+    Returns (segments_old, segments_new) where each segment is
+    {'type': 'eq'|'del'|'ins', 'text': str}.
     """
-    vreg = VersionRegistry.instance()
-    tree = vreg.tree_registry.get_snapshot(dep_hash)
-    if tree is None:
-        return None
+    def tokenise(s: str) -> list[str]:
+        import re
+        return re.findall(r'\w+|\W', s)
 
-    source_hash = tree.get_source_hash(class_name)
-    if not source_hash:
-        return None
+    tokens_old = tokenise(text_old)
+    tokens_new = tokenise(text_new)
+    matcher = SequenceMatcher(None, tokens_old, tokens_new, autojunk=False)
+    segs_old: list[dict] = []
+    segs_new: list[dict] = []
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        old_text = ''.join(tokens_old[i1:i2])
+        new_text = ''.join(tokens_new[j1:j2])
+        if tag == 'equal':
+            segs_old.append({'type': 'eq', 'text': old_text})
+            segs_new.append({'type': 'eq', 'text': new_text})
+        elif tag == 'replace':
+            segs_old.append({'type': 'del', 'text': old_text})
+            segs_new.append({'type': 'ins', 'text': new_text})
+        elif tag == 'delete':
+            segs_old.append({'type': 'del', 'text': old_text})
+        elif tag == 'insert':
+            segs_new.append({'type': 'ins', 'text': new_text})
+    return segs_old, segs_new
 
-    version_mtime = vreg.version_mtime_for_dep_hash(dep_hash)
-    return {'version_mtime': version_mtime, 'source_hash': source_hash}
 
+def _build_structured_hunks(text_old: str, text_new: str) -> list[dict]:
+    """Parse a unified diff into structured hunks with line numbers and word segments.
 
-def version_classes(version_mtime: str, vreg: VersionRegistry | None = None) -> list[dict]:
-    """Return per-class best CodeState as of the given version group, with live staleness.
-
-    Pass a VersionInfo.mtime to select that group, or 'now' for the newest group.
+    Each hunk: {header, start_old, start_new, lines: [...]}.
+    Each line: {type, text, line_old, line_new, segments?}.
+    Paired del/add lines (a del immediately followed by an add) get word segments.
     """
-    if vreg is None:
-        vreg = VersionRegistry.instance()
+    raw_diff = ''.join(
+        unified_diff(
+            text_old.splitlines(keepends=True),
+            text_new.splitlines(keepends=True),
+            fromfile='old',
+            tofile='new',
+        )
+    )
+
+    hunks: list[dict] = []
+    current_hunk: dict | None = None
+    line_old = 0
+    line_new = 0
+
+    for raw in raw_diff.splitlines():
+        if raw.startswith('--- ') or raw.startswith('+++ '):
+            continue
+        if raw.startswith('@@'):
+            import re
+            m = re.match(r'@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@', raw)
+            line_old = int(m.group(1)) if m else 1
+            line_new = int(m.group(2)) if m else 1
+            current_hunk = {'header': raw, 'start_old': line_old, 'start_new': line_new, 'lines': []}
+            hunks.append(current_hunk)
+        elif current_hunk is not None:
+            if raw.startswith('+'):
+                current_hunk['lines'].append({'type': 'add', 'text': raw[1:], 'line_old': None, 'line_new': line_new})
+                line_new += 1
+            elif raw.startswith('-'):
+                current_hunk['lines'].append({'type': 'del', 'text': raw[1:], 'line_old': line_old, 'line_new': None})
+                line_old += 1
+            elif raw != '\\ No newline at end of file':
+                current_hunk['lines'].append({'type': 'ctx', 'text': raw[1:], 'line_old': line_old, 'line_new': line_new})
+                line_old += 1
+                line_new += 1
+
+    # Pair consecutive del+add lines and add word segments
+    for hunk in hunks:
+        lines = hunk['lines']
+        i = 0
+        while i < len(lines):
+            if lines[i]['type'] == 'del':
+                # Collect run of dels then run of adds
+                j = i
+                while j < len(lines) and lines[j]['type'] == 'del':
+                    j += 1
+                k = j
+                while k < len(lines) and lines[k]['type'] == 'add':
+                    k += 1
+                dels = lines[i:j]
+                adds = lines[j:k]
+                pairs = min(len(dels), len(adds))
+                for p in range(pairs):
+                    segs_old, segs_new = _word_segments(dels[p]['text'], adds[p]['text'])
+                    dels[p]['segments'] = segs_old
+                    adds[p]['segments'] = segs_new
+                i = k
+            else:
+                i += 1
+
+    return hunks
+
+
+def version_classes(version_id: str, vreg: VersionRegistry) -> list[CodeClassState]:
+    """Return per-class CodeState at the given version, annotated with live staleness.
+
+    Pass a Version.version_id to select that group, or '' for the newest group.
+    """
     src = vreg.source_registry
-
-    if version_mtime == 'now':
-        vi = vreg.version_groups[0] if vreg.version_groups else None
-    else:
-        vi = next((v for v in vreg.version_groups if v.mtime == version_mtime), None)
-
+    vi = vreg.version_by_id(version_id) if version_id else (vreg.versions[0] if vreg.versions else None)
     if vi is None:
         return []
 
-    groups = vreg.version_groups
-    vi_idx = groups.index(vi)
-    is_newest = vi_idx == 0
-    # Upper bound: the group newer than vi (exclusive), or None for the newest group.
-    # A class is visible in vi's window if it was registered before the next (newer) group's change.
-    upper = groups[vi_idx - 1].mtime if vi_idx > 0 else None
-
+    snap = vreg.class_snapshot_at_version(vi)
     result = []
     for class_name in sorted(src.class_names):
-        states = sorted(src.get_states(class_name), key=lambda s: s.registered_at)
-        if is_newest:
-            candidates = states
-        elif upper is not None:
-            candidates = [s for s in states if s.registered_at < upper]
-        else:
-            candidates = states
-        best = candidates[-1] if candidates else None
+        source_hash = snap.get(class_name)
+        if source_hash is None:
+            continue
+        best = next((s for s in src.get_states(class_name) if s.source_hash == source_hash), None)
         if best is None:
             continue
         cls = TrackedObject.find_object_class(class_name)
         is_loaded = cls is not None
-        is_stale = is_loaded and calculate_cls_source_hash(cls) != best.source_hash
-        result.append(
-            {
-                'class_name': class_name,
-                'object_type': best.object_type,
-                'source_hash': best.source_hash,
-                'is_loaded': is_loaded,
-                'is_stale': is_stale,
-            },
-        )
+        is_stale = is_loaded and calculate_cls_source_hash(cls) != source_hash
+        result.append(CodeClassState(
+            class_name=class_name,
+            object_type=best.object_type,
+            source_hash=source_hash,
+            is_loaded=is_loaded,
+            is_stale=is_stale,
+        ))
     return result
 
 
-def snapshot_html(source_hash: str, state_code_groups: dict | None) -> dict | None:
+def snapshot_html(source_hash: str, vreg: VersionRegistry) -> dict | None:
     """Return {'class_name': ..., 'html': ...} for the given source hash.
 
     Returns None if the snapshot is not found (caller should abort(404)).
     """
-    vreg = VersionRegistry.instance()
-    source_text = vreg.source_registry.get_source(source_hash)
+    src = vreg.source_registry
+    source_text = src.get_source(source_hash)
     if source_text is None:
         return None
 
-    state = vreg.source_registry.get_state_by_hash(source_hash)
-    class_name = state.class_name if state else ''
-    known_classes = frozenset(TrackedObject._registry.keys()) | frozenset(
-        (state_code_groups or {}).keys(),
-    )
+    class_name = src.get_class_name_from_hash(source_hash)
+    known_classes = frozenset(TrackedObject._registry.keys()) | frozenset(src.class_names)
     html_body = render_source_html(source_text, known_classes, class_name)
     return {'class_name': class_name, 'html': html_body}
 
 
-def diff_hashes(hash_a: str, hash_b: str, full: bool) -> dict | None:
-    """Return {'diff': ..., ['full_a': ..., 'full_b': ...]} or None if either file is missing."""
-    text_a = read_text(CodeRegistryResolver.from_source_hash(hash_a).source_path)
-    text_b = read_text(CodeRegistryResolver.from_source_hash(hash_b).source_path)
-    if text_a is None or text_b is None:
+def diff_hashes(hash_old: str, hash_new: str, full: bool, vreg: VersionRegistry) -> dict | None:
+    """Return structured diff payload or None if either file is missing.
+
+    Returns {'hunks': [...], 'full_old'?: str, 'full_new'?: str}.
+    """
+    src = vreg.source_registry
+    text_old = src.get_source(hash_old)
+    text_new = src.get_source(hash_new)
+    if text_old is None or text_new is None:
         return None
 
-    diff = ''.join(
-        unified_diff(
-            text_a.splitlines(keepends=True),
-            text_b.splitlines(keepends=True),
-            fromfile=hash_a[:8],
-            tofile=hash_b[:8],
-        ),
-    )
-    result: dict = {'diff': diff}
+    result: dict = {'hunks': _build_structured_hunks(text_old, text_new)}
     if full:
-        result['full_a'] = text_a
-        result['full_b'] = text_b
+        result['full_old'] = text_old
+        result['full_new'] = text_new
     return result
 
 
 def unified_diff_payload(
-    hash_a: str,
-    hash_b: str,
+    hash_old: str,
+    hash_new: str,
     full: bool,
     assert_allowed_path: callable,
+    vreg: VersionRegistry,
 ) -> dict | None:
     """HTTP-boundary wrapper around diff_hashes that enforces the path guard.
 
@@ -138,12 +196,12 @@ def unified_diff_payload(
     the security check provably on the HTTP boundary for user-facing diffs.
     Returns None when either source file does not exist (caller should abort(404)).
     """
-    assert_allowed_path(str(CodeRegistryResolver.from_source_hash(hash_a).source_path))
-    assert_allowed_path(str(CodeRegistryResolver.from_source_hash(hash_b).source_path))
-    return diff_hashes(hash_a, hash_b, full)
+    assert_allowed_path(str(CodeRegistryConstructor.from_source_hash(hash_old).source_path))
+    assert_allowed_path(str(CodeRegistryConstructor.from_source_hash(hash_new).source_path))
+    return diff_hashes(hash_old, hash_new, full, vreg)
 
 
-def tree_diff(record_id: str, entries: dict, code_groups: dict[str, list[dict]]) -> dict:
+def tree_diff(record_id: str, entries: dict, vreg: VersionRegistry) -> dict:
     """Compare the stored dep tree for an entry against the live code registry.
 
     Returns the jsonifiable response dict.  Never raises — errors are encoded
@@ -157,17 +215,14 @@ def tree_diff(record_id: str, entries: dict, code_groups: dict[str, list[dict]])
     if not dep_hash:
         return {'error': 'no_snapshot', 'message': 'Snapshot not available for this entry'}
 
-    vreg = VersionRegistry.instance()
-    stored_tree = vreg.tree_registry.get_snapshot(dep_hash)
+    stored_tree = vreg.tree_registry.get_snapshot_from_hash(dep_hash)
     if stored_tree is None:
         return {'error': 'no_snapshot', 'message': 'Snapshot not available for this entry'}
 
-    live_nodes: dict[str, str] = {}
-    for class_name, class_entries in code_groups.items():
-        if not class_entries:
-            continue
-        best = max(class_entries, key=lambda e: e['mtime'])
-        live_nodes[class_name] = best['source_hash']
+    src = vreg.source_registry
+    live_nodes: dict[str, str] = {
+        cn: s.source_hash for cn in src.class_names if (s := src.get_latest_state_for_class(cn)) is not None
+    }
 
     changes = []
     all_classes = set(stored_tree.nodes.keys()) | set(live_nodes.keys())
@@ -178,29 +233,25 @@ def tree_diff(record_id: str, entries: dict, code_groups: dict[str, list[dict]])
 
         if stored_hash and live_hash:
             if stored_hash == live_hash:
-                changes.append({'class_name': class_name, 'status': 'unchanged', 'diff': None})
+                changes.append({'class_name': class_name, 'status': 'unchanged', 'hunks': None})
             else:
-                payload = diff_hashes(stored_hash, live_hash, full=True)
+                payload = diff_hashes(stored_hash, live_hash, full=True, vreg=vreg)
                 if payload is not None:
-                    changes.append(
-                        {
-                            'class_name': class_name,
-                            'status': 'changed',
-                            'diff': payload['diff'],
-                            'full_a': payload.get('full_a'),
-                            'full_b': payload.get('full_b'),
-                        },
-                    )
+                    changes.append({
+                        'class_name': class_name,
+                        'status': 'changed',
+                        'hunks': payload['hunks'],
+                        'full_old': payload.get('full_old'),
+                        'full_new': payload.get('full_new'),
+                    })
                 else:
-                    changes.append(
-                        {
-                            'class_name': class_name,
-                            'status': 'changed',
-                            'diff': None,
-                            'full_a': None,
-                            'full_b': None,
-                        },
-                    )
+                    changes.append({
+                        'class_name': class_name,
+                        'status': 'changed',
+                        'hunks': None,
+                        'full_old': None,
+                        'full_new': None,
+                    })
         elif stored_hash and not live_hash:
             changes.append({'class_name': class_name, 'status': 'removed', 'source_hash': stored_hash})
         else:

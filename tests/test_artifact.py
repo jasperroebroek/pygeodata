@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from pygeodata.config import JSONKeys, set_config
+from pygeodata.config import JSONKeys
 from pygeodata.spec import SpatialSpec
 from tests.fixtures.data import (
     DummyLoader,
@@ -15,9 +15,6 @@ from tests.fixtures.data import (
     USGSElevationLoader,
     XMLHTTPLoader,
 )
-
-
-
 
 
 def test_artifact_initialization() -> None:
@@ -200,10 +197,8 @@ def test_yielded_loaders_get_parameters_written(
     multi_output_data_loader: MultiOutputLoader,
 ) -> None:
     multi_output_data_loader.process(sample_spatial_spec)
-    path = multi_output_data_loader.loader_1.get_processed_path(sample_spatial_spec)
-    assert (path.parent / f'.{path.stem}.params.json').exists()
-    path = multi_output_data_loader.get_processed_path(sample_spatial_spec)
-    assert (path.parent / f'.{path.stem}.params.json').exists()
+    assert multi_output_data_loader.loader_1.resolve_cache_paths(sample_spatial_spec).params_path.exists()
+    assert multi_output_data_loader.resolve_cache_paths(sample_spatial_spec).params_path.exists()
 
 
 def test_resolve_spec_raises_when_no_spec() -> None:
@@ -281,7 +276,6 @@ def test_process_prints_cache_invalid_message(
 ) -> None:
     loader = SampleLoader(path=sample_geotiff)
     loader.process(sample_spatial_spec)
-    # Overwrite hash file with a stale hash to simulate invalidation
     loader.resolve_cache_paths(sample_spatial_spec).state_hash_path.write_text(
         json.dumps({JSONKeys.STATE_HASH: 'stale', JSONKeys.DEPENDENCY_TREE_HASH: 'stale'}),
     )

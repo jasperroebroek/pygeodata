@@ -10,7 +10,6 @@ from pygeodata.registry_browser.models import (
     ParamRow,
     SpecInfo,
 )
-from pygeodata.registry_types import GroupRecord
 from pygeodata.registry_browser.payloads import (
     _build_class_cards,
     _build_detail_payload,
@@ -59,7 +58,7 @@ def make_entry(
         record_id=record_id,
         class_name=class_name,
         object_type=object_type,
-        params_path='/cache/MyLoader/.file.params.json',
+        params_path='/cache/MyLoader/parameters.json',
         spec_path=None,
         state_hash_path=None,
         execution_graph_path=None,
@@ -90,16 +89,35 @@ def make_class_info(class_name='MyLoader', object_type='data', loaded=True, sour
 
 
 class _FakeEntryRegistry:
-    def __init__(self, groups):
-        self.groups = groups
+    def __init__(self, groups: dict[str, list[str]]):
+        self._groups = groups
+
+    def get_state_hashes(self, class_name: str) -> list[str]:
+        return self._groups.get(class_name, [])
+
+    def get_object_type(self, class_name: str) -> str | None:
+        return None
+
+
+class _FakeSourceRegistry:
+    def get_states(self, class_name: str) -> list:
+        return []
+
+    @property
+    def class_names(self) -> list[str]:
+        return []
 
 
 class _FakeVersionRegistry:
-    def __init__(self, code_groups):
-        self.code_groups = code_groups
+    source_registry = _FakeSourceRegistry()
+    versions: list = []
+    dep_hash_to_version: dict = {}
+
+    def version_for_dep_hash(self, dep_hash: str):
+        return None
 
 
-def make_state(entries=None, classes=None, groups=None, code_groups=None):
+def make_state(entries=None, classes=None, groups=None):
     entries = entries or {}
     classes = classes or {}
     groups = groups or {}
@@ -109,18 +127,17 @@ def make_state(entries=None, classes=None, groups=None, code_groups=None):
         diagnostics={},
         spec_options={},
         entry_registry=_FakeEntryRegistry(groups),
-        version_registry=_FakeVersionRegistry(code_groups or {}),
+        version_registry=_FakeVersionRegistry(),
     )
 
 
 def simple_state():
     entry = make_entry(record_id='rec1', class_name='MyLoader')
-    group = GroupRecord(class_name='MyLoader', object_type='data', state_hashes=['rec1'])
     cls = make_class_info('MyLoader')
     return make_state(
         entries={'rec1': entry},
         classes={'MyLoader': cls},
-        groups={'MyLoader': group},
+        groups={'MyLoader': ['rec1']},
     )
 
 
@@ -249,9 +266,8 @@ def test_sidebar_counts_kind_filter_excludes():
 
 def test_sidebar_counts_zero_not_included():
     entry = make_entry(spec=make_spec(crs='EPSG:4326'))
-    group = GroupRecord(class_name='MyLoader', object_type='data', state_hashes=['rec1'])
     cls = make_class_info('MyLoader')
-    state = make_state(entries={'rec1': entry}, classes={'MyLoader': cls}, groups={'MyLoader': group})
+    state = make_state(entries={'rec1': entry}, classes={'MyLoader': cls}, groups={'MyLoader': ['rec1']})
     counts = _sidebar_counts(state, kind_filter='all', spec_filters={SpecKeys.CRS: 'EPSG:3857'}, filters=[], logic_mode='AND')
     assert 'MyLoader' not in counts
 
@@ -259,9 +275,8 @@ def test_sidebar_counts_zero_not_included():
 def test_sidebar_counts_multiple_entries():
     e1 = make_entry(record_id='r1', class_name='MyLoader')
     e2 = make_entry(record_id='r2', class_name='MyLoader')
-    group = GroupRecord(class_name='MyLoader', object_type='data', state_hashes=['r1', 'r2'])
     cls = make_class_info('MyLoader')
-    state = make_state(entries={'r1': e1, 'r2': e2}, classes={'MyLoader': cls}, groups={'MyLoader': group})
+    state = make_state(entries={'r1': e1, 'r2': e2}, classes={'MyLoader': cls}, groups={'MyLoader': ['r1', 'r2']})
     counts = _sidebar_counts(state, kind_filter='all', spec_filters={}, filters=[], logic_mode='AND')
     assert counts['MyLoader'] == 2
 
@@ -294,10 +309,7 @@ def test_build_visible_groups_sorted_by_class_name():
     state = make_state(
         entries={'r1': e1, 'r2': e2},
         classes={'ZLoader': make_class_info('ZLoader'), 'ALoader': make_class_info('ALoader')},
-        groups={
-            'ZLoader': GroupRecord(class_name='ZLoader', object_type='data', state_hashes=['r1']),
-            'ALoader': GroupRecord(class_name='ALoader', object_type='data', state_hashes=['r2']),
-        },
+        groups={'ZLoader': ['r1'], 'ALoader': ['r2']},
     )
     groups = _build_visible_groups(state, selected_classes=[], kind_filter='all',
                                    spec_filters={}, filters=[], logic_mode='AND')
@@ -451,7 +463,7 @@ def test_build_detail_payload_selected_entry():
     entry = make_entry(record_id='rec1', class_name='MyLoader')
     cls = make_class_info('MyLoader')
     state = make_state(entries={'rec1': entry}, classes={'MyLoader': cls})
-    detail = _build_detail_payload(state=state, selected_entry_info=entry, selected_classes=[])
+    detail = _build_detail_payload(state=state, selected_entry_info=entry, selected_classes=[], vreg=state.version_registry)
     assert detail is not None
     assert detail['class_name'] == 'MyLoader'
     assert detail['selected_entry']['record_id'] == 'rec1'
@@ -460,14 +472,14 @@ def test_build_detail_payload_selected_entry():
 def test_build_detail_payload_entry_class_not_in_state():
     entry = make_entry(class_name='GhostLoader')
     state = make_state()
-    detail = _build_detail_payload(state=state, selected_entry_info=entry, selected_classes=[])
+    detail = _build_detail_payload(state=state, selected_entry_info=entry, selected_classes=[], vreg=state.version_registry)
     assert detail is None
 
 
 def test_build_detail_payload_single_selected_class():
     cls = make_class_info('MyLoader')
     state = make_state(classes={'MyLoader': cls})
-    detail = _build_detail_payload(state=state, selected_entry_info=None, selected_classes=['MyLoader'])
+    detail = _build_detail_payload(state=state, selected_entry_info=None, selected_classes=['MyLoader'], vreg=state.version_registry)
     assert detail is not None
     assert detail['class_name'] == 'MyLoader'
     assert detail['selected_entry'] is None
@@ -475,13 +487,13 @@ def test_build_detail_payload_single_selected_class():
 
 def test_build_detail_payload_multiple_selected_classes():
     state = make_state(classes={'A': make_class_info('A'), 'B': make_class_info('B')})
-    detail = _build_detail_payload(state=state, selected_entry_info=None, selected_classes=['A', 'B'])
+    detail = _build_detail_payload(state=state, selected_entry_info=None, selected_classes=['A', 'B'], vreg=state.version_registry)
     assert detail is None
 
 
 def test_build_detail_payload_no_selection():
     state = make_state()
-    detail = _build_detail_payload(state=state, selected_entry_info=None, selected_classes=[])
+    detail = _build_detail_payload(state=state, selected_entry_info=None, selected_classes=[], vreg=state.version_registry)
     assert detail is None
 
 
@@ -490,7 +502,7 @@ def test_build_detail_payload_figure_preview():
     entry = make_entry(record_id='rec1', class_name='MyLoader', primary_file=file_ref)
     cls = make_class_info('MyLoader')
     state = make_state(entries={'rec1': entry}, classes={'MyLoader': cls})
-    detail = _build_detail_payload(state=state, selected_entry_info=entry, selected_classes=[])
+    detail = _build_detail_payload(state=state, selected_entry_info=entry, selected_classes=[], vreg=state.version_registry)
     assert detail['selected_entry']['figure_previews'] == ['/data/fig.png']
 
 
@@ -499,7 +511,7 @@ def test_build_detail_payload_no_preview_for_non_image():
     entry = make_entry(record_id='rec1', class_name='MyLoader', primary_file=file_ref)
     cls = make_class_info('MyLoader')
     state = make_state(entries={'rec1': entry}, classes={'MyLoader': cls})
-    detail = _build_detail_payload(state=state, selected_entry_info=entry, selected_classes=[])
+    detail = _build_detail_payload(state=state, selected_entry_info=entry, selected_classes=[], vreg=state.version_registry)
     assert detail['selected_entry']['figure_previews'] == []
 
 
@@ -508,7 +520,7 @@ def test_build_detail_payload_linked_entries():
     entry = make_entry(record_id='rec1', class_name='MyLoader', linked_entries=[le])
     cls = make_class_info('MyLoader')
     state = make_state(entries={'rec1': entry}, classes={'MyLoader': cls})
-    detail = _build_detail_payload(state=state, selected_entry_info=entry, selected_classes=[])
+    detail = _build_detail_payload(state=state, selected_entry_info=entry, selected_classes=[], vreg=state.version_registry)
     linked = detail['selected_entry']['linked_entries']
     assert len(linked) == 1
     assert linked[0]['param_name'] == 'base'

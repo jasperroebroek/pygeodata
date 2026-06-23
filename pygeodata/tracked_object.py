@@ -1,8 +1,6 @@
 import ast
 import functools
-import json
-from datetime import datetime, timezone
-from typing import Any, ClassVar
+from typing import ClassVar
 
 from pygeodata.ast import (
     build_symbol_tables,
@@ -11,11 +9,10 @@ from pygeodata.ast import (
     get_source_ast_tree,
     get_source_code,
 )
-from pygeodata.config import get_config
 from pygeodata.graph_types import ClassNode, DependencyGraph
 from pygeodata.graphs import plot_class_dependency_graph
 from pygeodata.hash import calculate_cls_source_hash, calculate_dict_hash
-from pygeodata.paths import CodeRegistryResolver, TreeRegistryResolver
+from pygeodata.paths import CodeRegistryConstructor, TreeRegistryConstructor
 from pygeodata.registry_types import CodeState, TreeSnapshot
 
 
@@ -97,140 +94,83 @@ class TrackedObject:
         return bool(cls.get_all_dependencies())
 
     @classmethod
-    def _build_topology_subtree(
-        cls,
-        visited: frozenset[type] | None = None,
-    ) -> tuple[dict, dict]:
-        """Recursively build the topology subtree and node metadata for this class.
+    def _traverse(cls, make_node):
+        """DFS over the dependency graph, returning (nodes, call_edges, inheritance_edges).
 
-        Returns
-        -------
-        tuple[dict, dict]
-            A ``(nodes, subtree)`` pair where ``nodes`` is a flat dict mapping
-            ``class_name`` to ``{"hash": ..., "object_type": ...}`` for every class
-            reachable from this one, and ``subtree`` is the pure-topology dict with
-            ``call_dependencies`` and ``inheritance_dependencies`` keys (no metadata).
-            When a cycle is detected the subtree for the repeated class is returned
-            with empty dependency dicts to terminate the recursion.
+        ``make_node`` converts a TrackedObject class to whatever node representation
+        the caller needs — e.g. a ClassNode for graphs, a str name for snapshots.
         """
-        if visited is None:
-            visited = frozenset()
+        nodes = set()
+        call_edges = set()
+        inheritance_edges = set()
 
-        nodes = {
-            cls.get_class_name(): {
-                'hash': calculate_cls_source_hash(cls),
-                'object_type': cls.object_type.get_class_name(),
-            },
-        }
-
-        if cls in visited:
-            return nodes, {'call_dependencies': {}, 'inheritance_dependencies': {}}
-
-        next_visited = visited | {cls}
-
-        call_deps = {}
-        for dep in cls.get_call_dependencies():
-            dep_nodes, dep_subtree = dep._build_topology_subtree(next_visited)
-            nodes.update(dep_nodes)
-            call_deps[dep.get_class_name()] = dep_subtree
-
-        inh_deps = {}
-        for dep in cls.get_inheritance_dependencies():
-            dep_nodes, dep_subtree = dep._build_topology_subtree(next_visited)
-            nodes.update(dep_nodes)
-            inh_deps[dep.get_class_name()] = dep_subtree
-
-        return nodes, {'call_dependencies': call_deps, 'inheritance_dependencies': inh_deps}
-
-    @classmethod
-    @functools.cache
-    def get_dependency_tree(cls) -> dict:
-        """Build the full dependency tree for this class in ``{nodes, tree}`` format.
-
-        Separates node metadata from topology: ``nodes`` is a flat dict with one entry
-        per reachable class (no duplication), while ``tree`` is a fully-expanded nested
-        topology where shared dependencies appear at every occurrence.
-
-        Cached via :func:`functools.cache`. Any change in this class or any transitive
-        dependency will produce a different :meth:`get_dependency_tree_hash`.
-
-        Returns
-        -------
-        dict
-            ``{"nodes": {class_name: {"hash": ..., "object_type": ...}, ...},
-            "tree": {class_name: {"call_dependencies": {...}, "inheritance_dependencies": {...}}}}``
-        """
-        nodes, subtree = cls._build_topology_subtree()
-        return {'nodes': nodes, 'tree': {cls.get_class_name(): subtree}}
-
-    @classmethod
-    def get_dependency_graph(cls) -> DependencyGraph:
-        """
-        Build a flat graph of all :class:`TrackedObject` dependencies from this class.
-
-        Returns
-        -------
-        dict with keys:
-
-        - ``nodes`` *(dict[type, type])*: All reachable classes.
-        - ``call_edges`` *(set[tuple[type, type]])*: Edges from call dependencies.
-        - ``inheritance_edges`` *(set[tuple[type, type]])*: Edges from inheritance.
-        """
-        nodes: set[ClassNode] = set()
-        call_edges: set[tuple[ClassNode, ClassNode]] = set()
-        inheritance_edges: set[tuple[ClassNode, ClassNode]] = set()
-
-        def construct_class_node(cls: type['TrackedObject']) -> ClassNode:
-            return ClassNode(cls=cls, name=cls.get_class_name(), color=cls.color)
-
-        def visit(current_cls: type['TrackedObject']) -> None:
-            cls_node = construct_class_node(current_cls)
-
-            if cls_node in nodes:
+        def visit(current_cls):
+            node = make_node(current_cls)
+            if node in nodes:
                 return
-
-            nodes.add(cls_node)
-
+            nodes.add(node)
             for dep_cls in current_cls.get_call_dependencies():
-                dep_cls_node = construct_class_node(dep_cls)
-                call_edges.add((cls_node, dep_cls_node))
+                dep_node = make_node(dep_cls)
+                call_edges.add((node, dep_node))
                 visit(dep_cls)
-
             for dep_cls in current_cls.get_inheritance_dependencies():
-                dep_cls_node = construct_class_node(dep_cls)
-                inheritance_edges.add((cls_node, dep_cls_node))
+                dep_node = make_node(dep_cls)
+                inheritance_edges.add((node, dep_node))
                 visit(dep_cls)
 
         visit(cls)
+        return nodes, call_edges, inheritance_edges
 
-        return DependencyGraph(
-            nodes=nodes,
-            call_edges=call_edges,
-            inheritance_edges=inheritance_edges,
-        )
+    @classmethod
+    @functools.cache
+    def _dependency_tree_dict(cls) -> dict:
+        """Raw tree data dict — shared by get_dependency_tree_hash and get_dependency_tree."""
+        names, call_edges, inheritance_edges = cls._traverse(lambda c: c.get_class_name())
+        return {
+            'nodes': {
+                name: {
+                    'hash': calculate_cls_source_hash(cls._registry[name]),
+                    'object_type': cls._registry[name].object_type.get_class_name(),
+                }
+                for name in names
+            },
+            'call_edges': sorted([s, t] for s, t in call_edges),
+            'inheritance_edges': sorted([s, t] for s, t in inheritance_edges),
+        }
 
     @classmethod
     @functools.cache
     def get_dependency_tree_hash(cls) -> str:
-        """
-        Compute a hash over the full dependency tree of this class.
+        """SHA-256 digest of the full dependency tree — changes when any transitive dep changes."""
+        return calculate_dict_hash(cls._dependency_tree_dict())
 
-        Hashes the JSON-serialized :meth:`get_dependency_tree` result, so any change
-        in this class or any of its transitive dependencies will produce a different hash.
+    @classmethod
+    @functools.cache
+    def get_dependency_tree(cls) -> TreeSnapshot:
+        """Build the serializable dependency snapshot for this class."""
+        d = cls._dependency_tree_dict()
+        return TreeSnapshot(
+            dependency_tree_hash=cls.get_dependency_tree_hash(),
+            nodes=d['nodes'],
+            call_edges=d['call_edges'],
+            inheritance_edges=d['inheritance_edges'],
+            root_class=cls.get_class_name(),
+        )
 
-        Returns
-        -------
-        str
-            A SHA-256 hex digest of the full dependency tree.
-        """
-        tree = cls.get_dependency_tree()
-        return calculate_dict_hash(tree)
+    @classmethod
+    def get_dependency_graph(cls) -> DependencyGraph:
+        """Build a typed graph of all :class:`TrackedObject` dependencies from this class."""
+        nodes, call_edges, inheritance_edges = cls._traverse(
+            lambda c: ClassNode(cls=c, name=c.get_class_name(), color=c.color),
+        )
+        return DependencyGraph(nodes=nodes, call_edges=call_edges, inheritance_edges=inheritance_edges)
 
     @classmethod
     def _previously_active_source_hash(cls) -> str | None:
         """Return the source_hash from the most-recent ``source.json`` for this class."""
         from pygeodata.registry import SourceRegistry
-        state = SourceRegistry.instance().latest_for_class(cls.get_class_name())
+
+        state = SourceRegistry().get_latest_state_for_class(cls.get_class_name())
         return state.source_hash if state else None
 
     @classmethod
@@ -243,7 +183,7 @@ class TrackedObject:
         version resolution in the Code browser.
         """
         source_hash = calculate_cls_source_hash(cls)
-        resolver = CodeRegistryResolver.from_source_hash(source_hash)
+        resolver = CodeRegistryConstructor.from_source_hash(source_hash)
         resolver.directory.mkdir(parents=True, exist_ok=True)
 
         if not resolver.source_path.exists():
@@ -255,7 +195,6 @@ class TrackedObject:
             source_hash=source_hash,
             class_name=cls.get_class_name(),
             object_type=cls.object_type.get_class_name(),
-            registered_at=datetime.now(timezone.utc).isoformat(),
         )
 
         previously_active = cls._previously_active_source_hash()
@@ -272,21 +211,16 @@ class TrackedObject:
         always, and ``graph.pdf`` when the class has dependencies.
         """
         dep_tree_hash = cls.get_dependency_tree_hash()
-        resolver = TreeRegistryResolver.from_dep_tree_hash(dep_tree_hash)
-        has_deps = cls.has_dependencies()
+        resolver = TreeRegistryConstructor.from_dep_tree_hash(dep_tree_hash)
+        has_dependencies = cls.has_dependencies()
         resolver.directory.mkdir(parents=True, exist_ok=True)
-        complete = resolver.tree_path.exists() and (not has_deps or resolver.graph_path.exists())
+        complete = resolver.tree_path.exists() and (not has_dependencies or resolver.graph_path.exists())
         if not complete:
-            dep_tree = cls.get_dependency_tree()
-            tree = TreeSnapshot(
-                dep_hash=dep_tree_hash,
-                nodes=dep_tree['nodes'],
-                tree=dep_tree['tree'],
-            )
+            tree = cls.get_dependency_tree()
             tmp = resolver.tree_path.with_suffix('.tmp')
             tree.dump(tmp)
             tmp.replace(resolver.tree_path)
-            if has_deps:
+            if has_dependencies:
                 plot_class_dependency_graph(
                     cls_name=cls.get_class_name(),
                     graph_data=cls.get_dependency_graph(),
@@ -305,24 +239,6 @@ class TrackedObject:
         cls._write_tree_registry()
 
     @classmethod
-    def read_registry(cls) -> dict[str, Any]:
-        """Read the dependency tree snapshot for this class from disk.
-
-        Returns
-        -------
-        dict
-            The ``{nodes, tree}`` dict stored in ``.source/snapshots/{dep_tree_hash}/tree.json``.
-
-        Raises
-        ------
-        FileNotFoundError
-            If the snapshot has not been written yet.
-        """
-        tree_path = TreeRegistryResolver.from_dep_tree_hash(cls.get_dependency_tree_hash()).tree_path
-        with tree_path.open(encoding='utf-8') as f:
-            return json.load(f)
-
-    @classmethod
     def is_registry_valid(cls) -> bool:
         """Check whether the on-disk registry is complete for the current class state.
 
@@ -335,10 +251,10 @@ class TrackedObject:
         bool
         """
         source_hash = calculate_cls_source_hash(cls)
-        code_resolver = CodeRegistryResolver.from_source_hash(source_hash)
+        code_resolver = CodeRegistryConstructor.from_source_hash(source_hash)
         if not (code_resolver.source_path.exists() and code_resolver.meta_path.exists()):
             return False
-        tree_resolver = TreeRegistryResolver.from_dep_tree_hash(cls.get_dependency_tree_hash())
+        tree_resolver = TreeRegistryConstructor.from_dep_tree_hash(cls.get_dependency_tree_hash())
         has_deps = cls.has_dependencies()
         return tree_resolver.tree_path.exists() and (not has_deps or tree_resolver.graph_path.exists())
 

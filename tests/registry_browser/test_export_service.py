@@ -48,18 +48,21 @@ def test_collect_cache_files(tmp_path: Path):
     registry = tmp_path / '.source'
     cache_root = tmp_path / 'data'
     cache_dir = cache_root / 'abc'
+    from pygeodata.paths import CachePathConstructor
+
     cache_dir.mkdir(parents=True)
     (cache_dir / 'output.tif').write_bytes(b'TIFF')
-    (cache_dir / '.params.json').write_text('{}')
+    resolver = CachePathConstructor(cache_dir)
+    resolver.params_path.write_text('{}')
 
-    entry = _make_entry('abc', str(cache_dir / '.params.json'))
+    entry = _make_entry('abc', str(resolver.params_path))
 
     with set_config(path_cache=cache_root, path_figures=tmp_path / 'figs', path_registry=registry):
         files = export_service.collect_export_files(['abc'], {'abc': entry}, False, _noop_allowed)
 
     arcnames = [a for _, a in files]
     assert 'cache/abc/output.tif' in arcnames
-    assert 'cache/abc/.params.json' in arcnames
+    assert 'cache/abc/parameters.json' in arcnames
     assert not any(a.startswith('snapshots/') for a in arcnames)
     assert not any(a.startswith('code/') for a in arcnames)
 
@@ -82,7 +85,7 @@ def test_collect_snapshot_and_code_members(tmp_path: Path):
                 JSONKeys.OBJECT_TYPE: 'Data',
                 JSONKeys.SOURCE_HASH: src_hash,
                 JSONKeys.REGISTERED_AT: '2026-01-01T00:00:00+00:00',
-            }
+            },
         ),
     )
 
@@ -94,7 +97,7 @@ def test_collect_snapshot_and_code_members(tmp_path: Path):
             {
                 JSONKeys.NODES: {'MyLoader': {'hash': src_hash, 'object_type': 'Data'}},
                 JSONKeys.TREE: {},
-            }
+            },
         ),
     )
 

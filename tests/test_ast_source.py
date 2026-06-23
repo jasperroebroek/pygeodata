@@ -10,7 +10,8 @@ from pygeodata.config import JSONKeys
 from pygeodata.data import Data
 from pygeodata.figure import Figure
 from pygeodata.hash import calculate_cls_source_hash
-from pygeodata.paths import CodeRegistryResolver, TreeRegistryResolver
+from pygeodata.hash import calculate_cls_source_hash as _hash
+from pygeodata.paths import CodeRegistryConstructor, TreeRegistryConstructor
 from tests.fixtures.data import Child, CircularLoader, HardcodedDependencyLoader, LoaderA, LoaderB, LoaderD, Parent
 
 
@@ -112,14 +113,14 @@ def test_code_state_invalid_when_no_file() -> None:
 
 def test_code_state_invalid_when_tree_file_deleted() -> None:
     LoaderA.write_registry()
-    tree_resolver = TreeRegistryResolver.from_dep_tree_hash(LoaderA.get_dependency_tree_hash())
+    tree_resolver = TreeRegistryConstructor.from_dep_tree_hash(LoaderA.get_dependency_tree_hash())
     tree_resolver.tree_path.unlink()
     assert not LoaderA.is_registry_valid()
 
 
 def test_initialize_class_code_state_heals_missing_tree_file() -> None:
     LoaderA.write_registry()
-    tree_resolver = TreeRegistryResolver.from_dep_tree_hash(LoaderA.get_dependency_tree_hash())
+    tree_resolver = TreeRegistryConstructor.from_dep_tree_hash(LoaderA.get_dependency_tree_hash())
     tree_resolver.tree_path.unlink()
 
     assert not LoaderA.is_registry_valid()
@@ -234,22 +235,23 @@ def test_dependency_tree_hash_same_across_instances_with_different_params() -> N
 def test_write_registry_content() -> None:
     LoaderA.clear_function_caches()
     LoaderA.write_registry()
-    from pygeodata.hash import calculate_cls_source_hash as _hash
-    code_resolver = CodeRegistryResolver.from_source_hash(_hash(LoaderA))
+
+    code_resolver = CodeRegistryConstructor.from_source_hash(_hash(LoaderA))
     data = json.loads(code_resolver.meta_path.read_text())
     assert data[JSONKeys.CLASS_NAME] == 'LoaderA'
     assert JSONKeys.SOURCE_HASH in data
-    tree_resolver = TreeRegistryResolver.from_dep_tree_hash(LoaderA.get_dependency_tree_hash())
+    tree_resolver = TreeRegistryConstructor.from_dep_tree_hash(LoaderA.get_dependency_tree_hash())
     tree_data = json.loads(tree_resolver.tree_path.read_text())
     assert JSONKeys.NODES in tree_data
-    assert JSONKeys.TREE in tree_data
+    assert JSONKeys.CALL_EDGES in tree_data
+    assert JSONKeys.INHERITANCE_EDGES in tree_data
 
 
 def test_write_registry_writes_code_file() -> None:
     LoaderA.clear_function_caches()
     LoaderA.write_registry()
-    from pygeodata.hash import calculate_cls_source_hash as _hash
-    code_resolver = CodeRegistryResolver.from_source_hash(_hash(LoaderA))
+
+    code_resolver = CodeRegistryConstructor.from_source_hash(_hash(LoaderA))
     assert code_resolver.source_path.exists()
     assert 'LoaderA' in code_resolver.source_path.read_text()
 

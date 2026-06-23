@@ -16,10 +16,10 @@ import { scheduleSelectFirst } from './entries.js';
 // Code view state
 // ---------------------------------------------------------------------------
 
-let _codeVersions        = [];   // [{mtime, class_names, label, is_now}]
+let _codeVersions        = [];   // [{version_id, mtime, class_names, label}]
 let _codeClasses         = [];   // [{class_name, object_type, source_hash, is_loaded, is_stale}]
 let _codeAllClasses      = [];   // full class list for class-first mode (always 'now' state)
-let _codeSelectedVersion = null;  // mtime string, or 'now'
+let _codeSelectedVersion = null;  // version_id string
 let _codeSelectedClass   = null;  // class_name string
 let _codeLoaded          = false;
 let _codeBrowseMode      = localStorage.getItem('code_browse_mode') ?? 'version'; // 'version' | 'class'
@@ -69,15 +69,15 @@ function renderCodeVersionList() {
   }
 
   el.innerHTML = _codeVersions.map((v) => {
-    const isActive = v.mtime === _codeSelectedVersion;
+    const isActive = v.version_id === _codeSelectedVersion;
     return `
-      <div class="code-version-item ${isActive ? 'active' : ''}" data-mtime="${esc(v.mtime)}">
+      <div class="code-version-item ${isActive ? 'active' : ''}" data-version-id="${esc(v.version_id)}">
         ${esc(v.label)}
       </div>`;
   }).join('');
 
   el.querySelectorAll('.code-version-item').forEach((item) => {
-    item.onclick = () => selectCodeVersion(item.dataset.mtime);
+    item.onclick = () => selectCodeVersion(item.dataset.versionId);
   });
 }
 
@@ -87,17 +87,17 @@ function renderCodeVersionList() {
 // ---------------------------------------------------------------------------
 
 function _versionClassesUrl(versionMeta) {
-  const mtime = versionMeta?.mtime ?? 'now';
-  return `/api/code/version-classes?mtime=${encodeURIComponent(mtime)}`;
+  const version_id = versionMeta?.version_id ?? '';
+  return `/api/code/version-classes?version_id=${encodeURIComponent(version_id)}`;
 }
 
-export async function selectCodeVersion(mtime, { silent = false } = {}) {
+export async function selectCodeVersion(version_id, { silent = false } = {}) {
   if (!silent) pushHistory(_viewMode, _codeState());
-  _codeSelectedVersion = mtime;
+  _codeSelectedVersion = version_id;
   _codeSelectedClass = null;
   renderCodeVersionList();
 
-  const versionMeta = _codeVersions.find((v) => v.mtime === mtime);
+  const versionMeta = _codeVersions.find((v) => v.version_id === version_id);
   const url = _versionClassesUrl(versionMeta);
   const data = await fetch(url).then((r) => r.json());
   _codeClasses = data;
@@ -107,7 +107,7 @@ export async function selectCodeVersion(mtime, { silent = false } = {}) {
   // instead of auto-selecting the first class.
   const changedNames = versionMeta?.class_names ?? [];
   if (changedNames.length) {
-    await _showVersionChangeSummary(versionMeta, changedNames);
+    await _showVersionChangeSummary(versionMeta);
     return;
   }
 
@@ -152,10 +152,10 @@ function renderCodeClassList() {
     item.onclick = () => {
       if (item.dataset.cls === _codeSelectedClass) {
         // Deselect — return to version change summary if this version has changed classes
-        const versionMeta = _codeVersions.find((v) => v.mtime === _codeSelectedVersion);
+        const versionMeta = _codeVersions.find((v) => v.version_id === _codeSelectedVersion);
         const changedNames = versionMeta?.class_names ?? [];
         if (changedNames.length) {
-          _showVersionChangeSummary(versionMeta, changedNames);
+          _showVersionChangeSummary(versionMeta);
         }
         return;
       }
@@ -183,7 +183,7 @@ async function applyCodeBrowseMode(mode, { silent = false } = {}) {
     if (filterClasses) filterClasses.style.display = '';
     renderCodeVersionList();
     if (!silent) {
-      const target = _codeSelectedVersion ?? (_codeVersions[0]?.mtime ?? null);
+      const target = _codeSelectedVersion ?? (_codeVersions[0]?.version_id ?? null);
       if (target) selectCodeVersion(target);
     }
   } else {
@@ -251,15 +251,15 @@ function renderCodeVersionsForClass(className) {
   }
 
   el.innerHTML = relevant.map((v) => {
-    const isActive = v.mtime === _codeSelectedVersion;
+    const isActive = v.version_id === _codeSelectedVersion;
     return `
-      <div class="code-version-item ${isActive ? 'active' : ''}" data-mtime="${esc(v.mtime)}">
+      <div class="code-version-item ${isActive ? 'active' : ''}" data-version-id="${esc(v.version_id)}">
         ${esc(v.label)}
       </div>`;
   }).join('');
 
   el.querySelectorAll('.code-version-item').forEach((item) => {
-    item.onclick = () => selectCodeVersionForClass(item.dataset.mtime, className);
+    item.onclick = () => selectCodeVersionForClass(item.dataset.versionId, className);
   });
 }
 
@@ -272,7 +272,7 @@ async function selectCodeClassFirst(cls) {
   const relevant = _codeVersions.filter((v) => (v.class_names ?? []).includes(cls.class_name));
   if (relevant.length) {
     const newest = relevant[0];  // _codeVersions is newest-first
-    _codeSelectedVersion = newest.mtime;
+    _codeSelectedVersion = newest.version_id;
     renderCodeVersionsForClass(cls.class_name);
     const classes = await fetch(_versionClassesUrl(newest)).then((r) => r.json());
     const match = classes.find((c) => c.class_name === cls.class_name);
@@ -283,13 +283,13 @@ async function selectCodeClassFirst(cls) {
   }
 }
 
-async function selectCodeVersionForClass(mtime, className) {
+async function selectCodeVersionForClass(version_id, className) {
   pushHistory(_viewMode, _codeState());
-  _codeSelectedVersion = mtime;
+  _codeSelectedVersion = version_id;
   renderCodeVersionsForClass(className);
 
   try {
-    const versionMeta = _codeVersions.find((v) => v.mtime === mtime);
+    const versionMeta = _codeVersions.find((v) => v.version_id === version_id);
     const classes = await fetch(_versionClassesUrl(versionMeta)).then((r) => r.json());
     const match = classes.find((c) => c.class_name === className);
     if (match) await selectCodeClass(match.class_name, match.source_hash, { silent: true });
@@ -304,220 +304,109 @@ async function selectCodeVersionForClass(mtime, className) {
 
 let _diffViewMode = localStorage.getItem('diff_view_mode') ?? 'inline'; // 'inline' | 'split'
 
-/**
- * Parse a unified diff string into a structured array of hunks.
- * Each hunk: { startA, startB, lines: [{type, text}] }
- * type: 'ctx' | 'add' | 'del' | 'hdr'
- */
-function _parseDiff(unifiedDiff) {
-  const hunks = [];
-  let current = null;
-  for (const raw of unifiedDiff.split('\n')) {
-    if (raw.startsWith('--- ') || raw.startsWith('+++ ')) {
-      // file headers — skip
-    } else if (raw.startsWith('@@')) {
-      const m = raw.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-      current = { startA: m ? +m[1] : 1, startB: m ? +m[2] : 1, header: raw, lines: [] };
-      hunks.push(current);
-    } else if (current) {
-      if (raw.startsWith('+'))      current.lines.push({ type: 'add', text: raw.slice(1) });
-      else if (raw.startsWith('-')) current.lines.push({ type: 'del', text: raw.slice(1) });
-      else if (raw !== '\\')        current.lines.push({ type: 'ctx', text: raw.slice(1) });
-    }
-  }
-  return hunks;
-}
-
-/**
- * Compute character-level word diff between two strings.
- * Returns [{type:'eq'|'ins'|'del', text}]
- */
-function _wordDiff(textA, textB) {
-  // Tokenise by word boundaries so highlighting is word-granular
-  const tokenise = (s) => s.match(/\w+|\W/g) ?? [];
-  const a = tokenise(textA);
-  const b = tokenise(textB);
-
-  // Simple LCS-based diff (Myers-like, O(n·m) but files are small)
-  const m = a.length, n = b.length;
-  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
-  for (let i = m - 1; i >= 0; i--)
-    for (let j = n - 1; j >= 0; j--)
-      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
-
-  const result = [];
-  let i = 0, j = 0;
-  while (i < m || j < n) {
-    if (i < m && j < n && a[i] === b[j]) {
-      result.push({ type: 'eq', text: a[i++] }); j++;
-    } else if (j < n && (i >= m || dp[i][j + 1] >= dp[i + 1][j])) {
-      result.push({ type: 'ins', text: b[j++] });
-    } else {
-      result.push({ type: 'del', text: a[i++] });
-    }
-  }
-  return result;
-}
-
-function _inlineWordHtml(tokens) {
-  return tokens.map((t) => {
-    if (t.type === 'eq')  return esc(t.text);
-    if (t.type === 'ins') return `<span class="diff-word-add">${esc(t.text)}</span>`;
-    return `<span class="diff-word-del">${esc(t.text)}</span>`;
+function _segmentsHtml(segments, showType) {
+  if (!segments) return null;
+  return segments.map((s) => {
+    if (s.type === 'eq') return esc(s.text);
+    if (s.type === showType) return `<span class="diff-word-${showType === 'del' ? 'del' : 'add'}">${esc(s.text)}</span>`;
+    return '';
   }).join('');
 }
 
-/** Pair up consecutive del/add lines for word-diff highlighting. */
-function _pairHunkLines(lines) {
-  // Returns array of {type, textA?, textB?, paired}
-  const result = [];
-  let i = 0;
-  while (i < lines.length) {
-    if (lines[i].type === 'del') {
-      // Collect run of dels then run of adds
-      const dels = [], adds = [];
-      while (i < lines.length && lines[i].type === 'del') dels.push(lines[i++]);
-      while (i < lines.length && lines[i].type === 'add') adds.push(lines[i++]);
-      const pairs = Math.min(dels.length, adds.length);
-      for (let k = 0; k < pairs; k++)
-        result.push({ type: 'change', textA: dels[k].text, textB: adds[k].text });
-      for (let k = pairs; k < dels.length; k++)
-        result.push({ type: 'del', text: dels[k].text });
-      for (let k = pairs; k < adds.length; k++)
-        result.push({ type: 'add', text: adds[k].text });
+function _renderInlineHunk(hunk) {
+  const rows = [];
+  for (const line of hunk.lines) {
+    const lo = line.line_old ?? '';
+    const ln = line.line_new ?? '';
+    if (line.type === 'ctx') {
+      rows.push(`<tr class="diff-ctx"><td class="diff-ln">${lo}</td><td class="diff-ln">${ln}</td><td class="diff-sign"> </td><td class="diff-code">${esc(line.text)}</td></tr>`);
+    } else if (line.type === 'del') {
+      const html = _segmentsHtml(line.segments, 'del') ?? esc(line.text);
+      rows.push(`<tr class="diff-del"><td class="diff-ln">${lo}</td><td class="diff-ln"></td><td class="diff-sign">−</td><td class="diff-code">${html}</td></tr>`);
     } else {
-      result.push(lines[i++]);
+      const html = _segmentsHtml(line.segments, 'ins') ?? esc(line.text);
+      rows.push(`<tr class="diff-add"><td class="diff-ln"></td><td class="diff-ln">${ln}</td><td class="diff-sign">+</td><td class="diff-code">${html}</td></tr>`);
     }
   }
-  return result;
+  return rows.join('');
 }
 
-function _renderInlineHunk(hunk, lineNoA, lineNoB) {
-  const paired = _pairHunkLines(hunk.lines);
-  let la = lineNoA, lb = lineNoB;
+function _renderSplitHunk(hunk) {
   const rows = [];
-  for (const p of paired) {
-    if (p.type === 'ctx') {
-      rows.push(`<tr class="diff-ctx"><td class="diff-ln">${la++}</td><td class="diff-ln">${lb++}</td><td class="diff-sign"> </td><td class="diff-code">${esc(p.text)}</td></tr>`);
-    } else if (p.type === 'add') {
-      rows.push(`<tr class="diff-add"><td class="diff-ln"></td><td class="diff-ln">${lb++}</td><td class="diff-sign">+</td><td class="diff-code">${esc(p.text)}</td></tr>`);
-    } else if (p.type === 'del') {
-      rows.push(`<tr class="diff-del"><td class="diff-ln">${la++}</td><td class="diff-ln"></td><td class="diff-sign">−</td><td class="diff-code">${esc(p.text)}</td></tr>`);
+  for (const line of hunk.lines) {
+    const lo = line.line_old ?? '';
+    const ln = line.line_new ?? '';
+    if (line.type === 'ctx') {
+      rows.push(`<tr class="diff-ctx"><td class="diff-ln">${lo}</td><td class="diff-code">${esc(line.text)}</td><td class="diff-ln">${ln}</td><td class="diff-code">${esc(line.text)}</td></tr>`);
+    } else if (line.type === 'del') {
+      const html = _segmentsHtml(line.segments, 'del') ?? esc(line.text);
+      rows.push(`<tr><td class="diff-ln diff-del">${lo}</td><td class="diff-code diff-del">${html}</td><td class="diff-ln diff-empty-side"></td><td class="diff-code diff-empty-side"></td></tr>`);
     } else {
-      // paired change — word diff
-      const tokens = _wordDiff(p.textA, p.textB);
-      const delHtml = tokens.filter(t => t.type !== 'ins').map(t => t.type === 'del' ? `<span class="diff-word-del">${esc(t.text)}</span>` : esc(t.text)).join('');
-      const addHtml = tokens.filter(t => t.type !== 'del').map(t => t.type === 'ins' ? `<span class="diff-word-add">${esc(t.text)}</span>` : esc(t.text)).join('');
-      rows.push(`<tr class="diff-del"><td class="diff-ln">${la++}</td><td class="diff-ln"></td><td class="diff-sign">−</td><td class="diff-code">${delHtml}</td></tr>`);
-      rows.push(`<tr class="diff-add"><td class="diff-ln"></td><td class="diff-ln">${lb++}</td><td class="diff-sign">+</td><td class="diff-code">${addHtml}</td></tr>`);
+      const html = _segmentsHtml(line.segments, 'ins') ?? esc(line.text);
+      rows.push(`<tr><td class="diff-ln diff-empty-side"></td><td class="diff-code diff-empty-side"></td><td class="diff-ln diff-add">${ln}</td><td class="diff-code diff-add">${html}</td></tr>`);
     }
   }
-  return { html: rows.join(''), nextA: la, nextB: lb };
-}
-
-function _renderSplitHunk(hunk, lineNoA, lineNoB) {
-  const paired = _pairHunkLines(hunk.lines);
-  let la = lineNoA, lb = lineNoB;
-  const rows = [];
-  for (const p of paired) {
-    if (p.type === 'ctx') {
-      rows.push(`<tr class="diff-ctx"><td class="diff-ln">${la++}</td><td class="diff-code">${esc(p.text)}</td><td class="diff-ln">${lb++}</td><td class="diff-code">${esc(p.text)}</td></tr>`);
-    } else if (p.type === 'add') {
-      rows.push(`<tr><td class="diff-ln diff-empty-side"></td><td class="diff-code diff-empty-side"></td><td class="diff-ln diff-add">${lb++}</td><td class="diff-code diff-add">${esc(p.text)}</td></tr>`);
-    } else if (p.type === 'del') {
-      rows.push(`<tr><td class="diff-ln diff-del">${la++}</td><td class="diff-code diff-del">${esc(p.text)}</td><td class="diff-ln diff-empty-side"></td><td class="diff-code diff-empty-side"></td></tr>`);
-    } else {
-      // paired change — word diff side by side
-      const tokens = _wordDiff(p.textA, p.textB);
-      const delHtml = tokens.filter(t => t.type !== 'ins').map(t => t.type === 'del' ? `<span class="diff-word-del">${esc(t.text)}</span>` : esc(t.text)).join('');
-      const addHtml = tokens.filter(t => t.type !== 'del').map(t => t.type === 'ins' ? `<span class="diff-word-add">${esc(t.text)}</span>` : esc(t.text)).join('');
-      rows.push(`<tr><td class="diff-ln diff-del">${la++}</td><td class="diff-code diff-del">${delHtml}</td><td class="diff-ln diff-add">${lb++}</td><td class="diff-code diff-add">${addHtml}</td></tr>`);
-    }
-  }
-  return { html: rows.join(''), nextA: la, nextB: lb };
+  return rows.join('');
 }
 
 /**
- * Render a full diff view into a DOM element.
+ * Render a structured diff payload into a DOM element.
  * @param {Element} container
- * @param {{diff: string, full_a?: string, full_b?: string}} diffData
+ * @param {{hunks: Array, full_old?: string, full_new?: string}} diffData
  */
 function _renderDiffInto(container, diffData) {
-  const { diff, full_a, full_b } = diffData;
+  const { hunks, full_old, full_new } = diffData;
 
-  if (!diff) {
+  if (!hunks || !hunks.length) {
     container.innerHTML = '<div class="diff-empty-msg">Files are identical — no changes.</div>';
     return;
   }
 
-  const hunks    = _parseDiff(diff);
-  const isExpanded = _diffExpand === 'full' && !!(full_a && full_b);
+  const isExpanded = _diffExpand === 'full' && !!(full_old && full_new);
   const isSplit    = _diffViewMode === 'split';
+  const splitCls   = isSplit ? 'diff-table--split' : 'diff-table--inline';
+  const colgroup   = isSplit ? `<colgroup><col style="width:44px"><col><col style="width:44px"><col></colgroup>` : '';
+  const renderHunk = isSplit ? _renderSplitHunk : _renderInlineHunk;
 
-  const splitCls  = isSplit ? 'diff-table--split' : 'diff-table--inline';
-
-  let tableHtml = '';
   if (isExpanded) {
-    tableHtml = _renderFullFileTable(full_a, full_b, hunks, isSplit);
+    const linesOld = full_old.split('\n');
+    const linesNew = full_new.split('\n');
+    if (linesOld[linesOld.length - 1] === '') linesOld.pop();
+    if (linesNew[linesNew.length - 1] === '') linesNew.pop();
+
+    const rows = [];
+    let curOld = 1, curNew = 1;
+
+    function ctxRow(lo, ln) {
+      if (isSplit) {
+        return `<tr class="diff-ctx"><td class="diff-ln">${lo}</td><td class="diff-code">${esc(linesOld[lo - 1] ?? '')}</td><td class="diff-ln">${ln}</td><td class="diff-code">${esc(linesNew[ln - 1] ?? '')}</td></tr>`;
+      }
+      return `<tr class="diff-ctx"><td class="diff-ln">${lo}</td><td class="diff-ln">${ln}</td><td class="diff-sign"> </td><td class="diff-code">${esc(linesNew[ln - 1] ?? '')}</td></tr>`;
+    }
+
+    for (const hunk of hunks) {
+      while (curOld < hunk.start_old && curNew < hunk.start_new) {
+        rows.push(ctxRow(curOld++, curNew++));
+      }
+      rows.push(renderHunk(hunk));
+      // Advance cursors past hunk lines
+      for (const line of hunk.lines) {
+        if (line.line_old !== null) curOld = line.line_old + 1;
+        if (line.line_new !== null) curNew = line.line_new + 1;
+      }
+    }
+    while (curOld <= linesOld.length && curNew <= linesNew.length) {
+      rows.push(ctxRow(curOld++, curNew++));
+    }
+    container.innerHTML = `<table class="diff-table ${splitCls}">${colgroup}${rows.join('')}</table>`;
   } else {
     const rows = [];
     for (const hunk of hunks) {
       rows.push(`<tr class="diff-hunk-hdr"><td colspan="4" class="diff-hunk-hdr-cell">${esc(hunk.header)}</td></tr>`);
-      const render = isSplit ? _renderSplitHunk : _renderInlineHunk;
-      const { html } = render(hunk, hunk.startA, hunk.startB);
-      rows.push(html);
+      rows.push(renderHunk(hunk));
     }
-    const colgroup = isSplit
-      ? `<colgroup><col style="width:44px"><col><col style="width:44px"><col></colgroup>`
-      : '';
-    tableHtml = `<table class="diff-table ${splitCls}">${colgroup}${rows.join('')}</table>`;
+    container.innerHTML = `<table class="diff-table ${splitCls}">${colgroup}${rows.join('')}</table>`;
   }
-
-  container.innerHTML = tableHtml;
-}
-
-function _renderFullFileTable(fullA, fullB, hunks, isSplit) {
-  // Build the full-file view by replaying hunk rendering, inserting plain context rows
-  // for all unchanged lines between hunks. This reuses the same hunk renderers so
-  // alignment is guaranteed correct in both inline and split modes.
-  const linesA = fullA.split('\n');
-  const linesB = fullB.split('\n');
-  if (linesA[linesA.length - 1] === '') linesA.pop();
-  if (linesB[linesB.length - 1] === '') linesB.pop();
-
-  const render = isSplit ? _renderSplitHunk : _renderInlineHunk;
-  const rows = [];
-
-  let curA = 1, curB = 1; // next unrendered line (1-based)
-
-  function ctxRow(la, lb) {
-    if (isSplit) {
-      return `<tr class="diff-ctx"><td class="diff-ln">${la}</td><td class="diff-code">${esc(linesA[la - 1] ?? '')}</td><td class="diff-ln">${lb}</td><td class="diff-code">${esc(linesB[lb - 1] ?? '')}</td></tr>`;
-    }
-    return `<tr class="diff-ctx"><td class="diff-ln">${la}</td><td class="diff-ln">${lb}</td><td class="diff-sign"> </td><td class="diff-code">${esc(linesB[lb - 1] ?? '')}</td></tr>`;
-  }
-
-  for (const hunk of hunks) {
-    // Emit unchanged context lines before this hunk
-    while (curA < hunk.startA && curB < hunk.startB) {
-      rows.push(ctxRow(curA, curB));
-      curA++; curB++;
-    }
-    // Render the hunk
-    const { html, nextA, nextB } = render(hunk, hunk.startA, hunk.startB);
-    rows.push(html);
-    curA = nextA;
-    curB = nextB;
-  }
-
-  // Trailing context lines after the last hunk
-  while (curA <= linesA.length && curB <= linesB.length) {
-    rows.push(ctxRow(curA, curB));
-    curA++; curB++;
-  }
-
-  const splitCls = isSplit ? 'diff-table--split' : 'diff-table--inline';
-  return `<table class="diff-table ${splitCls}">${rows.join('')}</table>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -556,12 +445,12 @@ function _syncDiffSegments() {
   // Hunks | Full — enabled only in diff mode and only when full text available
   const expandSeg = $('#code-diff-expand-seg');
   if (expandSeg) {
-    // In summary mode (_currentDiffData is null), enable if any rendered body has full_a
+    // In summary mode (_currentDiffData is null), enable if any rendered body has full_old
     const summaryHasFull = !_currentDiffData && _codeDiffMode
       && [...$$('#code-source-panel .tree-diff-body[data-diff]')].some((b) => {
-          try { return !!JSON.parse(b.dataset.diff).full_a; } catch { return false; }
+          try { return !!JSON.parse(b.dataset.diff).full_old; } catch { return false; }
         });
-    const canExpand = _codeDiffMode && (!!(_currentDiffData?.full_a) || summaryHasFull);
+    const canExpand = _codeDiffMode && (!!(_currentDiffData?.full_old) || summaryHasFull);
     expandSeg.classList.toggle('seg-disabled', !canExpand);
     expandSeg.querySelectorAll('.kind-tab').forEach((b) =>
       b.classList.toggle('active', b.dataset.expand === _diffExpand));
@@ -590,9 +479,9 @@ async function _buildDiffOptions() {
   if (!selectedEntry) return [];
 
   const currentVersion   = _codeVersions[0] ?? null;
-  const selectedIdx      = _codeVersions.findIndex((v) => v.mtime === _codeSelectedVersion);
+  const selectedIdx      = _codeVersions.findIndex((v) => v.version_id === _codeSelectedVersion);
   const prevVersion      = selectedIdx >= 0 ? _codeVersions[selectedIdx + 1] ?? null : null;
-  const isViewingCurrent = currentVersion && _codeSelectedVersion === currentVersion.mtime;
+  const isViewingCurrent = currentVersion && _codeSelectedVersion === currentVersion.version_id;
 
   const opts = [];
 
@@ -601,7 +490,8 @@ async function _buildDiffOptions() {
       const classes = await fetch(_versionClassesUrl(prevVersion)).then((r) => r.json());
       const match   = classes.find((c) => c.class_name === _codeSelectedClass);
       if (match && match.source_hash !== selectedEntry.source_hash) {
-        opts.push({ label: 'vs. prev', hashA: selectedEntry.source_hash, hashB: match.source_hash });
+        // hash_old = prev (older), hash_new = selected (newer)
+        opts.push({ label: 'vs. prev', hash_old: match.source_hash, hash_new: selectedEntry.source_hash });
       }
     } catch { /* skip */ }
   }
@@ -610,7 +500,8 @@ async function _buildDiffOptions() {
     const currentEntry = _codeAllClasses.find((c) => c.class_name === _codeSelectedClass)
       ?? _codeClasses.find((c) => c.class_name === _codeSelectedClass);
     if (currentEntry && currentEntry.source_hash !== selectedEntry.source_hash) {
-      opts.push({ label: 'vs. current', hashA: selectedEntry.source_hash, hashB: currentEntry.source_hash });
+      // hash_old = selected (older snapshot), hash_new = current (live)
+      opts.push({ label: 'vs. current', hash_old: selectedEntry.source_hash, hash_new: currentEntry.source_hash });
     }
   }
 
@@ -640,7 +531,7 @@ function _renderDiffTargetBar(panel) {
 async function _loadAndRenderDiff(opt) {
   try {
     const data = await fetch(
-      `/api/code/diff?hash_a=${encodeURIComponent(opt.hashA)}&hash_b=${encodeURIComponent(opt.hashB)}&full=1`
+      `/api/code/diff?hash_old=${encodeURIComponent(opt.hash_old)}&hash_new=${encodeURIComponent(opt.hash_new)}&full=1`
     ).then((r) => r.json());
     _currentDiffData = data;
     const panel = $('#code-source-panel');
@@ -661,8 +552,8 @@ export async function enterDiffMode() {
   await _loadAndRenderDiff(_diffOptions[0]);
 }
 
-export async function showDiff(hashA, hashB) {
-  _diffOptions = [{ label: '', hashA, hashB }];
+export async function showDiff(hash_old, hash_new) {
+  _diffOptions = [{ label: '', hash_old, hash_new }];
   _diffOptionIdx = 0;
   _codeDiffMode = true;
   await _loadAndRenderDiff(_diffOptions[0]);
@@ -702,7 +593,7 @@ export async function showWhatChanged(recordId) {
   } catch { toast('Could not load tree diff'); }
 }
 
-async function _showVersionChangeSummary(versionMeta, changedNames) {
+async function _showVersionChangeSummary(versionMeta) {
   const panel = $('#code-source-panel');
   if (!panel) return;
 
@@ -714,36 +605,28 @@ async function _showVersionChangeSummary(versionMeta, changedNames) {
   renderCodeClassList();
   _syncDiffSegments();
 
-  // Find previous version to diff against
-  const idx = _codeVersions.findIndex((v) => v.mtime === versionMeta.mtime);
-  const prevVersion = idx >= 0 ? _codeVersions[idx + 1] ?? null : null;
-
-  // Build a hash lookup for both current and previous version
-  let prevHashMap = {};
-  if (prevVersion) {
-    try {
-      const prevClasses = await fetch(_versionClassesUrl(prevVersion)).then((r) => r.json());
-      for (const c of prevClasses) prevHashMap[c.class_name] = c.source_hash;
-    } catch { /* skip */ }
+  let changes;
+  try {
+    changes = await fetch(
+      `/api/code/version-changes?version_id=${encodeURIComponent(versionMeta.version_id)}`
+    ).then((r) => r.json());
+  } catch {
+    panel.innerHTML = '<div class="diff-no-snapshot">Could not load version changes.</div>';
+    return;
   }
 
-  const changes = changedNames.map((cn) => {
-    const current = _codeClasses.find((c) => c.class_name === cn);
-    const hashA = prevHashMap[cn] ?? null;
-    const hashB = current?.source_hash ?? null;
-    const status = !hashA ? 'added' : !hashB ? 'removed' : hashA === hashB ? 'unchanged' : 'changed';
-    return { class_name: cn, status, hashA, hashB, diff: null };
-  }).filter((c) => c.status !== 'unchanged');
+  // Only show ADDED/CHANGED/REMOVED — skip UNCHANGED
+  const visible = changes.filter((c) => c.status !== 'unchanged');
 
   const wrap = document.createElement('div');
   wrap.className = 'tree-diff-container';
-  wrap.innerHTML = changes.map((c) => {
+  wrap.innerHTML = visible.map((c) => {
     const open = c.status === 'changed' ? ' open' : '';
-    const canExpand = (c.status === 'changed' && c.hashA && c.hashB)
-                   || (c.status === 'added'   && c.hashA)
-                   || (c.status === 'removed' && c.hashB);
+    const canExpand = (c.status === 'changed' && c.hash_old && c.hash_new)
+                   || (c.status === 'added'   && c.hash_new)
+                   || (c.status === 'removed' && c.hash_old);
     return `<div class="tree-diff-class ${esc(c.status)}${open}" data-class="${esc(c.class_name)}"
-                 data-hash-a="${esc(c.hashA ?? '')}" data-hash-b="${esc(c.hashB ?? '')}">
+                 data-hash-old="${esc(c.hash_old ?? '')}" data-hash-new="${esc(c.hash_new ?? '')}">
       <div class="tree-diff-header">
         <span class="tree-diff-status">${esc(c.status)}</span>
         <span class="tree-diff-name">${esc(c.class_name)}</span>
@@ -758,8 +641,8 @@ async function _showVersionChangeSummary(versionMeta, changedNames) {
   wrap.querySelectorAll('.tree-diff-header').forEach((hdr) => {
     const card = hdr.parentElement;
     const body = card.querySelector('.tree-diff-body');
-    const hashA = card.dataset.hashA;
-    const hashB = card.dataset.hashB;
+    const hashOld = card.dataset.hashOld;
+    const hashNew = card.dataset.hashNew;
     if (!body) return;
 
     const _maybeRender = async () => {
@@ -767,15 +650,15 @@ async function _showVersionChangeSummary(versionMeta, changedNames) {
       body.dataset.rendered = '1';
       body.innerHTML = '<div class="diff-loading">Loading…</div>';
       try {
-        if (hashA && hashB) {
+        if (hashOld && hashNew) {
           const data = await fetch(
-            `/api/code/diff?hash_a=${encodeURIComponent(hashA)}&hash_b=${encodeURIComponent(hashB)}&full=1`
+            `/api/code/diff?hash_old=${encodeURIComponent(hashOld)}&hash_new=${encodeURIComponent(hashNew)}&full=1`
           ).then((r) => r.json());
           body.dataset.diff = JSON.stringify(data);
           _renderDiffInto(body, data);
           _syncDiffSegments();
         } else {
-          const sourceHash = hashA || hashB;
+          const sourceHash = hashNew || hashOld;
           const data = await fetch(
             `/api/code/snapshot?source_hash=${encodeURIComponent(sourceHash)}`
           ).then((r) => r.json());
@@ -834,8 +717,8 @@ function renderTreeDiffResult(changes) {
     const _maybeRender = async () => {
       if (body.dataset.rendered) return;
       body.dataset.rendered = '1';
-      if (change.diff) {
-        const diffData = { diff: change.diff, full_a: change.full_a ?? null, full_b: change.full_b ?? null };
+      if (change.hunks) {
+        const diffData = { hunks: change.hunks, full_old: change.full_old ?? null, full_new: change.full_new ?? null };
         body.dataset.diff = JSON.stringify(diffData);
         _renderDiffInto(body, diffData);
         _syncDiffSegments();
@@ -915,9 +798,9 @@ export async function navigateToCodeClass(className, depHash = null) {
   if (!_codeLoaded) await loadCodeView();
 
   // Resolve which version to show. When depHash is provided, ask the server to
-  // find the version mtime that was current when the entry was computed.
+  // find the version that was current when the entry was computed.
   // Fall back to the most recent commit if no depHash.
-  let targetVersion = _codeVersions[0]?.mtime ?? null;
+  let targetVersion = _codeVersions[0]?.version_id ?? null;
   let resolvedSourceHash = null;
   if (depHash) {
     try {
@@ -925,10 +808,10 @@ export async function navigateToCodeClass(className, depHash = null) {
         `/api/code/resolve-dep-hash?dep_hash=${encodeURIComponent(depHash)}&class_name=${encodeURIComponent(className)}`
       ).then((r) => r.ok ? r.json() : null);
       if (res) {
-        targetVersion = res.version_mtime;
+        targetVersion = res.version_id;
         resolvedSourceHash = res.source_hash;
       }
-    } catch { /* fall through to 'now' */ }
+    } catch { /* fall through to newest */ }
   }
 
   // Always use by-version mode for navigateToCodeClass (source/dep navigation)
@@ -962,15 +845,15 @@ export async function navigateToCodeClassBySourceHash(className, sourceHash) {
     await applyCodeBrowseMode('version', { silent: true });
   }
 
-  let targetVersion = _codeVersions[0]?.mtime ?? 'now';
+  let targetVersion = _codeVersions[0]?.version_id ?? null;
   try {
     const res = await fetch(
       `/api/code/source-hash-version?source_hash=${encodeURIComponent(sourceHash)}&class_name=${encodeURIComponent(className)}`
     ).then((r) => r.ok ? r.json() : null);
-    if (res?.version_mtime) targetVersion = res.version_mtime;
+    if (res?.version_id) targetVersion = res.version_id;
   } catch { /* fall through to newest */ }
 
-  if (targetVersion !== _codeSelectedVersion) {
+  if (targetVersion && targetVersion !== _codeSelectedVersion) {
     await selectCodeVersion(targetVersion, { silent: true });
   }
 
@@ -1060,8 +943,7 @@ document.getElementById('entry-class-filter')?.addEventListener('input', () =>
 
 $('#btn-find-in-entries')?.addEventListener('click', () => {
   if (!_codeSelectedClass) return;
-  const versionMeta = _codeVersions.find((v) => v.mtime === _codeSelectedVersion);
-  state.version_filter = versionMeta?.mtime ?? null;
+  state.version_filter = _codeSelectedVersion ?? null;
   scheduleSelectFirst();
   showView('entries', { pushNav: true });
   toggleClass(_codeSelectedClass, { navigate: true });

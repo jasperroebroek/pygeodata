@@ -6,6 +6,7 @@ from pathlib import Path
 from pygeodata.config import JSONKeys, set_config
 from pygeodata.registry_browser import code_service
 from pygeodata.registry_browser.models import EntryInfo, SpecInfo
+from pygeodata.versioning import VersionRegistry
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
@@ -63,16 +64,20 @@ def _noop(_path: str):
 # ---------------------------------------------------------------------------
 
 
-def test_tree_diff_no_dep_hash():
+def test_tree_diff_no_dep_hash(tmp_path: Path):
     """Entry with dep_hash=None → no_snapshot."""
     entry = _make_entry('rec1', None)
-    result = code_service.tree_diff('rec1', {'rec1': entry}, {})
+    with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=tmp_path / '.source'):
+        vreg = VersionRegistry()
+        result = code_service.tree_diff('rec1', {'rec1': entry}, vreg)
     assert result == {'error': 'no_snapshot', 'message': 'Snapshot not available for this entry'}
 
 
-def test_tree_diff_missing_entry():
+def test_tree_diff_missing_entry(tmp_path: Path):
     """Unknown record_id → __not_found__ sentinel."""
-    result = code_service.tree_diff('missing', {}, {})
+    with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=tmp_path / '.source'):
+        vreg = VersionRegistry()
+        result = code_service.tree_diff('missing', {}, vreg)
     assert result.get('__not_found__') is True
 
 
@@ -81,7 +86,8 @@ def test_tree_diff_no_snapshot_file(tmp_path: Path):
     registry = tmp_path / '.source'
     entry = _make_entry('rec1', 'nonexistent_dep_hash')
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
-        result = code_service.tree_diff('rec1', {'rec1': entry}, {})
+        vreg = VersionRegistry(registry)
+        result = code_service.tree_diff('rec1', {'rec1': entry}, vreg)
     assert result == {'error': 'no_snapshot', 'message': 'Snapshot not available for this entry'}
 
 
@@ -98,22 +104,26 @@ def test_tree_diff_changed(tmp_path: Path):
         encoding='utf-8',
     )
 
-    code_groups = {'MyLoader': [{'source_hash': 'h2', 'mtime': '2026-06-01T00:00:00+00:00', 'object_type': 'Data'}]}
     entry = _make_entry('rec1', 'snapshot1')
 
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
-        result = code_service.tree_diff('rec1', {'rec1': entry}, code_groups)
+        vreg = VersionRegistry(registry)
+        result = code_service.tree_diff('rec1', {'rec1': entry}, vreg)
 
     changes = result['changes']
     assert len(changes) == 1
     c = changes[0]
     assert c['status'] == 'changed'
     assert c['class_name'] == 'MyLoader'
-    assert c['diff'] is not None
-    assert '-    x = 1' in c['diff']
-    assert '+    x = 2' in c['diff']
-    assert c['full_a'] == 'class MyLoader:\n    x = 1\n'
-    assert c['full_b'] == 'class MyLoader:\n    x = 2\n'
+    assert c['hunks'] is not None
+    assert len(c['hunks']) > 0
+    all_lines = [line for hunk in c['hunks'] for line in hunk['lines']]
+    del_texts = [l['text'] for l in all_lines if l['type'] == 'del']
+    add_texts = [l['text'] for l in all_lines if l['type'] == 'add']
+    assert any('x = 1' in t for t in del_texts)
+    assert any('x = 2' in t for t in add_texts)
+    assert c['full_old'] == 'class MyLoader:\n    x = 1\n'
+    assert c['full_new'] == 'class MyLoader:\n    x = 2\n'
 
 
 def test_tree_diff_added(tmp_path: Path):
@@ -128,11 +138,11 @@ def test_tree_diff_added(tmp_path: Path):
         encoding='utf-8',
     )
 
-    code_groups = {'NewClass': [{'source_hash': 'hnew', 'mtime': '2026-01-01T00:00:00+00:00', 'object_type': 'Data'}]}
     entry = _make_entry('rec1', 'snapshot1')
 
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
-        result = code_service.tree_diff('rec1', {'rec1': entry}, code_groups)
+        vreg = VersionRegistry(registry)
+        result = code_service.tree_diff('rec1', {'rec1': entry}, vreg)
 
     statuses = {c['class_name']: c['status'] for c in result['changes']}
     assert statuses['NewClass'] == 'added'
@@ -141,7 +151,6 @@ def test_tree_diff_added(tmp_path: Path):
 def test_tree_diff_removed(tmp_path: Path):
     """Class in stored but absent in live → status=removed."""
     registry = tmp_path / '.source'
-    _write_code_snapshot(registry, 'hold', 'OldClass', 'class OldClass: pass\n')
 
     snapshot_dir = registry / 'snapshots' / 'snapshot1'
     snapshot_dir.mkdir(parents=True)
@@ -150,11 +159,11 @@ def test_tree_diff_removed(tmp_path: Path):
         encoding='utf-8',
     )
 
-    code_groups: dict = {}  # nothing live
     entry = _make_entry('rec1', 'snapshot1')
 
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
-        result = code_service.tree_diff('rec1', {'rec1': entry}, code_groups)
+        vreg = VersionRegistry(registry)
+        result = code_service.tree_diff('rec1', {'rec1': entry}, vreg)
 
     statuses = {c['class_name']: c['status'] for c in result['changes']}
     assert statuses['OldClass'] == 'removed'
@@ -172,14 +181,12 @@ def test_tree_diff_unchanged(tmp_path: Path):
         encoding='utf-8',
     )
 
-    code_groups = {
-        'StableClass': [{'source_hash': 'hstable', 'mtime': '2026-01-01T00:00:00+00:00', 'object_type': 'Data'}],
-    }
     entry = _make_entry('rec1', 'snapshot1')
 
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
-        result = code_service.tree_diff('rec1', {'rec1': entry}, code_groups)
+        vreg = VersionRegistry(registry)
+        result = code_service.tree_diff('rec1', {'rec1': entry}, vreg)
 
     c = result['changes'][0]
     assert c['status'] == 'unchanged'
-    assert c['diff'] is None
+    assert c['hunks'] is None

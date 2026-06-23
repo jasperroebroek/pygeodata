@@ -21,8 +21,8 @@ def test_get_cache_root_matches_config(tmp_path: pytest.TempdirFactory) -> None:
 
 
 def test_processed_dir_with_params_differs_by_param(sample_spatial_spec: SpatialSpec) -> None:
-    p1 = LoaderA(year=2000).get_processed_dir(sample_spatial_spec)
-    p2 = LoaderA(year=2001).get_processed_dir(sample_spatial_spec)
+    p1 = LoaderA(year=2000).resolve_cache_paths(sample_spatial_spec).directory
+    p2 = LoaderA(year=2001).resolve_cache_paths(sample_spatial_spec).directory
     assert p1 != p2
 
 

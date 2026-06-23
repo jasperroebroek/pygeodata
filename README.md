@@ -50,16 +50,16 @@ Everything lands in a content-addressed store:
 data_processed/
   {state_hash}/
     elevation_loader.tif
-    .elevation_loader.hash.json    ← cache key + metadata
-    .elevation_loader.params.json  ← params at time of run
-    .elevation_loader.spec.json    ← spec at time of run
+    meta.json                       ← cache key + metadata
+    parameters.json                 ← params at time of run
+    spec.json                       ← spec at time of run
 
 .source/
   code/{source_hash}/
-    source.py                      ← every version of every class
+    source.py                       ← every version of every class
     source.json
   snapshots/{dep_tree_hash}/
-    tree.json                      ← full dependency tree at time of run
+    tree.json                       ← full dependency tree at time of run
     graph.pdf
 ```
 

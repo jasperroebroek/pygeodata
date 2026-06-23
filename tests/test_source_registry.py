@@ -53,8 +53,8 @@ def _write_tree(registry: Path, dep_hash: str, nodes: dict) -> None:
 def test_empty_registry(tmp_path: Path) -> None:
     reg = SourceRegistry(tmp_path / '.source')
     assert reg.class_names == []
-    assert reg.latest_for_class('Anything') is None
-    assert reg.hash_to_mtime('anything') is None
+    assert reg.get_latest_state_for_class('Anything') is None
+    assert reg.get_mtime_from_hash('anything') is None
 
 
 def test_single_snapshot_not_version_change(tmp_path: Path) -> None:
@@ -81,7 +81,7 @@ def test_latest_for_class_returns_newest(tmp_path: Path) -> None:
     _write_snapshot(registry, 'h1', 'MyClass', mtime='2026-01-01T00:00:00+00:00')
     _write_snapshot(registry, 'h2', 'MyClass', mtime='2026-06-01T00:00:00+00:00')
     reg = SourceRegistry(registry)
-    latest = reg.latest_for_class('MyClass')
+    latest = reg.get_latest_state_for_class('MyClass')
     assert latest is not None
     assert latest.source_hash == 'h2'
 
@@ -91,9 +91,9 @@ def test_hash_to_mtime_covers_all_hashes(tmp_path: Path) -> None:
     _write_snapshot(registry, 'h1', 'A', mtime='2026-01-01T00:00:00+00:00')
     _write_snapshot(registry, 'h2', 'B', mtime='2026-03-01T00:00:00+00:00')
     reg = SourceRegistry(registry)
-    assert reg.hash_to_mtime('h1') == '2026-01-01T00:00:00+00:00'
-    assert reg.hash_to_mtime('h2') == '2026-03-01T00:00:00+00:00'
-    assert reg.hash_to_mtime('unknown') is None
+    assert reg.get_mtime_from_hash('h1') == '2026-01-01T00:00:00+00:00'
+    assert reg.get_mtime_from_hash('h2') == '2026-03-01T00:00:00+00:00'
+    assert reg.get_mtime_from_hash('unknown') is None
 
 
 def test_missing_class_name_skipped(tmp_path: Path) -> None:
@@ -190,31 +190,31 @@ def two_version_registry(tmp_path: Path):
 def test_version_groups_single_change(two_version_registry: Path) -> None:
     """One class with two states → one change group (v1) + Initial."""
     vr = VersionRegistry(two_version_registry)
-    assert len(vr.version_groups) == 2
-    v1, initial = vr.version_groups
-    assert v1.version_number == 1
+    assert len(vr.versions) == 2
+    v1, initial = vr.versions
+    assert vr.version_number(v1) == 1
     assert v1.class_names == ['MyLoader']
-    assert initial.version_number == 0
+    assert vr.version_number(initial) == 0
     assert 'MyLoader' in initial.class_names
 
 
 def test_snapshot_pre_change_assigned_to_initial(two_version_registry: Path) -> None:
     """snapshot_pre uses h1 (Initial hash, not a change event) → assigned to Initial."""
     vr = VersionRegistry(two_version_registry)
-    initial_mtime = vr.version_groups[-1].mtime
-    assert vr.version_mtime_for_dep_hash('snapshot_pre') == initial_mtime
+    initial = vr.versions[-1]
+    assert vr.version_for_dep_hash('snapshot_pre') == initial
 
 
 def test_snapshot_post_change_assigned_to_v1(two_version_registry: Path) -> None:
     """snapshot_post uses h2 (the change hash) → assigned to v1."""
     vr = VersionRegistry(two_version_registry)
-    v1_mtime = vr.version_groups[0].mtime
-    assert vr.version_mtime_for_dep_hash('snapshot_post') == v1_mtime
+    v1 = vr.versions[0]
+    assert vr.version_for_dep_hash('snapshot_post') == v1
 
 
 def test_missing_dep_hash_returns_none(two_version_registry: Path) -> None:
     vr = VersionRegistry(two_version_registry)
-    assert vr.version_mtime_for_dep_hash('nonexistent') is None
+    assert vr.version_for_dep_hash('nonexistent') is None
 
 
 def test_snapshot_with_unknown_node_hash_assigned_to_initial(tmp_path: Path) -> None:
@@ -224,8 +224,8 @@ def test_snapshot_with_unknown_node_hash_assigned_to_initial(tmp_path: Path) -> 
     _write_snapshot(registry, 'h2', 'A', mtime='2026-06-01T00:00:00+00:00')
     _write_tree(registry, 'snap1', {'A': {'hash': 'UNKNOWN_HASH'}})
     vr = VersionRegistry(registry)
-    initial_mtime = vr.version_groups[-1].mtime
-    assert vr.version_mtime_for_dep_hash('snap1') == initial_mtime
+    initial = vr.versions[-1]
+    assert vr.version_for_dep_hash('snap1') == initial
 
 
 def test_no_changes_produces_only_initial(tmp_path: Path) -> None:
@@ -234,8 +234,8 @@ def test_no_changes_produces_only_initial(tmp_path: Path) -> None:
     _write_snapshot(registry, 'h1', 'A', mtime='2026-01-01T00:00:00+00:00')
     _write_tree(registry, 'snap1', {'A': {'hash': 'h1'}})
     vr = VersionRegistry(registry)
-    assert len(vr.version_groups) == 1
-    assert vr.version_groups[0].version_number == 0
+    assert len(vr.versions) == 1
+    assert vr.version_number(vr.versions[0]) == 0
 
 
 def test_snapshot_using_change_hash_assigned_to_its_group(tmp_path: Path) -> None:
@@ -245,5 +245,5 @@ def test_snapshot_using_change_hash_assigned_to_its_group(tmp_path: Path) -> Non
     _write_snapshot(registry, 'h2', 'A', mtime='2026-06-01T00:00:00+00:00')
     _write_tree(registry, 'snap1', {'A': {'hash': 'h2'}})
     vr = VersionRegistry(registry)
-    v1_mtime = vr.version_groups[0].mtime
-    assert vr.version_mtime_for_dep_hash('snap1') == v1_mtime
+    v1 = vr.versions[0]
+    assert vr.version_for_dep_hash('snap1') == v1

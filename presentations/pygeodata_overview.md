@@ -80,9 +80,9 @@ Everything lands in a content-addressed store:
 data_processed/
   {state_hash}/          ← hash(class code + params + spec)
     elevation_loader.tif
-    .elevation_loader.hash.json
-    .elevation_loader.params.json
-    .elevation_loader.spec.json
+    meta.json
+    parameters.json
+    spec.json
 
 .source/
   code/{source_hash}/    ← every version of every class, forever

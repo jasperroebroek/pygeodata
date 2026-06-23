@@ -10,15 +10,16 @@ import uuid
 from contextlib import redirect_stdout
 from pathlib import Path
 
+import dataclasses
+
 from flask import Flask, abort, jsonify, render_template, request, send_file
 
 from pygeodata.artifact import Artifact
 from pygeodata.cache import clean_cache
 from pygeodata.config import get_config
-from pygeodata.registry_browser import code_service, export_service
+from pygeodata.registry_browser import code_service, export_service, payloads
 from pygeodata.registry_browser.logging import configure_logging
 from pygeodata.registry_browser.path_actions import open_path, reveal_path
-from pygeodata.registry_browser import payloads
 from pygeodata.registry_browser.payloads import _build_table_rows, build_browser_payload
 from pygeodata.registry_browser.popups import (
     build_graph_popup,
@@ -26,9 +27,8 @@ from pygeodata.registry_browser.popups import (
     build_source_popup,
 )
 from pygeodata.registry_browser.state import AppContext
-from pygeodata.versioning import VersionRegistry
 
-_ctx = AppContext()
+_ctx: AppContext = AppContext()  # replaced by create_app() on startup
 _loading = ({'loading': True}, 202)
 
 app = Flask(__name__, template_folder='templates')
@@ -130,7 +130,13 @@ def api_reveal():
 
 @app.get('/api/status')
 def api_status():
-    return jsonify({'ready': _ctx.ready.is_set(), 'progress': _ctx.progress})
+    return jsonify(
+        {
+            'ready': _ctx.ready.is_set(),
+            'progress': _ctx.progress,
+            'load_error': _ctx.load_error,
+        },
+    )
 
 
 @app.post('/api/dashboard')
@@ -156,7 +162,9 @@ def api_dashboard():
 
 @app.post('/api/rebuild')
 def api_rebuild():
-    _ctx.start_reload()
+    body = request.get_json(force=True, silent=True) or {}
+    reimport = bool(body.get('reimport', False))
+    _ctx.start_reload(reimport=reimport)
     return _loading
 
 
@@ -193,66 +201,89 @@ def api_code_versions():
     """Return merged version groups sorted newest first, with a synthetic Initial entry last."""
     if _ctx.is_loading() or _ctx.state is None:
         return _loading
-    return jsonify(payloads.version_groups_payload(VersionRegistry.instance()))
+    return jsonify(payloads.version_groups_payload(_ctx.state.version_registry))
 
 
 @app.get('/api/code/resolve-dep-hash')
 def api_code_resolve_dep_hash():
-    """Resolve a dep_tree_hash to the Code-view version mtime for a specific class.
+    """Resolve a dep_tree_hash + class_name to version_id and source_hash.
 
-    Returns ``{"version_mtime": "<iso>" | "now", "source_hash": "<hex>"}``
+    Returns ``{"version_id": "<uuid>", "source_hash": "<hex>"}``
     or 404 if the snapshot or class is not found.
     """
     dep_hash = request.args.get('dep_hash', '')
     class_name = request.args.get('class_name', '')
     if not dep_hash or not class_name:
         abort(400)
-    result = code_service.resolve_dep_hash(dep_hash, class_name)
-    if result is None:
+    if _ctx.is_loading() or _ctx.state is None:
+        return _loading
+    vreg = _ctx.state.version_registry
+    source_hash = vreg.tree_registry.get_class_source_hash(dep_hash, class_name)
+    if not source_hash:
         abort(404)
-    return jsonify(result)
+    version = vreg.dep_hash_to_version.get(dep_hash)
+    return jsonify({'version_id': version.version_id if version else None, 'source_hash': source_hash})
 
 
 @app.get('/api/code/source-hash-version')
 def api_code_source_hash_version():
-    """Resolve a source_hash + class_name to the version group mtime it belongs to.
+    """Resolve a source_hash to its version group.
 
-    Returns ``{"version_mtime": "<iso>" | "now"}`` or 404.
+    Returns ``{"version_id": "<uuid>"}`` or 404.
     """
     if _ctx.is_loading() or _ctx.state is None:
         return _loading
 
     source_hash = request.args.get('source_hash', '')
-    class_name = request.args.get('class_name', '')
-    if not source_hash or not class_name:
+    if not source_hash:
         abort(400)
 
-    version_mtime = VersionRegistry.instance().version_mtime_for_source_hash(source_hash)
-    if version_mtime is None:
+    version = _ctx.state.version_registry.version_for_source_hash(source_hash)
+    if version is None:
         abort(404)
 
-    return jsonify({'version_mtime': version_mtime})
+    return jsonify({'version_id': version.version_id})
 
 
 @app.get('/api/code/version-classes')
 def api_code_version_classes():
     """Return all classes at their state for the given version group.
 
-    Pass ``mtime=<VersionInfo.mtime>`` to select a specific group, or omit / pass
-    ``mtime=now`` for the newest group.
+    Pass ``version_id=<uuid>`` to select a specific group, or omit for the newest group.
     """
     if _ctx.is_loading() or _ctx.state is None:
         return _loading
-    version_mtime = request.args.get('mtime', 'now').replace(' ', '+')
-    return jsonify(code_service.version_classes(version_mtime, VersionRegistry.instance()))
+    version_id = request.args.get('version_id', '')
+    return jsonify([dataclasses.asdict(c) for c in code_service.version_classes(version_id, _ctx.state.version_registry)])
+
+
+@app.get('/api/code/version-changes')
+def api_code_version_changes():
+    """Return a complete per-class change summary for a version group.
+
+    Pass ``version_id=<uuid>``.  Returns a list of
+    ``{class_name, status, hash_old, hash_new}`` entries, or 404 if unknown.
+    """
+    if _ctx.is_loading() or _ctx.state is None:
+        return _loading
+    version_id = request.args.get('version_id', '')
+    if not version_id:
+        abort(400)
+    vreg = _ctx.state.version_registry
+    changes = vreg.version_change_summary_from_id(version_id)
+    if changes is None:
+        abort(404)
+    return jsonify([c.to_dict() for c in changes])
 
 
 @app.get('/api/code/snapshot')
 def api_code_snapshot():
+    if _ctx.is_loading() or _ctx.state is None:
+        return _loading
     source_hash = request.args.get('source_hash', '')
     if not source_hash:
         abort(400)
-    result = code_service.snapshot_html(source_hash, _ctx.state.code_groups if _ctx.state else None)
+    result = code_service.snapshot_html(source_hash, _ctx.state.version_registry)
     if result is None:
         abort(404)
     return jsonify(result)
@@ -261,12 +292,12 @@ def api_code_snapshot():
 @app.get('/api/code/diff')
 def api_code_diff():
     """Return unified diff between two source snapshots."""
-    hash_a = request.args.get('hash_a', '')
-    hash_b = request.args.get('hash_b', '')
-    if not hash_a or not hash_b:
+    hash_old = request.args.get('hash_old', '')
+    hash_new = request.args.get('hash_new', '')
+    if not hash_old or not hash_new:
         abort(400)
     full = request.args.get('full') == '1'
-    result = code_service.unified_diff_payload(hash_a, hash_b, full, _assert_allowed_path)
+    result = code_service.unified_diff_payload(hash_old, hash_new, full, _assert_allowed_path, _ctx.state.version_registry)
     if result is None:
         abort(404)
     return jsonify(result)
@@ -285,7 +316,7 @@ def api_code_tree_diff():
     if not record_id:
         abort(400)
 
-    result = code_service.tree_diff(record_id, _ctx.state.entries, _ctx.state.code_groups)
+    result = code_service.tree_diff(record_id, _ctx.state.entries, _ctx.state.version_registry)
     if result.get('__not_found__'):
         abort(404)
     return jsonify(result)
@@ -310,12 +341,15 @@ def api_export_start():
         _ctx.state.entries,
         include_snapshots,
         _assert_allowed_path,
+        tree_registry=_ctx.state.version_registry.tree_registry,
     )
 
     job_id = str(uuid.uuid4())
     export_service.create_job(job_id, len(files))
     threading.Thread(
-        target=export_service.run_export_job, args=(job_id, files), daemon=True
+        target=export_service.run_export_job,
+        args=(job_id, files),
+        daemon=True,
     ).start()
     return jsonify({'job_id': job_id, 'total': len(files)})
 
@@ -331,7 +365,7 @@ def api_export_status(job_id: str):
             'done': job['done'],
             'total': job['total'],
             'error': job['error'],
-        }
+        },
     )
 
 
@@ -397,7 +431,9 @@ def api_export_single(record_id: str):
         return _loading
 
     data_path, download_name, needs_tar = export_service.single_entry_tar_path(
-        record_id, _ctx.state.entries, _assert_allowed_path
+        record_id,
+        _ctx.state.entries,
+        _assert_allowed_path,
     )
     if data_path is None:
         abort(404)
@@ -413,6 +449,8 @@ def api_export_single(record_id: str):
 
 
 def create_app() -> Flask:
+    global _ctx
     configure_logging(logging.INFO)
+    _ctx = AppContext()
     _ctx.start_load()
     return app

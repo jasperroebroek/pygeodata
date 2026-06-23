@@ -3,7 +3,7 @@ from typing import ClassVar, Generic
 
 from pygeodata.artifact import Artifact
 from pygeodata.config import get_config
-from pygeodata.paths import CACHE_META_SUFFIXES, CachePathResolver
+from pygeodata.paths import CACHE_META_FILES, CachePathConstructor
 from pygeodata.protocols import Driver, T
 from pygeodata.registry import EntryRegistry
 from pygeodata.spec import SpatialSpec
@@ -153,23 +153,15 @@ class Data(Artifact, Generic[T]):
         FileNotFoundError
             If the resolved output file does not exist on disk.
         """
-        registry = EntryRegistry.instance()
-        matches = [h for h in registry.records if h.startswith(state_hash)]
-        if len(matches) == 0:
+        registry = EntryRegistry()
+        full_hash = registry.resolve_hash_prefix(state_hash)
+        if full_hash is None:
             raise KeyError(f'No entry found for hash prefix {state_hash!r}')
-        if len(matches) > 1:
-            raise KeyError(
-                f'Ambiguous hash prefix {state_hash!r} matches {len(matches)} entries: ' + ', '.join(matches),
-            )
-        record = registry.records[matches[0]]
+        record = registry.records[full_hash]
         if record.hash_path is None:
             raise FileNotFoundError(f'Entry {matches[0]!r} has no hash_path')
-        resolver = CachePathResolver.from_path(Path(record.hash_path))
-        candidates = [
-            p
-            for p in resolver.directory.iterdir()
-            if p.stem == resolver.stem and ''.join(p.suffixes) not in CACHE_META_SUFFIXES
-        ]
+        resolver = CachePathConstructor.from_path(Path(record.hash_path))
+        candidates = [p for p in resolver.directory.iterdir() if p.name not in CACHE_META_FILES]
         if not candidates:
             raise FileNotFoundError(f'No output file found for hash {matches[0]!r} in {resolver.directory}')
         path = candidates[0]

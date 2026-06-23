@@ -1,19 +1,21 @@
 import logging
 
-from pygeodata.config import get_config
 from pygeodata.hash import calculate_cls_source_hash
-from pygeodata.paths import CodeRegistryResolver, TreeRegistryResolver
-from pygeodata.registry import SourceRegistry, TreeRegistry
+from pygeodata.paths import CodeRegistryConstructor, TreeRegistryConstructor
+from pygeodata.registry import EntryRegistry, SourceRegistry, TreeRegistry
 from pygeodata.registry_browser.io_utils import existing_path_str
 from pygeodata.registry_browser.models import ClassInfo, EntryInfo, RegistryClassInfo
-from pygeodata.registry_types import GroupRecord
 from pygeodata.tracked_object import TrackedObject
 from pygeodata.versioning import VersionRegistry
 
 logger = logging.getLogger(__name__)
 
 
-def source_info_from_disk(class_name: str) -> RegistryClassInfo:
+def source_info_from_disk(
+    class_name: str,
+    src: SourceRegistry | None = None,
+    trees: TreeRegistry | None = None,
+) -> RegistryClassInfo:
     """Read class metadata from the content-addressed code registry.
 
     Uses :class:`SourceRegistry` to find the most recent snapshot for
@@ -22,13 +24,13 @@ def source_info_from_disk(class_name: str) -> RegistryClassInfo:
 
     Returns a default :class:`RegistryClassInfo` if nothing is found.
     """
-    registry = SourceRegistry(get_config().path_registry)
-    latest = registry.latest_for_class(class_name)
+    registry = src if src is not None else SourceRegistry()
+    latest = registry.get_latest_state_for_class(class_name)
     if latest is None:
         return RegistryClassInfo()
 
     source_hash = latest.source_hash
-    code_resolver = CodeRegistryResolver.from_source_hash(source_hash) if source_hash else None
+    code_resolver = CodeRegistryConstructor.from_source_hash(source_hash) if source_hash else None
     meta_path = code_resolver.meta_path if code_resolver else None
 
     call_dep_names: list[str] = []
@@ -36,12 +38,12 @@ def source_info_from_disk(class_name: str) -> RegistryClassInfo:
     graph_path_str: str | None = None
     tree_path_str: str | None = None
 
-    trees = TreeRegistry(get_config().path_registry)
-    dep_hash = trees.find_by_class(class_name)
-    if dep_hash is not None:
-        call_dep_names = trees.get_call_deps(dep_hash)
-        inh_dep_names = trees.get_inheritance_deps(dep_hash)
-        tree_path = trees.get_tree_path(dep_hash)
+    trees = trees if trees is not None else TreeRegistry()
+    snapshot = trees.get_snapshot_for_source_hash(class_name, source_hash) if source_hash else None
+    if snapshot is not None:
+        call_dep_names = trees.get_call_dependencies(snapshot.dependency_tree_hash)
+        inh_dep_names = trees.get_inheritance_dependencies(snapshot.dependency_tree_hash)
+        tree_path = trees.get_tree_path(snapshot.dependency_tree_hash)
         graph_path_candidate = tree_path.parent / 'graph.pdf'
         graph_path_str = str(graph_path_candidate.resolve()) if graph_path_candidate.exists() else None
         tree_path_str = str(tree_path.resolve())
@@ -71,8 +73,8 @@ def discover_loaded_classes() -> dict[str, ClassInfo]:
         inheritance_dependency_names = sorted(dep.get_class_name() for dep in cls.get_inheritance_dependencies())
 
         live_source_hash = calculate_cls_source_hash(cls)
-        code_resolver = CodeRegistryResolver.from_source_hash(live_source_hash)
-        tree_resolver = TreeRegistryResolver.from_dep_tree_hash(cls.get_dependency_tree_hash())
+        code_resolver = CodeRegistryConstructor.from_source_hash(live_source_hash)
+        tree_resolver = TreeRegistryConstructor.from_dep_tree_hash(cls.get_dependency_tree_hash())
 
         # Source is stale when the current source hash has no code snapshot yet
         source_stale = not code_resolver.exists()
@@ -98,32 +100,34 @@ def discover_loaded_classes() -> dict[str, ClassInfo]:
 
 def merge_unloaded_classes(
     classes: dict[str, ClassInfo],
-    groups: dict[str, GroupRecord],
+    entry_registry: EntryRegistry,
     entries: dict[str, EntryInfo] | None = None,
     version_registry: VersionRegistry | None = None,
+    src: SourceRegistry | None = None,
+    trees: TreeRegistry | None = None,
 ) -> dict[str, ClassInfo]:
     merged = dict(classes)
 
-    for class_name, group in groups.items():
+    for class_name in entry_registry.class_names:
         if class_name in merged:
             continue
 
-        info = source_info_from_disk(class_name)
-        object_type = info.object_type or group.object_type
+        info = source_info_from_disk(class_name, src=src, trees=trees)
+        object_type = info.object_type or entry_registry.get_object_type(class_name)
 
         deps_stale = False
         if entries is not None and version_registry is not None:
             # Find the most recently versioned entry's dep_hash; older entries
             # legitimately have stale dep trees (they predate a code change).
             best_dep_hash: str | None = None
-            best_mtime: str | None = None
-            for rid in group.state_hashes:
+            best_version = None
+            for rid in entry_registry.get_state_hashes(class_name):
                 entry = entries.get(rid)
                 if entry is None or not entry.dep_hash:
                     continue
-                vm = version_registry.version_mtime_for_dep_hash(entry.dep_hash)
-                if vm is not None and (best_mtime is None or vm > best_mtime):
-                    best_mtime = vm
+                v = version_registry.version_for_dep_hash(entry.dep_hash)
+                if v is not None and (best_version is None or v > best_version):
+                    best_version = v
                     best_dep_hash = entry.dep_hash
             if best_dep_hash is not None:
                 deps_stale = version_registry.is_dep_hash_stale(best_dep_hash)

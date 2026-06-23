@@ -172,6 +172,17 @@ class EntryInfo:
 
 
 @dataclass(slots=True)
+class CodeClassState:
+    """Per-class state at a specific version, with live-staleness annotation."""
+
+    class_name: str
+    object_type: str
+    source_hash: str
+    is_loaded: bool
+    is_stale: bool
+
+
+@dataclass(slots=True)
 class ClassInfo:
     class_name: str
     object_type: str | None

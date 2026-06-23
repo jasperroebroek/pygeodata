@@ -1,64 +1,71 @@
+from __future__ import annotations
+
+from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
 
 from pygeodata.config import get_config
 
-CACHE_META_SUFFIXES = frozenset({'.params.json', '.hash.json', '.spec.json', '.graph.pdf', '.graph.png'})
+CACHE_META_FILES = frozenset({'parameters.json', 'meta.json', 'spec.json', 'graph.pdf', 'graph.png', 'process.lock'})
 CACHE_DIR_SUFFIXES = frozenset({'.zarr'})
 
 
 @dataclass
-class CachePathResolver:
+class CachePathConstructor:
     directory: Path
-    stem: str
-    ext: str
 
     @classmethod
-    def from_path(cls, path: Path) -> 'CachePathResolver':
-        stem = path.name.removeprefix('.').split('.')[0]
-        ext = ''.join(path.suffixes)
-        directory = path.parent
+    def from_state_hash(cls, state_hash: str, root: Path) -> CachePathConstructor:
+        return cls(root / state_hash)
 
-        return cls(
-            directory=directory,
-            stem=stem,
-            ext=ext,
-        )
-
-    def get_processed_path(self, ext: str | None = None) -> Path:
-        return self.directory / f'{self.stem}.{ext or self.ext}'
-
-    @property
-    def processed_path(self) -> Path:
-        return self.directory / f'{self.stem}{self.ext}'
+    @classmethod
+    def from_path(cls, path: Path) -> CachePathConstructor:
+        return cls(path.parent)
 
     @property
     def params_path(self) -> Path:
-        return self.directory / f'.{self.stem}.params.json'
+        return self.directory / 'parameters.json'
 
     @property
     def state_hash_path(self) -> Path:
-        return self.directory / f'.{self.stem}.hash.json'
+        return self.directory / 'meta.json'
 
     @property
     def execution_graph_path(self) -> Path:
-        return self.directory / f'.{self.stem}.graph.pdf'
+        return self.directory / 'graph.pdf'
 
     @property
     def spec_path(self) -> Path:
-        return self.directory / f'.{self.stem}.spec.json'
+        return self.directory / 'spec.json'
 
     def mkdir(self) -> None:
-        self.processed_path.parent.mkdir(parents=True, exist_ok=True)
+        self.directory.mkdir(parents=True, exist_ok=True)
+
+    def iterdir(self) -> Generator[Path, None, None]:
+        for path in self.directory.iterdir():
+            if path.name not in CACHE_META_FILES:
+                yield path
 
 
 @dataclass
-class CodeRegistryResolver:
+class CachePathResolver:
+    roots: tuple[Path] | None = None
+
+    def glob_meta_paths(self) -> Generator[Path, None, None]:
+        roots = (get_config().path_registry, get_config().path_figures) if self.roots is None else self.roots
+        for root in roots:
+            if root.exists():
+                yield from root.rglob('meta.json')
+
+
+@dataclass
+class CodeRegistryConstructor:
     directory: Path
 
     @classmethod
-    def from_source_hash(cls, source_hash: str) -> 'CodeRegistryResolver':
-        return cls(Path(get_config().path_registry) / 'code' / source_hash)
+    def from_source_hash(cls, source_hash: str, registry_root: Path | None = None) -> CodeRegistryConstructor:
+        base = registry_root if registry_root is not None else get_config().path_registry
+        return cls(base / 'code' / source_hash)
 
     @property
     def source_path(self) -> Path:
@@ -73,12 +80,13 @@ class CodeRegistryResolver:
 
 
 @dataclass
-class TreeRegistryResolver:
+class TreeRegistryConstructor:
     directory: Path
 
     @classmethod
-    def from_dep_tree_hash(cls, dep_tree_hash: str) -> 'TreeRegistryResolver':
-        return cls(Path(get_config().path_registry) / 'snapshots' / dep_tree_hash)
+    def from_dep_tree_hash(cls, dep_tree_hash: str, registry_root: Path | None = None) -> TreeRegistryConstructor:
+        base = registry_root if registry_root is not None else get_config().path_registry
+        return cls(base / 'snapshots' / dep_tree_hash)
 
     @property
     def tree_path(self) -> Path:
@@ -90,6 +98,26 @@ class TreeRegistryResolver:
 
     def exists(self) -> bool:
         return self.directory.exists()
+
+
+@dataclass
+class RegistryResolver:
+    root: Path | None = None
+
+    def _root(self) -> Path:
+        return self.root if self.root is not None else get_config().path_registry
+
+    def glob_source_paths(self) -> Generator[Path, None, None]:
+        directory = self._root() / 'code'
+        if not directory.exists():
+            return
+        yield from directory.rglob('source.json')
+
+    def glob_tree_paths(self) -> Generator[Path, None, None]:
+        directory = self._root() / 'snapshots'
+        if not directory.exists():
+            return
+        yield from directory.rglob('tree.json')
 
 
 def classify_file(path: Path) -> str:

@@ -1,10 +1,11 @@
 from pygeodata.config import JSONKeys
 from pygeodata.formatting.json import format_json
+from pygeodata.registry import SourceRegistry
 from pygeodata.registry_browser.filters import Filter, entry_matches_filters, matching_rows, parse_filters
 from pygeodata.registry_browser.models import ClassInfo, EntryInfo, FileRef, LinkedEntry
 from pygeodata.registry_browser.state import AppState
-from pygeodata.versioning import VersionRegistry
 from pygeodata.spec import SpecKeys
+from pygeodata.versioning import VersionRegistry
 
 # ---------------------------------------------------------------------------
 # Small serialisers — one responsibility each
@@ -122,8 +123,7 @@ def _sidebar_counts(
     for class_name, class_info in state.classes.items():
         if kind_filter != 'all' and (class_info.object_type or '').lower() != kind_filter:
             continue
-        group = state.groups.get(class_name)
-        record_ids = group.state_hashes if group else []
+        record_ids = state.get_state_hashes(class_name)
         n = sum(
             1
             for rid in record_ids
@@ -165,8 +165,7 @@ def _build_visible_groups(
         ):
             continue
 
-        group = state.groups.get(class_name)
-        record_ids = group.state_hashes if group else []
+        record_ids = state.get_state_hashes(class_name)
 
         visible_entries = [
             state.entries[rid]
@@ -212,8 +211,7 @@ def _build_class_cards(
 
     class_cards = []
     for class_name, class_info in sorted(state.classes.items()):
-        group = state.groups.get(class_name)
-        record_ids = group.state_hashes if group else []
+        record_ids = state.get_state_hashes(class_name)
         format_version_stale = any(
             state.entries[rid].format_version_stale for rid in record_ids if rid in state.entries
         )
@@ -374,69 +372,27 @@ def _build_instance_hash_index(entries: dict[str, 'EntryInfo']) -> dict[str, lis
 
 
 def version_groups_payload(vreg: VersionRegistry) -> list[dict]:
-    """Serialize VersionRegistry.version_groups for the browser API.
-
-    Adds cutoff_mtime / cutoff_exclusive (positional, derived from adjacent groups)
-    and expands class_names to include newly-appearing classes so the JS can show
-    them as 'added' in the version change summary.
-    """
-    groups = vreg.version_groups
-    src = vreg.source_registry
-
-    first_reg: dict[str, str] = {}
-    for class_name in src.class_names:
-        states = sorted(src.get_states(class_name), key=lambda s: s.registered_at)
-        if states:
-            first_reg[class_name] = states[0].registered_at
-
-    added_by_group: dict[str, str] = {}
-    initial_mtime = groups[-1].mtime if groups else ''
-    non_initial_asc = list(reversed(groups[:-1]))
-    for cn, reg in first_reg.items():
-        if reg <= initial_mtime:
-            continue
-        for j, g in enumerate(non_initial_asc):
-            lower = initial_mtime if j == 0 else non_initial_asc[j - 1].mtime
-            upper = non_initial_asc[j + 1].mtime if j + 1 < len(non_initial_asc) else None
-            if reg > lower and (upper is None or reg < upper):
-                added_by_group[cn] = g.mtime
-                break
-
-    result = []
-    for i, vi in enumerate(groups):
-        cutoff_mtime = 'now' if i == 0 else groups[i - 1].mtime
-        cutoff_exclusive = i > 0
-        is_initial = i == len(groups) - 1
-        added_classes = [] if is_initial else sorted(
-            cn for cn, gm in added_by_group.items()
-            if gm == vi.mtime and cn not in {e.class_name for e in vi.events}
-        )
-        result.append(
-            {
-                'mtime': vi.mtime,
-                'label': vi.label,
-                'class_names': sorted(set(vi.class_names) | set(added_classes)),
-                'cutoff_mtime': cutoff_mtime,
-                'cutoff_exclusive': cutoff_exclusive,
-            },
-        )
-    return result
+    """Serialize VersionRegistry.versions for the browser API."""
+    return [
+        {
+            'version_id': vi.version_id,
+            'mtime': vi.mtime,
+            'label': vreg.label(vi),
+            'class_names': vi.class_names,
+        }
+        for vi in vreg.versions
+    ]
 
 
-def _class_version_history(state: AppState, class_name: str) -> list[dict]:
+def _class_version_history(class_name: str, src: SourceRegistry) -> list[dict]:
     """Return code versions for a class sorted oldest-first.
 
     Each entry: {source_hash, mtime, is_version_change}.
-    Only includes entries that represent genuine version changes plus the
-    initial (oldest) entry so the full history is available.
     """
-    entries = state.code_groups.get(class_name, [])
-    if not entries:
-        return []
-    sorted_entries = sorted(entries, key=lambda e: e['mtime'])
+    states = src.get_states(class_name)
     return [
-        {'source_hash': e['source_hash'], 'mtime': e['mtime'], 'is_version_change': e['is_version_change']}
-        for e in sorted_entries
+        {'source_hash': s.source_hash, 'mtime': s.registered_at, 'is_version_change': src.is_version_change(s)}
+        for s in states
     ]
 
 
@@ -445,7 +401,9 @@ def _build_detail_payload(
     state: AppState,
     selected_entry_info: EntryInfo | None,
     selected_classes: list[str],
+    vreg: VersionRegistry,
 ) -> dict | None:
+    src = vreg.source_registry
     if selected_entry_info is not None:
         class_info = state.classes.get(selected_entry_info.class_name)
         if class_info is None:
@@ -458,13 +416,13 @@ def _build_detail_payload(
                 for e in index.get(selected_entry_info.instance_hash, [])
                 if e.record_id != selected_entry_info.record_id
             ]
-        # mtime of the version group this entry's snapshot belongs to — used to
-        # highlight the matching row in the Versions card.
-        entry_version_mtime = VersionRegistry.instance().version_mtime_for_dep_hash(selected_entry_info.dep_hash) if selected_entry_info.dep_hash else None
+        entry_version = (
+            vreg.version_for_dep_hash(selected_entry_info.dep_hash) if selected_entry_info.dep_hash else None
+        )
         return {
             **_class_detail_payload(class_info),
-            'code_versions': _class_version_history(state, selected_entry_info.class_name),
-            'entry_version_mtime': entry_version_mtime,
+            'code_versions': _class_version_history(selected_entry_info.class_name, src),
+            'entry_version_id': entry_version.version_id if entry_version else None,
             'selected_entry': _entry_detail_payload(selected_entry_info, same_instance_runs=siblings),
         }
 
@@ -473,8 +431,8 @@ def _build_detail_payload(
         if class_info is not None:
             return {
                 **_class_detail_payload(class_info),
-                'code_versions': _class_version_history(state, selected_classes[0]),
-                'entry_version_mtime': None,
+                'code_versions': _class_version_history(selected_classes[0], src),
+                'entry_version_id': None,
                 'selected_entry': None,
             }
 
@@ -484,12 +442,6 @@ def _build_detail_payload(
 # ---------------------------------------------------------------------------
 # Dep-hash (snapshot) options
 # ---------------------------------------------------------------------------
-
-
-def _dep_hashes_for_version(state: 'AppState', version_mtime: str) -> set[str]:
-    """Return dep_hashes whose snapshot belongs to the selected version group."""
-    vreg = VersionRegistry.instance()
-    return {dh for dh, identity in vreg.dep_hash_to_mtime.items() if identity == version_mtime}
 
 
 # ---------------------------------------------------------------------------
@@ -508,10 +460,12 @@ def build_browser_payload(
     logic_mode: str,
     row_display: str,
     hide_stale: bool = False,
-    version_filter: str | None = None,  # mtime of the selected version, or None for all
+    version_filter: str | None = None,  # version_id of the selected version, or None for all
 ) -> dict:
+    vreg = state.version_registry
     parsed_filters = parse_filters(filters)
-    dep_hash_set = _dep_hashes_for_version(state, version_filter) if version_filter else None
+    version_obj = vreg.version_by_id(version_filter) if version_filter else None
+    dep_hash_set = vreg.dep_hashes_for_version(version_obj) if version_obj is not None else None
 
     visible_groups = _build_visible_groups(
         state,
@@ -548,7 +502,10 @@ def build_browser_payload(
         'selected_classes': selected_classes,
         'selected_entry': selected_entry,
         'class_cards': _build_class_cards(
-            state, sidebar_counts=sidebar_counts, selected_classes=selected_classes, snapshot_dep_hashes=dep_hash_set
+            state,
+            sidebar_counts=sidebar_counts,
+            selected_classes=selected_classes,
+            snapshot_dep_hashes=dep_hash_set,
         ),
         'table_rows': _build_table_rows(
             visible_groups=visible_groups,
@@ -562,10 +519,11 @@ def build_browser_payload(
             state=state,
             selected_entry_info=selected_entry_info,
             selected_classes=selected_classes,
+            vreg=vreg,
         ),
         'diagnostics': diagnostics,
         'spec_options': state.spec_options,
-        'version_options': version_groups_payload(VersionRegistry.instance()),
+        'version_options': version_groups_payload(vreg),
         'counts': {
             'classes': len(state.classes),
             'classes_loaded': sum(1 for c in state.classes.values() if c.loaded),

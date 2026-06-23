@@ -10,10 +10,10 @@ import os
 import tarfile
 import tempfile
 import threading
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
-from pygeodata.paths import CodeRegistryResolver
+from pygeodata.paths import CodeRegistryConstructor
 from pygeodata.registry import TreeRegistry
 
 # ---------------------------------------------------------------------------
@@ -29,6 +29,7 @@ def collect_export_files(
     entries: dict,
     include_snapshots: bool,
     assert_allowed_path: Callable[[str], object],
+    tree_registry: TreeRegistry | None = None,
 ) -> list[tuple[Path, str]]:
     """Return list of (absolute_path, arcname) for all files to be exported.
 
@@ -38,6 +39,7 @@ def collect_export_files(
     files: list[tuple[Path, str]] = []
     seen_src_hashes: set[str] = set()
     seen_dep_hashes: set[str] = set()
+    trees = tree_registry if tree_registry is not None else TreeRegistry()
 
     for record_id in record_ids:
         entry = entries.get(record_id)
@@ -52,15 +54,14 @@ def collect_export_files(
 
         if include_snapshots and entry.dep_hash and entry.dep_hash not in seen_dep_hashes:
             seen_dep_hashes.add(entry.dep_hash)
-            trees = TreeRegistry.instance()
-            tree = trees.get_snapshot(entry.dep_hash)
+            tree = trees.get_snapshot_from_hash(entry.dep_hash)
             if tree is not None:
                 files.append((trees.get_tree_path(entry.dep_hash), f'snapshots/{entry.dep_hash}/tree.json'))
                 for node in tree.nodes.values():
                     src_hash = node.get('hash') if isinstance(node, dict) else None
                     if src_hash and src_hash not in seen_src_hashes:
                         seen_src_hashes.add(src_hash)
-                        code_dir = CodeRegistryResolver.from_source_hash(src_hash).directory
+                        code_dir = CodeRegistryConstructor.from_source_hash(src_hash).directory
                         if code_dir.exists():
                             for f in code_dir.iterdir():
                                 if f.is_file():

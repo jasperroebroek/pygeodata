@@ -5,14 +5,14 @@ import pytest
 
 from pygeodata.cache import handle_invalid, hash_matches_live, is_zarr_root, prune_empty_dirs
 from pygeodata.config import JSONKeys
-from pygeodata.paths import CachePathResolver
+from pygeodata.paths import CachePathConstructor
 from tests.fixtures.data import EmptyLoader
 
 # --- hash_matches_live ---
 
 
 def test_hash_matches_live_true(tmp_path: Path) -> None:
-    hash_file = tmp_path / '.dummy.hash.json'
+    hash_file = tmp_path / 'meta.json'
     hash_file.write_text(
         json.dumps(
             {
@@ -25,7 +25,7 @@ def test_hash_matches_live_true(tmp_path: Path) -> None:
 
 
 def test_hash_matches_live_false_wrong_hash(tmp_path: Path) -> None:
-    hash_file = tmp_path / '.dummy.hash.json'
+    hash_file = tmp_path / 'meta.json'
     hash_file.write_text(
         json.dumps(
             {
@@ -38,17 +38,17 @@ def test_hash_matches_live_false_wrong_hash(tmp_path: Path) -> None:
 
 
 def test_hash_matches_live_false_when_missing(tmp_path: Path) -> None:
-    assert hash_matches_live(tmp_path / '.nonexistent.hash.json') is False
+    assert hash_matches_live(tmp_path / 'meta.json') is False
 
 
 def test_hash_matches_live_missing_key(tmp_path: Path) -> None:
-    hash_file = tmp_path / '.dummy.hash.json'
+    hash_file = tmp_path / 'meta.json'
     hash_file.write_text(json.dumps({JSONKeys.CLASS_NAME: EmptyLoader.get_class_name()}))
     assert hash_matches_live(hash_file) is False
 
 
 def test_hash_matches_live_none_when_unregistered(tmp_path: Path) -> None:
-    hash_file = tmp_path / '.dummy.hash.json'
+    hash_file = tmp_path / 'meta.json'
     hash_file.write_text(
         json.dumps(
             {
@@ -60,23 +60,33 @@ def test_hash_matches_live_none_when_unregistered(tmp_path: Path) -> None:
     assert hash_matches_live(hash_file) is None
 
 
-# --- CachePathResolver hash paths ---
+# --- CachePathResolver paths ---
 
 
-def test_get_hash_path_regular_file(tmp_path: Path) -> None:
-    assert CachePathResolver.from_path(tmp_path / 'data.tif').state_hash_path == tmp_path / '.data.hash.json'
+def test_state_hash_path(tmp_path: Path) -> None:
+    assert CachePathConstructor(tmp_path).state_hash_path == tmp_path / 'meta.json'
 
 
-def test_get_hash_path_dotfile(tmp_path: Path) -> None:
-    assert CachePathResolver.from_path(tmp_path / '.data.hash.json').state_hash_path == tmp_path / '.data.hash.json'
+def test_params_path(tmp_path: Path) -> None:
+    assert CachePathConstructor(tmp_path).params_path == tmp_path / 'parameters.json'
 
 
-def test_get_hash_path_zarr(tmp_path: Path) -> None:
-    assert CachePathResolver.from_path(tmp_path / 'archive.zarr').state_hash_path == tmp_path / '.archive.hash.json'
+def test_spec_path(tmp_path: Path) -> None:
+    assert CachePathConstructor(tmp_path).spec_path == tmp_path / 'spec.json'
 
 
-def test_get_hash_path_multi_extension(tmp_path: Path) -> None:
-    assert CachePathResolver.from_path(tmp_path / 'file.tar.gz').state_hash_path == tmp_path / '.file.hash.json'
+def test_execution_graph_path(tmp_path: Path) -> None:
+    assert CachePathConstructor(tmp_path).execution_graph_path == tmp_path / 'graph.pdf'
+
+
+def test_from_path_uses_parent(tmp_path: Path) -> None:
+    assert CachePathConstructor.from_path(tmp_path / 'meta.json').directory == tmp_path
+
+
+def test_from_state_hash(tmp_path: Path) -> None:
+    resolver = CachePathConstructor.from_state_hash('abc123', tmp_path)
+    assert resolver.directory == tmp_path / 'abc123'
+    assert resolver.state_hash_path == tmp_path / 'abc123' / 'meta.json'
 
 
 # --- is_zarr_root ---

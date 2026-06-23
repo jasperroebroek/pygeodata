@@ -19,7 +19,7 @@ def test_deterministic_sorting() -> None:
 def test_processed_dir_is_cache_root_slash_state_hash(sample_spatial_spec: SpatialSpec) -> None:
     loader = LoaderA(year=2000)
     expected = loader.get_cache_root() / loader.get_state_hash(sample_spatial_spec)
-    assert loader.get_processed_dir(sample_spatial_spec) == expected
+    assert loader.resolve_cache_paths(sample_spatial_spec).directory == expected
 
 
 def test_mixed_list_state_hash_no_crash(sample_spatial_spec: SpatialSpec) -> None:

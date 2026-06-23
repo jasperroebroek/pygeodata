@@ -15,6 +15,7 @@ import { applyTableSelection, _visibleEntryIds, _tableRows, _tableEntryCount, _a
 import { lastDashboard } from './utils.js';
 import { postRebuild } from './api.js';
 import { runCleanCache } from './entries.js';
+import { openModal as _openModal, closeModal as _closeModal } from './detail.js';
 
 // ---------------------------------------------------------------------------
 // Mode tabs (Compact / Detailed)
@@ -107,13 +108,29 @@ document.getElementById("btn-diag").onclick = showDiagnostics;
 // Reload from disk
 // ---------------------------------------------------------------------------
 
-document.getElementById("btn-reload").onclick = async () => {
-  try {
-    await postRebuild();
-    loadEntries();  // will poll until ready
-  } catch (e) {
-    toast(`Reload failed: ${e}`);
-  }
+document.getElementById("btn-reload").onclick = () => {
+  const html = `
+    <div class="rebuild-modal">
+      <label class="rebuild-opt">
+        <input type="checkbox" id="rebuild-reimport">
+        Re-import modules from disk
+        <span class="rebuild-opt-hint">(picks up new or edited classes)</span>
+      </label>
+      <div class="rebuild-footer">
+        <button class="act-btn" id="btn-rebuild-run">Rebuild</button>
+      </div>
+    </div>`;
+  _openModal("Rebuild", html, "sm");
+  document.getElementById("btn-rebuild-run").onclick = async () => {
+    const reimport = document.getElementById("rebuild-reimport").checked;
+    _closeModal();
+    try {
+      await postRebuild(reimport);
+      loadEntries();
+    } catch (e) {
+      toast(`Rebuild failed: ${e}`);
+    }
+  };
 };
 
 // ---------------------------------------------------------------------------

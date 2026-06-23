@@ -42,7 +42,7 @@ def make_entry(
         record_id='abc',
         class_name=class_name,
         object_type='Data',
-        params_path='/data/params.json',
+        params_path='/data/parameters.json',
         spec_path=None,
         state_hash_path=None,
         execution_graph_path=None,

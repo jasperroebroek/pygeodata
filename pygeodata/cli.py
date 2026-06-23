@@ -1,3 +1,4 @@
+import dataclasses
 import importlib.util
 import json
 import shutil
@@ -9,12 +10,18 @@ from pathlib import Path
 
 import click
 
-from pygeodata.config import get_config
-from pygeodata.registry import SourceRegistry, TreeRegistry
-from pygeodata.versioning import VersionInfo, VersionRegistry
+from pygeodata.cache import clean_cache
+from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config
+from pygeodata.data import Data
+from pygeodata.figure import Figure
+from pygeodata.paths import CachePathConstructor
+from pygeodata.registry import EntryRegistry, SourceRegistry, TreeRegistry
+from pygeodata.tracked_object import TrackedObject
+from pygeodata.versioning import Version, VersionRegistry
 
 
 def _fmt_mtime(mtime: str) -> str:
+
     try:
         return datetime.fromisoformat(mtime).strftime('%Y-%m-%d %H:%M')
     except (ValueError, AttributeError):
@@ -27,14 +34,11 @@ def cli():
 
 
 def _cache_root_from_tar(tar: tarfile.TarFile, hash_dir: str) -> Path | None:
-    """Read OBJECT_TYPE from the hash.json and return the matching Artifact subclass cache root."""
-    from pygeodata.config import JSONKeys
-    from pygeodata.data import Data
-    from pygeodata.figure import Figure
+    """Read OBJECT_TYPE from the meta.json and return the matching Artifact subclass cache root."""
     family_by_name = {'Data': Data, 'Figure': Figure}
     for member in tar.getmembers():
         p = Path(member.name)
-        if p.parts[:1] == ('cache',) and p.parts[1] == hash_dir and p.name.endswith('.hash.json'):
+        if p.parts[:1] == ('cache',) and p.parts[1] == hash_dir and p.name == 'meta.json':
             f = tar.extractfile(member)
             if f is None:
                 return None
@@ -52,34 +56,15 @@ def _resolve_dest(
     parts: tuple[str, ...],
     cache_roots: dict[str, Path | None],
     source_root: Path,
-    existing_dirs: set[Path],
 ) -> Path | None:
     if parts[0] == 'cache' and len(parts) >= 3:
         cache_root = cache_roots.get(parts[1])
         if cache_root is None:
             return None
-        if (cache_root / parts[1]) in existing_dirs:
-            return None
         return cache_root / Path(*parts[1:])
     if parts[0] in ('code', 'snapshots') and len(parts) >= 3:
-        if (source_root / parts[0] / parts[1]) in existing_dirs:
-            return None
         return source_root / Path(*parts)
     return None
-
-
-def _existing_entry_dirs(cache_roots: dict[str, Path | None], source_root: Path) -> set[Path]:
-    dirs: set[Path] = set()
-    for hash_dir, cache_root in cache_roots.items():
-        if cache_root is not None:
-            d = cache_root / hash_dir
-            if d.exists():
-                dirs.add(d)
-    for top in ('code', 'snapshots'):
-        d = source_root / top
-        if d.exists():
-            dirs.update(d.iterdir())
-    return dirs
 
 
 def _extract_member(tar: tarfile.TarFile, member: tarfile.TarInfo, dest: Path) -> None:
@@ -95,7 +80,9 @@ def _import_project_modules(root: Path, verbose: bool = False) -> int:
     """Import all .py files under root, silently skipping failures. Returns import count."""
     if root not in sys.path:
         sys.path.insert(0, str(root))
-    _skip_dirs = {'venv', 'env', '.venv', 'build', 'dist', 'site-packages', 'tests', 'test', 'cache'}
+    cfg = get_config()
+    _config_dirs = {cfg.path_cache.parts[0], cfg.path_figures.parts[0], cfg.path_registry.parts[0]}
+    _skip_dirs = {'venv', 'env', '.venv', 'build', 'dist', 'site-packages', 'tests', 'test', 'cache'} | _config_dirs
     count = 0
     for py_file in sorted(root.rglob('*.py')):
         parts = py_file.relative_to(root).parts
@@ -138,12 +125,13 @@ def _import_project_modules(root: Path, verbose: bool = False) -> int:
 )
 def browse(port: int, do_import: bool, verbose_import: bool) -> None:
     """Launch the registry browser."""
+    from pygeodata.registry_browser.serve import open_registry_browser
+
     if do_import:
         root = Path.cwd()
         n = _import_project_modules(root, verbose=verbose_import)
         click.echo(f'Imported {n} module(s) from {root}')
 
-    from pygeodata.registry_browser.serve import open_registry_browser
     open_registry_browser(port)
 
 
@@ -166,7 +154,6 @@ def browse(port: int, do_import: bool, verbose_import: bool) -> None:
 )
 def clean_cache_cmd(dry_run: bool, delete_unregistered: bool) -> None:
     """Remove stale or invalid cache entries."""
-    from pygeodata.cache import clean_cache
     clean_cache(dry_run=dry_run, delete_unregistered=delete_unregistered)
 
 
@@ -182,18 +169,16 @@ def import_archive(archive: str) -> None:
         for member in tar.getmembers():
             p = Path(member.name)
             parts = p.parts
-            if parts[:1] == ('cache',) and len(parts) >= 3 and p.name.endswith('.hash.json'):
+            if parts[:1] == ('cache',) and len(parts) >= 3 and p.name == 'meta.json':
                 hash_dir = parts[1]
                 if hash_dir not in cache_roots:
                     cache_roots[hash_dir] = _cache_root_from_tar(tar, hash_dir)
-
-        existing_dirs = _existing_entry_dirs(cache_roots, source_root)
 
         for member in tar.getmembers():
             parts = Path(member.name).parts
             if not parts or member.isdir():
                 continue
-            dest = _resolve_dest(parts, cache_roots, source_root, existing_dirs)
+            dest = _resolve_dest(parts, cache_roots, source_root)
             if dest is None or dest.exists():
                 continue
             _extract_member(tar, member, dest)
@@ -226,8 +211,13 @@ _full_hash_option = click.option(
 )
 
 
-def _get_root(registry_path: str | None) -> Path:
-    return Path(registry_path) if registry_path else Path(get_config().path_registry)
+def _apply_registry_path(registry_path: str | None) -> Path | None:
+    """Override path_registry from CLI arg if provided, return the resolved Path."""
+    if registry_path:
+        p = Path(registry_path)
+        get_config().update(path_registry=p)
+        return p
+    return None
 
 
 def _fmt_hash(h: str, full: bool, width: int = 12) -> str:
@@ -236,26 +226,18 @@ def _fmt_hash(h: str, full: bool, width: int = 12) -> str:
 
 def _resolve_source_hash(reg: SourceRegistry, prefix: str) -> str:
     """Resolve a source-hash prefix to a full hash, or raise ClickException."""
-    matches = [h for h in reg._hash_index if h.startswith(prefix)]
-    if not matches:
+    h = reg.resolve_hash_prefix(prefix)
+    if h is None:
         raise click.ClickException(f'No source hash found matching {prefix!r}.')
-    if len(matches) > 1:
-        raise click.ClickException(
-            f'{len(matches)} source hashes match {prefix!r}: ' + ', '.join(h[:12] for h in matches)
-        )
-    return matches[0]
+    return h
 
 
 def _resolve_dep_hash(trees: TreeRegistry, prefix: str) -> str:
     """Resolve a dep-hash prefix to a full hash, or raise ClickException."""
-    matches = [h for h in trees.dep_hashes if h.startswith(prefix)]
-    if not matches:
+    h = trees.resolve_hash_prefix(prefix)
+    if h is None:
         raise click.ClickException(f'No dep-tree hash found matching {prefix!r}.')
-    if len(matches) > 1:
-        raise click.ClickException(
-            f'{len(matches)} dep hashes match {prefix!r}: ' + ', '.join(h[:12] for h in matches)
-        )
-    return matches[0]
+    return h
 
 
 # ---------------------------------------------------------------------------
@@ -274,11 +256,11 @@ def code():
 @click.option('--verbose', '-v', is_flag=True, default=False, help='Show all snapshots per class.')
 def code_list(registry_path: str | None, full_hash: bool, verbose: bool) -> None:
     """List all tracked classes."""
-    reg = SourceRegistry(_get_root(registry_path))
+    reg = SourceRegistry(_apply_registry_path(registry_path))
 
     by_type: dict[str, list[str]] = {}
     for class_name in sorted(reg.class_names):
-        states = sorted(reg.get_states(class_name), key=lambda s: s.registered_at)
+        states = reg.get_states(class_name)
         object_type = states[-1].object_type if states else 'Unknown'
         by_type.setdefault(object_type, []).append(class_name)
 
@@ -291,7 +273,7 @@ def code_list(registry_path: str | None, full_hash: bool, verbose: bool) -> None
         click.echo(f'{object_type} ({len(class_names)} {"class" if len(class_names) == 1 else "classes"})')
         click.echo()
         for class_name in class_names:
-            states = sorted(reg.get_states(class_name), key=lambda s: s.registered_at, reverse=True)
+            states = list(reversed(reg.get_states(class_name)))
             n = len(states)
             click.echo(f'  {class_name} ({n} {"snapshot" if n == 1 else "snapshots"})')
             if verbose:
@@ -310,7 +292,7 @@ def code_show(registry_path: str | None, full_hash: bool, class_name: str | None
     if not class_name and not source_hash:
         raise click.UsageError('Provide --class or --hash.')
 
-    reg = SourceRegistry(_get_root(registry_path))
+    reg = SourceRegistry(_apply_registry_path(registry_path))
 
     if source_hash:
         source_hash = _resolve_source_hash(reg, source_hash)
@@ -337,25 +319,25 @@ def code_show(registry_path: str | None, full_hash: bool, class_name: str | None
 @click.option('--hash', 'source_hash', default=None, help='Which version group owns this source hash.')
 def code_versions(registry_path: str | None, class_name: str | None, source_hash: str | None) -> None:
     """Show version groups, newest-first."""
-    vreg = VersionRegistry(_get_root(registry_path))
+    root = _apply_registry_path(registry_path)
+    vreg = VersionRegistry(root)
 
     if source_hash:
-        source_hash = _resolve_source_hash(vreg._source_registry, source_hash)
-        identity = vreg.version_mtime_for_source_hash(source_hash)
-        if identity is None:
+        source_hash = _resolve_source_hash(vreg.source_registry, source_hash)
+        match = vreg.version_for_source_hash(source_hash)
+        if match is None:
             raise click.ClickException(f'Hash {source_hash!r} not found.')
-        match = next((vi for vi in vreg.version_groups if vi.mtime == identity), None)
-        click.echo(match.label if match else 'unknown')
+        click.echo(vreg.label(match))
         return
 
-    if not vreg.version_groups:
+    if not vreg.versions:
         click.echo('No version groups found.')
         return
 
-    for vi in vreg.version_groups:
+    for vi in vreg.versions:
         if class_name and class_name not in vi.class_names:
             continue
-        click.echo(vi.label)
+        click.echo(vreg.label(vi))
 
 
 @code.command('source')
@@ -383,7 +365,7 @@ def code_source(
     if len(source_hashes) > 2:
         raise click.UsageError('Provide at most two --hash values.')
 
-    reg = SourceRegistry(_get_root(registry_path))
+    reg = SourceRegistry(_apply_registry_path(registry_path))
 
     if len(source_hashes) == 2:
         ha = _resolve_source_hash(reg, source_hashes[0])
@@ -413,7 +395,7 @@ def _colorize_diff(lines: list[str]) -> str:
 
 
 def _make_diff(text_a: str, text_b: str, label_a: str, label_b: str, expand: bool, color: bool) -> str:
-    kwargs = {} if expand else {"n": 3}
+    kwargs = {} if expand else {'n': 3}
     lines = list(
         unified_diff(
             text_a.splitlines(keepends=True),
@@ -460,21 +442,22 @@ def _echo_source_by_hash(
             raise click.ClickException(f'Hash {source_hash!r} not found.')
         click.echo(text, nl=False)
         return
-    state = reg.get_state_by_hash(source_hash)
-    if state is None:
-        raise click.ClickException(f'Hash {source_hash!r} not found.')
-    states = sorted(reg.get_states(state.class_name), key=lambda s: s.registered_at)
-    idx = next((i for i, s in enumerate(states) if s.source_hash == source_hash), None)
-    if idx is None or idx == 0:
+    prev_state = reg.get_previous_state(source_hash)
+    if prev_state is None:
         raise click.ClickException('No previous snapshot to diff against.')
-    prev_hash = states[idx - 1].source_hash
+    prev_hash = prev_state.source_hash
     text_a = reg.get_source(prev_hash)
     text_b = reg.get_source(source_hash)
     if text_a is None or text_b is None:
         raise click.ClickException('Source file missing.')
     click.echo(
         _make_diff(
-            text_a, text_b, _fmt_hash(prev_hash, full_hash, 8), _fmt_hash(source_hash, full_hash, 8), expand, color
+            text_a,
+            text_b,
+            _fmt_hash(prev_hash, full_hash, 8),
+            _fmt_hash(source_hash, full_hash, 8),
+            expand,
+            color,
         ),
         nl=False,
     )
@@ -488,7 +471,7 @@ def _echo_source_by_class(
     color: bool,
     full_hash: bool = False,
 ) -> None:
-    states = sorted(reg.get_states(class_name), key=lambda s: s.registered_at)
+    states = reg.get_states(class_name)
     if not states:
         raise click.ClickException(f'Class {class_name!r} not found.')
     if not do_diff:
@@ -522,9 +505,8 @@ def _echo_source_by_class(
 # ---------------------------------------------------------------------------
 
 
-
-def _echo_version_group(vi: VersionInfo, vreg: VersionRegistry, full_hash: bool = False) -> None:
-    click.echo(click.style(vi.label, bold=True))
+def _echo_version_group(vi: Version, vreg: VersionRegistry, full_hash: bool = False) -> None:
+    click.echo(click.style(vreg.label(vi), bold=True))
 
     if vi.class_names:
         click.echo('  Classes')
@@ -532,15 +514,13 @@ def _echo_version_group(vi: VersionInfo, vreg: VersionRegistry, full_hash: bool 
         for cn, sh in zip(vi.class_names, vi.source_hashes):
             click.echo(f'    {cn:<{col}}  {_fmt_hash(sh, full_hash)}')
 
-    snapshot_hashes = sorted(
-        dh for dh, identity in vreg.dep_hash_to_mtime.items() if identity == vi.mtime
-    )
+    snapshot_hashes = sorted(vreg.dep_hashes_for_version(vi))
     tree_rows = []
     for dep_hash in snapshot_hashes:
-        tree = vreg._tree_registry.get_snapshot(dep_hash)
+        tree = vreg.tree_registry.get_snapshot_from_hash(dep_hash)
         if tree is None:
             continue
-        root_class = next(iter(tree.tree), '?')
+        root_class = tree.root_class or '?'
         n = len(tree.nodes)
         tree_rows.append((root_class, n, dep_hash))
     if tree_rows:
@@ -563,26 +543,27 @@ def versions_cmd(registry_path: str | None, full_hash: bool, class_name: str | N
     With --class, show that class's full state history instead (mirrors the
     browser's per-class Versions card).
     """
-    vreg = VersionRegistry(_get_root(registry_path))
+    root = _apply_registry_path(registry_path)
+    vreg = VersionRegistry(root)
 
     if class_name:
-        code_groups = vreg.code_groups
-        states = code_groups.get(class_name)
+        src = vreg.source_registry
+        states = src.get_states(class_name)
         if not states:
             raise click.ClickException(f'Class {class_name!r} not found.')
-        sorted_states = sorted(states, key=lambda e: e['mtime'], reverse=True)
+        sorted_states = sorted(states, key=lambda s: s.registered_at, reverse=True)
         click.echo(f'{class_name}  ({len(sorted_states)} {"state" if len(sorted_states) == 1 else "states"})')
         click.echo()
-        for e in sorted_states:
-            change_marker = '*' if e['is_version_change'] else ' '
-            click.echo(f'  {change_marker} {_fmt_mtime(e["mtime"])}  {_fmt_hash(e["source_hash"], full_hash)}')
+        for s in sorted_states:
+            change_marker = '*' if src.is_version_change(s) else ' '
+            click.echo(f'  {change_marker} {_fmt_mtime(s.registered_at)}  {_fmt_hash(s.source_hash, full_hash)}')
         return
 
-    if not vreg.version_groups:
+    if not vreg.versions:
         click.echo('No version groups found.')
         return
 
-    for vi in vreg.version_groups:
+    for vi in vreg.versions:
         _echo_version_group(vi, vreg, full_hash=full_hash)
 
 
@@ -601,17 +582,17 @@ def snapshot():
 @_full_hash_option
 def snapshot_list(registry_path: str | None, full_hash: bool) -> None:
     """List all dep-tree snapshots."""
-    trees = TreeRegistry(_get_root(registry_path))
-    hashes = sorted(trees.dep_hashes)
+    trees = TreeRegistry(_apply_registry_path(registry_path))
+    hashes = sorted(trees.dependency_hashes)
     if not hashes:
         click.echo('No snapshots found.')
         return
     for dep_hash in hashes:
-        tree = trees.get_snapshot(dep_hash)
+        tree = trees.get_snapshot_from_hash(dep_hash)
         if tree is None:
             continue
         n = len(tree.nodes)
-        root_class = next(iter(tree.tree), '?')
+        root_class = tree.root_class or '?'
         click.echo(f'{root_class} ({n} {"class" if n == 1 else "classes"})  {_fmt_hash(dep_hash, full_hash)}')
 
 
@@ -622,17 +603,17 @@ def snapshot_list(registry_path: str | None, full_hash: bool) -> None:
 @click.option('--json', 'as_json', is_flag=True, default=False, help='Print raw tree.json.')
 def snapshot_show(registry_path: str | None, full_hash: bool, dep_hash: str, as_json: bool) -> None:
     """Show contents of a dep-tree snapshot."""
-    trees = TreeRegistry(_get_root(registry_path))
+    trees = TreeRegistry(_apply_registry_path(registry_path))
     dep_hash = _resolve_dep_hash(trees, dep_hash)
-    tree = trees.get_snapshot(dep_hash)
+    tree = trees.get_snapshot_from_hash(dep_hash)
     if tree is None:
         raise click.ClickException(f'Dep hash {dep_hash!r} not found.')
 
     if as_json:
-        click.echo(json.dumps(tree.to_dict(), indent=4))
+        click.echo(json.dumps(dataclasses.asdict(tree), indent=4))
         return
 
-    click.echo(f'Root       {next(iter(tree.tree), "?")}')
+    click.echo(f'Root       {tree.root_class or "?"}')
     click.echo(f'Classes    {len(tree.nodes)}')
     click.echo(f'Dep hash   {dep_hash}')
     if tree.nodes:
@@ -643,8 +624,8 @@ def snapshot_show(registry_path: str | None, full_hash: bool, dep_hash: str, as_
             obj_type = tree.get_object_type(class_name) or ''
             click.echo(f'  {class_name:<40}  {obj_type:<12}  {_fmt_hash(src_hash, full_hash)}')
 
-    call_deps = tree.get_call_deps()
-    inh_deps = tree.get_inheritance_deps()
+    call_deps = tree.get_call_dependencies()
+    inh_deps = tree.get_inheritance_dependencies()
     if call_deps:
         click.echo()
         click.echo(f'Call deps       {", ".join(call_deps)}')
@@ -657,16 +638,16 @@ def snapshot_show(registry_path: str | None, full_hash: bool, dep_hash: str, as_
 @click.option('--hash', 'dep_hash', required=True, help='Dep-tree hash to look up.')
 def snapshot_version(registry_path: str | None, dep_hash: str) -> None:
     """Show which version group a dep-tree snapshot belongs to."""
-    vreg = VersionRegistry(_get_root(registry_path))
-    dep_hash = _resolve_dep_hash(vreg._tree_registry, dep_hash)
-    tree = vreg._tree_registry.get_snapshot(dep_hash)
+    root = _apply_registry_path(registry_path)
+    vreg = VersionRegistry(root)
+    dep_hash = _resolve_dep_hash(vreg.tree_registry, dep_hash)
+    tree = vreg.tree_registry.get_snapshot_from_hash(dep_hash)
     if tree is None:
         raise click.ClickException(f'Dep hash {dep_hash!r} not found.')
 
-    identity = vreg.version_mtime_for_dep_hash(dep_hash)
-    match = next((vi for vi in vreg.version_groups if vi.mtime == identity), None)
+    match = vreg.version_for_dep_hash(dep_hash)
     if match:
-        click.echo(match.label)
+        click.echo(vreg.label(match))
         click.echo()
         click.echo(f'Classes  {", ".join(match.class_names)}')
     else:
@@ -698,15 +679,18 @@ def entry(ctx: click.Context, do_import: bool, verbose_import: bool, full_hash: 
     ctx.obj['full_hash'] = full_hash
 
 
-def _stale_indicator(rec) -> str:
-    """Single-char staleness marker: S=dep stale, F=format stale, ?=unknown, blank=ok."""
-    from pygeodata.config import FORMAT_VERSION
-    if rec.dep_hash_stale is True:
-        return 'S'
+def _stale_indicator(rec, vreg: VersionRegistry | None = None) -> str:
+    """Single-char staleness marker: S=dep stale, F=format stale, blank=ok."""
     if rec.format_version != FORMAT_VERSION:
         return 'F'
-    if rec.dep_hash_stale is None and rec.dep_hash:
-        return '?'
+    if rec.dependency_tree_hash:
+        obj_cls = TrackedObject.find_object_class(rec.class_name)
+        if obj_cls is not None:
+            dep_stale = obj_cls.get_dependency_tree_hash() != rec.dependency_tree_hash
+        else:
+            dep_stale = (vreg or VersionRegistry()).is_dep_hash_stale(rec.dependency_tree_hash)
+        if dep_stale:
+            return 'S'
     return ' '
 
 
@@ -729,6 +713,7 @@ def _fmt_bounds(bounds_latlon) -> str:
 def _spec_info_from_raw(spec: dict):
     """Build a SpatialSpec from raw spec JSON, silently returning None on failure."""
     from pygeodata.spec import SpatialSpec
+
     try:
         return SpatialSpec.from_dict(spec)
     except Exception:
@@ -749,7 +734,7 @@ def _resolve_record(reg, hash_prefix: str):
         raise click.ClickException(f'No entry found matching {hash_prefix!r}.')
     if len(matches) > 1:
         raise click.ClickException(
-            f'{len(matches)} entries match {hash_prefix!r}: ' + ', '.join(h[:12] for h, _ in matches)
+            f'{len(matches)} entries match {hash_prefix!r}: ' + ', '.join(h[:12] for h, _ in matches),
         )
     return matches[0]
 
@@ -761,30 +746,44 @@ def _resolve_record(reg, hash_prefix: str):
 @click.pass_context
 def entry_list(ctx: click.Context, class_name: str | None, hide_stale: bool, full_hash_sub: bool) -> None:
     """List cache entries."""
-    from pygeodata.paths import CachePathResolver
-    from pygeodata.registry import EntryRegistry
     from pygeodata.spec import format_resolution
+
     full_hash: bool = ctx.obj.get('full_hash', False) or full_hash_sub
-    reg = EntryRegistry.instance()
+    reg = EntryRegistry()
     records = reg.records
 
     if not records:
         click.echo('No entries found.')
         return
 
+    vreg = VersionRegistry()
     rows = []
     for state_hash, rec in sorted(records.items(), key=lambda kv: (kv[1].class_name or '', kv[0])):
         if class_name and rec.class_name != class_name:
             continue
-        stale = _stale_indicator(rec)
+        stale = _stale_indicator(rec, vreg)
         if hide_stale and stale.strip():
             continue
-        spec_raw = _read_json(CachePathResolver.from_path(Path(rec.hash_path)).spec_path if rec.hash_path else None)
+        spec_raw = _read_json(CachePathConstructor.from_path(Path(rec.hash_path)).spec_path if rec.hash_path else None)
         spatial = _spec_info_from_raw(spec_raw)
         crs_str = spec_raw.get('crs') or ''
-        res_str = format_resolution(list(spatial.resolution), spatial.crs) if spatial and spatial.transform is not None else ''
+        res_str = (
+            format_resolution(list(spatial.resolution), spatial.crs)
+            if spatial and spatial.transform is not None
+            else ''
+        )
         bounds_str = _fmt_bounds(spatial.bounds_latlon) if spatial else ''
-        rows.append((stale, rec.class_name or '?', rec.object_type or '', crs_str, res_str, bounds_str, _fmt_hash(state_hash, full_hash)))
+        rows.append(
+            (
+                stale,
+                rec.class_name or '?',
+                rec.object_type or '',
+                crs_str,
+                res_str,
+                bounds_str,
+                _fmt_hash(state_hash, full_hash),
+            ),
+        )
 
     if not rows:
         click.echo('No entries match.')
@@ -798,7 +797,9 @@ def entry_list(ctx: click.Context, class_name: str | None, hide_stale: bool, ful
 
     for stale, cls, obj_type, crs, res, bounds, h in rows:
         indicator = click.style(stale, fg='yellow') if stale.strip() else ' '
-        click.echo(f'{indicator} {cls:<{col_class}}  {obj_type:<{col_type}}  {crs:<{col_crs}}  {res:<{col_res}}  {bounds:<{col_bounds}}  {h}')
+        click.echo(
+            f'{indicator} {cls:<{col_class}}  {obj_type:<{col_type}}  {crs:<{col_crs}}  {res:<{col_res}}  {bounds:<{col_bounds}}  {h}',
+        )
 
 
 @entry.command('show')
@@ -808,14 +809,13 @@ def entry_list(ctx: click.Context, class_name: str | None, hide_stale: bool, ful
 @click.pass_context
 def entry_show(ctx: click.Context, hash_prefix: str, show_params: bool, full_hash_sub: bool) -> None:
     """Show detail for one entry (partial hash ok)."""
-    from pygeodata.paths import CachePathResolver
-    from pygeodata.registry import EntryRegistry
     from pygeodata.spec import format_resolution
+
     full_hash: bool = ctx.obj.get('full_hash', False) or full_hash_sub
-    reg = EntryRegistry.instance()
+    reg = EntryRegistry()
     state_hash, rec = _resolve_record(reg, hash_prefix)
 
-    resolver = CachePathResolver.from_path(Path(rec.hash_path)) if rec.hash_path else None
+    resolver = CachePathConstructor.from_path(Path(rec.hash_path)) if rec.hash_path else None
     spec = _read_json(resolver.spec_path if resolver else None)
 
     stale = _stale_indicator(rec)
@@ -826,8 +826,8 @@ def entry_show(ctx: click.Context, hash_prefix: str, show_params: bool, full_has
     click.echo(f'State hash   {_fmt_hash(state_hash, full_hash)}')
     if rec.instance_hash:
         click.echo(f'Instance     {_fmt_hash(rec.instance_hash, full_hash)}')
-    if rec.dep_hash:
-        click.echo(f'Dep hash     {_fmt_hash(rec.dep_hash, full_hash)}')
+    if rec.dependency_tree_hash:
+        click.echo(f'Dep hash     {_fmt_hash(rec.dependency_tree_hash, full_hash)}')
     click.echo(f'Staleness    {stale_label}')
 
     spatial = _spec_info_from_raw(spec)

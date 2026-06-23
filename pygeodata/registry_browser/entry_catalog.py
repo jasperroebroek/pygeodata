@@ -4,21 +4,20 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config
-from pygeodata.paths import CACHE_DIR_SUFFIXES, CACHE_META_SUFFIXES, CachePathResolver, classify_file
-from pygeodata.registry import EntryRegistry
-from pygeodata.registry_types import GroupRecord
+from pygeodata.config import FORMAT_VERSION, get_config
+from pygeodata.paths import CACHE_DIR_SUFFIXES, CACHE_META_FILES, CachePathConstructor, classify_file
+from pygeodata.registry import EntryRegistry, SourceRegistry, TreeRegistry
 from pygeodata.registry_browser.class_catalog import source_info_from_disk
 from pygeodata.registry_browser.io_utils import existing_path_str, read_json_dict
 from pygeodata.registry_browser.models import (
     EntryInfo,
     FileRef,
     LinkedEntry,
-    ParamRow,
     SpecInfo,
 )
 from pygeodata.registry_browser.params_index import flatten_params
-from pygeodata.spec import SpatialSpec, SpecKeys
+from pygeodata.registry_types import EntryRecord
+from pygeodata.spec import SpatialSpec
 from pygeodata.tracked_object import TrackedObject
 from pygeodata.versioning import VersionRegistry
 
@@ -31,7 +30,7 @@ def _cache_file() -> Path:
 
 def _cache_mtime_key(params_path: Path) -> float:
     """Combined mtime of params + spec files — any change invalidates the display cache."""
-    resolver = CachePathResolver.from_path(params_path)
+    resolver = CachePathConstructor.from_path(params_path)
     total = 0.0
     for p in (params_path, resolver.spec_path):
         with contextlib.suppress(OSError):
@@ -68,27 +67,26 @@ def _save_disk_cache(results: dict[str, dict], mtimes: dict[str, float]) -> None
 
 
 def _is_output_file(path: Path) -> bool:
-    name = path.name
-    if name.startswith('.'):
+    if path.name in CACHE_META_FILES:
         return False
-    for suffix in CACHE_META_SUFFIXES:
-        if name.endswith(suffix):
-            return False
     if path.is_dir():
         return path.suffix.lower() in CACHE_DIR_SUFFIXES
     return path.is_file()
 
 
-def _find_primary_file(resolver: CachePathResolver) -> FileRef | None:
+def _find_primary_file(resolver: CachePathConstructor) -> FileRef | None:
     for path in resolver.directory.iterdir():
         if not _is_output_file(path):
             continue
-        if path.name.split('.')[0] == resolver.stem:
-            return FileRef(label=path.name, path=str(path.resolve()), kind=classify_file(path))
+        return FileRef(label=path.name, path=str(path.resolve()), kind=classify_file(path))
     return None
 
 
-def _enrich_params_path(params_path: Path) -> EntryInfo:
+def _enrich_params_path(
+    params_path: Path,
+    src: SourceRegistry | None = None,
+    trees: TreeRegistry | None = None,
+) -> EntryInfo:
     """Read the display-layer files for one entry. Never raises.
 
     Returns a partial EntryInfo with all display fields populated but
@@ -96,7 +94,7 @@ def _enrich_params_path(params_path: Path) -> EntryInfo:
     at their defaults — those are filled by discover_entries.
     """
     params_path_str = str(params_path.resolve())
-    resolver = CachePathResolver.from_path(params_path)
+    resolver = CachePathConstructor.from_path(params_path)
 
     params = read_json_dict(params_path)
     spec = read_json_dict(resolver.spec_path)
@@ -106,15 +104,13 @@ def _enrich_params_path(params_path: Path) -> EntryInfo:
     linked_entries: list[LinkedEntry] = []
     rows = flatten_params(params, linked_entries=linked_entries)
 
-    # Identity fields come from EntryRegistry; read the hash file only for
-    # fields not already in EntryRecord (spec_path, state_hash_path, etc.)
-    state = read_json_dict(resolver.state_hash_path)
-    class_name = state.get(JSONKeys.CLASS_NAME) or resolver.stem
-    state_hash = state.get(JSONKeys.STATE_HASH)
-    instance_hash = state.get(JSONKeys.INSTANCE_HASH)
-    stored_dep_hash = state.get(JSONKeys.DEPENDENCY_TREE_HASH)
-    co_output_hashes = state.get(JSONKeys.CO_OUTPUTS, [])
-    format_version = state.get(JSONKeys.FORMAT_VERSION, FORMAT_VERSION)
+    record = EntryRecord.from_file(resolver.state_hash_path) if resolver.state_hash_path.exists() else None
+    class_name = (record.class_name if record else None) or resolver.directory.name
+    state_hash = record.state_hash if record else None
+    instance_hash = record.instance_hash if record else None
+    stored_dep_hash = record.dependency_tree_hash if record else None
+    co_output_hashes = record.co_output_hashes if record else []
+    format_version = record.format_version if record else FORMAT_VERSION
 
     object_type = None
     live_cls = TrackedObject.find_object_class(class_name)
@@ -124,11 +120,11 @@ def _enrich_params_path(params_path: Path) -> EntryInfo:
             getter = getattr(ot, 'get_class_name', None)
             object_type = str(getter()) if callable(getter) else str(ot)
     else:
-        object_type = source_info_from_disk(class_name).object_type
+        object_type = source_info_from_disk(class_name, src=src, trees=trees).object_type
 
     warnings: list[str] = []
     if not state_hash:
-        warnings.append('Missing state hash in hash.json')
+        warnings.append('Missing state hash in meta.json')
 
     return EntryInfo(
         class_name=class_name,
@@ -155,6 +151,8 @@ def _enrich_with_cache(
     params_path: Path,
     cached_results: dict[str, dict],
     cached_mtimes: dict[str, float],
+    src: SourceRegistry | None = None,
+    trees: TreeRegistry | None = None,
 ) -> tuple[EntryInfo, bool]:
     """Return (entry, from_cache). Uses display cache if mtimes match."""
     key = str(params_path.resolve())
@@ -164,7 +162,7 @@ def _enrich_with_cache(
             return EntryInfo.from_dict(dict(cached_results[key])), True
         except (KeyError, TypeError):
             pass
-    entry = _enrich_params_path(params_path)
+    entry = _enrich_params_path(params_path, src=src, trees=trees)
     return entry, False
 
 
@@ -175,19 +173,23 @@ def _enrich_with_cache(
 
 def discover_entries(
     progress: dict | None = None,
-) -> tuple[dict[str, EntryInfo], dict[str, GroupRecord], dict]:
+    version_registry: VersionRegistry | None = None,
+) -> tuple[dict[str, EntryInfo], EntryRegistry, dict]:
     """Enrich EntryRegistry records with display-layer data.
 
     Uses EntryRegistry as the single source of params paths (no second rglob).
     The display cache (.dashboard_cache.json) is keyed by params_path and
     covers only the browser-specific fields (spec, rows, linked_entries, etc.).
     """
-    entry_registry = EntryRegistry.instance()
-    # params_path → EntryRecord, for dep_hash_stale and co_output_hashes
+    if version_registry is None:
+        version_registry = VersionRegistry()
+    src = version_registry.source_registry
+    trees = version_registry.tree_registry
+
+    entry_registry = EntryRegistry()
+    # params_path → EntryRecord, for co_output_hashes
     record_by_params = {
-        str(rec.params_path.resolve()): rec
-        for rec in entry_registry.records.values()
-        if rec.params_path is not None
+        str(rec.params_path.resolve()): rec for rec in entry_registry.records.values() if rec.params_path is not None
     }
     params_paths = sorted(Path(p) for p in record_by_params)
 
@@ -202,7 +204,7 @@ def discover_entries(
     new_mtimes: dict[str, float] = {}
 
     def _process(i: int, p: Path) -> tuple[int, EntryInfo]:
-        entry, from_cache = _enrich_with_cache(p, cached_results, cached_mtimes)
+        entry, from_cache = _enrich_with_cache(p, cached_results, cached_mtimes, src=src, trees=trees)
         key = str(p.resolve())
         if not from_cache and entry.error is None:
             new_results[key] = entry.to_dict()
@@ -223,10 +225,8 @@ def discover_entries(
     _save_disk_cache(new_results, new_mtimes)
 
     entries: dict[str, EntryInfo] = {}
-    diagnostics = dict(entry_registry.diagnostics)
+    diagnostics = dict(entry_registry.diagnostics())
     diagnostics['created_entries'] = 0
-
-    version_registry = VersionRegistry.instance()
 
     for entry in partial_entries:
         if entry.error is not None:
@@ -239,16 +239,12 @@ def discover_entries(
         # record_id == state_hash (the key in EntryRegistry.records)
         record_id = rec.state_hash or entry.params_path
         entry.record_id = record_id
-        entry.dep_hash_stale = bool(rec.dep_hash_stale)
-
-        # EntryRegistry only marks staleness for classes loaded in this process;
-        # for unloaded classes resolve it against the version registry on disk.
-        if (
-            entry.dep_hash
-            and not entry.dep_hash_stale
-            and TrackedObject.find_object_class(entry.class_name) is None
-        ):
-            entry.dep_hash_stale = version_registry.is_dep_hash_stale(entry.dep_hash)
+        if entry.dep_hash:
+            obj_cls = TrackedObject.find_object_class(entry.class_name)
+            if obj_cls is not None:
+                entry.dep_hash_stale = obj_cls.get_dependency_tree_hash() != entry.dep_hash
+            else:
+                entry.dep_hash_stale = version_registry.is_dep_hash_stale(entry.dep_hash)
 
         entries[record_id] = entry
 
@@ -257,4 +253,4 @@ def discover_entries(
         entry.co_outputs = [entries[h] for h in entry.co_output_hashes if h in entries]
 
     diagnostics['created_entries'] = len(entries)
-    return entries, entry_registry.groups, diagnostics
+    return entries, entry_registry, diagnostics
