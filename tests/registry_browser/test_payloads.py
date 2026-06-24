@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from pygeodata.config import JSONKeys
-from pygeodata.registry_browser.models import (
+from pygeodata.catalog.types import (
     ClassInfo,
     EntryInfo,
     FileRef,
@@ -707,7 +707,7 @@ def _write_tree(registry: Path, dep_hash: str, nodes: dict) -> None:
 
 def test_version_groups_has_entries_true_when_entry_points_to_group(tmp_path: Path) -> None:
     """A group with at least one entry dep_hash mapping to it gets has_entries=True."""
-    from pygeodata.versioning import VersionRegistry
+    from pygeodata.registries.versioning import VersionRegistry
 
     r = tmp_path / '.source'
     _write_snapshot(r, 'h1', 'MyLoader', '2026-01-01T00:00:00+00:00')
@@ -727,7 +727,7 @@ def test_version_groups_has_entries_true_when_entry_points_to_group(tmp_path: Pa
 
 def test_version_groups_has_entries_false_when_no_entries(tmp_path: Path) -> None:
     """A group with no entries pointing to it gets has_entries=False."""
-    from pygeodata.versioning import VersionRegistry
+    from pygeodata.registries.versioning import VersionRegistry
 
     r = tmp_path / '.source'
     _write_snapshot(r, 'h1', 'MyLoader', '2026-01-01T00:00:00+00:00')
@@ -743,7 +743,7 @@ def test_version_groups_has_entries_false_when_no_entries(tmp_path: Path) -> Non
 
 def test_version_groups_has_entries_default_true_when_no_dep_hashes_arg(tmp_path: Path) -> None:
     """Without entry_dep_hashes kwarg every group reports has_entries=True (backward compat)."""
-    from pygeodata.versioning import VersionRegistry
+    from pygeodata.registries.versioning import VersionRegistry
 
     r = tmp_path / '.source'
     _write_snapshot(r, 'h1', 'MyLoader', '2026-01-01T00:00:00+00:00')
@@ -758,7 +758,7 @@ def test_version_groups_has_entries_default_true_when_no_dep_hashes_arg(tmp_path
 
 def test_version_groups_v1_has_entries_when_entry_points_there(tmp_path: Path) -> None:
     """v1 group gets has_entries=True when an entry's dep_hash maps to it."""
-    from pygeodata.versioning import VersionRegistry
+    from pygeodata.registries.versioning import VersionRegistry
 
     r = tmp_path / '.source'
     _write_snapshot(r, 'h1', 'MyLoader', '2026-01-01T00:00:00+00:00')

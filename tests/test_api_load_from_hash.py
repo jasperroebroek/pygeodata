@@ -117,8 +117,8 @@ def test_load_from_hash_ambiguous_prefix_raises_key_error(cache_root):
 
 def test_load_from_hash_no_hash_path_raises_file_not_found(cache_root, monkeypatch):
     """A record whose hash_path is None raises FileNotFoundError."""
-    from pygeodata.registry import EntryRegistry
-    from pygeodata.registry_types import EntryRecord
+    from pygeodata.registries.registry import EntryRegistry
+    from pygeodata.registries.registry_types import EntryRecord
 
     state_hash = 'deadbeef' * 8
 

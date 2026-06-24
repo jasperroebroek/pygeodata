@@ -1,27 +1,24 @@
 import contextlib
 import json
-import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from pygeodata.config import FORMAT_VERSION, get_config
-from pygeodata.paths import CACHE_DIR_SUFFIXES, CACHE_META_FILES, CachePathConstructor, classify_file
-from pygeodata.registry import EntryRegistry, SourceRegistry, TreeRegistry
-from pygeodata.registry_browser.class_catalog import source_info_from_disk
-from pygeodata.registry_browser.io_utils import existing_path_str, read_json_dict
-from pygeodata.registry_browser.models import (
+from pygeodata.catalog.class_catalog import source_info_from_disk
+from pygeodata.catalog.types import (
     EntryInfo,
     FileRef,
     LinkedEntry,
     SpecInfo,
 )
+from pygeodata.config import FORMAT_VERSION, get_config
+from pygeodata.paths import CACHE_DIR_SUFFIXES, CACHE_META_FILES, CachePathConstructor, classify_file
+from pygeodata.registries.registry import EntryRegistry, SourceRegistry, TreeRegistry
+from pygeodata.registry_browser.io_utils import existing_path_str, read_json_dict
 from pygeodata.registry_browser.params_index import flatten_params
-from pygeodata.registry_types import EntryRecord
+from pygeodata.registries.registry_types import EntryRecord
 from pygeodata.spec import SpatialSpec
 from pygeodata.tracked_object import TrackedObject
-from pygeodata.versioning import VersionRegistry
-
-_log = logging.getLogger(__name__)
+from pygeodata.registries.versioning import VersionRegistry
 
 
 def _cache_file() -> Path:

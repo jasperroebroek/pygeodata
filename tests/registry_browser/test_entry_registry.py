@@ -12,10 +12,10 @@ from pathlib import Path
 import pytest
 
 from pygeodata.config import FORMAT_VERSION, JSONKeys, set_config
-from pygeodata.registry import EntryRegistry
-from pygeodata.registry_browser.entry_catalog import discover_entries
-from pygeodata.registry_browser.models import EntryInfo, FileRef, SpecInfo
-from pygeodata.registry_types import EntryRecord
+from pygeodata.registries.registry import EntryRegistry
+from pygeodata.catalog.entry_catalog import discover_entries
+from pygeodata.catalog.types import EntryInfo, FileRef, SpecInfo
+from pygeodata.registries.registry_types import EntryRecord
 from pygeodata.tracked_object import TrackedObject
 
 # ---------------------------------------------------------------------------

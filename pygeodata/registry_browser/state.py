@@ -7,15 +7,15 @@ import traceback
 from dataclasses import dataclass
 from pathlib import Path
 
-from pygeodata.registry import EntryRegistry
-from pygeodata.registry_browser.class_catalog import (
+from pygeodata.registries.registry import EntryRegistry
+from pygeodata.catalog.class_catalog import (
     discover_loaded_classes,
     merge_unloaded_classes,
 )
-from pygeodata.registry_browser.entry_catalog import _cache_file, discover_entries
-from pygeodata.registry_browser.models import ClassInfo, EntryInfo
+from pygeodata.catalog.entry_catalog import _cache_file, discover_entries
+from pygeodata.catalog.types import ClassInfo, EntryInfo
 from pygeodata.spec import SpecKeys
-from pygeodata.versioning import VersionRegistry
+from pygeodata.registries.versioning import VersionRegistry
 
 _log = logging.getLogger(__name__)
 

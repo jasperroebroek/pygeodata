@@ -4,8 +4,8 @@ from pathlib import Path
 import pytest
 
 from pygeodata.config import JSONKeys
-from pygeodata.registry import SourceRegistry
-from pygeodata.versioning import VersionRegistry
+from pygeodata.registries.registry import SourceRegistry
+from pygeodata.registries.versioning import VersionRegistry
 
 # ---------------------------------------------------------------------------
 # Helpers

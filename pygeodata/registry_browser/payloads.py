@@ -1,11 +1,11 @@
 from pygeodata.config import JSONKeys
 from pygeodata.formatting.json import format_json
-from pygeodata.registry import SourceRegistry
+from pygeodata.registries.registry import SourceRegistry
 from pygeodata.registry_browser.filters import Filter, entry_matches_filters, matching_rows, parse_filters
-from pygeodata.registry_browser.models import ClassInfo, EntryInfo, FileRef, LinkedEntry
+from pygeodata.catalog.types import ClassInfo, EntryInfo, FileRef, LinkedEntry
 from pygeodata.registry_browser.state import AppState
 from pygeodata.spec import SpecKeys
-from pygeodata.versioning import VersionRegistry
+from pygeodata.registries.versioning import VersionRegistry
 
 # ---------------------------------------------------------------------------
 # Small serialisers — one responsibility each

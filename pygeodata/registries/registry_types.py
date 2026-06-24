@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
+from functools import total_ordering
 from pathlib import Path
 from typing import Self
 
@@ -68,7 +70,7 @@ class EntryRecord:
 
     Mirrors CodeState / TreeSnapshot — keyed by state_hash in EntryRegistry.
     Browser display fields (rows, spec strings, linked entries, primary file)
-    live in EntryInfo in registry_browser/models.py.
+    live in EntryInfo in catalog/models.py.
 
     """
 
@@ -173,3 +175,54 @@ class CodeState:
             registered_at=data['registered_at'],
             format_version=data.get('format_version', FORMAT_VERSION),
         )
+
+
+@total_ordering
+@dataclass
+class Version:
+    """A version-change group: one or more CodeEvents that occurred together.
+
+    The last entry in VersionRegistry.versions is the Initial group —
+    it holds the states that existed before any version change, with mtime set
+    to the registered_at of the earliest CodeState across all classes.
+
+    version_id is a stable UUID assigned at build time and is the canonical
+    identifier for this group in all API calls and lookups.  Sorting compares
+    by mtime (ISO-8601 UTC strings sort correctly as plain strings).
+
+    events contains ALL statuses (ADDED, CHANGED, REMOVED, UNCHANGED) — the
+    full change summary versus the predecessor version, computed at build time.
+    """
+
+    events: list[CodeEvent]
+    mtime: str
+    version_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Version):
+            return NotImplemented
+        return self.version_id == other.version_id
+
+    def __lt__(self, other: object) -> bool:
+        if not isinstance(other, Version):
+            return NotImplemented
+        if self.mtime != other.mtime:
+            return self.mtime < other.mtime
+        return self.version_id < other.version_id
+
+    def __hash__(self) -> int:
+        return hash(self.version_id)
+
+    @property
+    def class_names(self) -> list[str]:
+        """All class names present in this version (ADDED, CHANGED, REMOVED, UNCHANGED)."""
+        return sorted({e.class_name for e in self.events})
+
+    @property
+    def changed_class_names(self) -> list[str]:
+        """Class names that are ADDED or CHANGED in this version."""
+        return sorted({e.class_name for e in self.events if e.status in (ChangeStatus.ADDED, ChangeStatus.CHANGED)})
+
+    @property
+    def source_hashes(self) -> list[str]:
+        return [e.state_new.source_hash for e in self.events if e.state_new is not None]

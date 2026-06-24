@@ -14,7 +14,7 @@ from pygeodata.graphs import plot_compact_execution_graph
 from pygeodata.hash import calculate_cls_source_hash, calculate_dict_hash
 from pygeodata.paths import CachePathConstructor
 from pygeodata.protocols import Processor
-from pygeodata.registry_types import EntryRecord
+from pygeodata.registries.registry_types import EntryRecord
 from pygeodata.spec import SpatialSpec, SpecKeys
 from pygeodata.tracked_object import TrackedObject
 

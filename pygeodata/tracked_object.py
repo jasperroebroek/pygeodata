@@ -13,7 +13,7 @@ from pygeodata.graph_types import ClassNode, DependencyGraph
 from pygeodata.graphs import plot_class_dependency_graph
 from pygeodata.hash import calculate_cls_source_hash, calculate_dict_hash
 from pygeodata.paths import CodeRegistryPathConstructor, TreeRegistryPathConstructor
-from pygeodata.registry_types import CodeState, TreeSnapshot
+from pygeodata.registries.registry_types import CodeState, TreeSnapshot
 
 
 class TrackedObject:
@@ -168,7 +168,7 @@ class TrackedObject:
     @classmethod
     def _previously_active_source_hash(cls) -> str | None:
         """Return the source_hash from the most-recent ``source.json`` for this class."""
-        from pygeodata.registry import SourceRegistry
+        from pygeodata.registries.registry import SourceRegistry
 
         state = SourceRegistry().get_latest_state_for_class(cls.get_class_name())
         return state.source_hash if state else None

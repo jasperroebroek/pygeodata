@@ -14,7 +14,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from pygeodata.paths import CodeRegistryPathConstructor
-from pygeodata.registry import TreeRegistry
+from pygeodata.registries.registry import TreeRegistry
 
 # ---------------------------------------------------------------------------
 # Job registry  {job_id: {status, done, total, tmp_path, error}}

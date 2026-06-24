@@ -5,8 +5,8 @@ from pathlib import Path
 
 from pygeodata.config import JSONKeys, set_config
 from pygeodata.registry_browser import code_service
-from pygeodata.registry_browser.models import EntryInfo, SpecInfo
-from pygeodata.versioning import VersionRegistry
+from pygeodata.catalog.types import EntryInfo, SpecInfo
+from pygeodata.registries.versioning import VersionRegistry
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers

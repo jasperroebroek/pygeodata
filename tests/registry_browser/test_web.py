@@ -8,7 +8,7 @@ from pygeodata.config import set_config
 from pygeodata.registry_browser.state import AppContext, AppState
 from pygeodata.registry_browser.web import _allowed_roots, _assert_allowed_path
 from pygeodata.registry_browser.web import app as flask_app
-from pygeodata.versioning import VersionRegistry
+from pygeodata.registries.versioning import VersionRegistry
 
 
 class _FakeEntryRegistry:
@@ -422,7 +422,7 @@ def test_api_code_diff_identical_files(tmp_path: Path) -> None:
 
 def _make_entry(record_id: str, dep_hash: str | None):
     """Minimal EntryInfo for version-diff tests."""
-    from pygeodata.registry_browser.models import EntryInfo, SpecInfo
+    from pygeodata.catalog.types import EntryInfo, SpecInfo
 
     return EntryInfo(
         record_id=record_id,
@@ -538,7 +538,7 @@ def test_api_code_version_diff_explicit_base(tmp_path: Path) -> None:
 
 
 def _make_entry_with_path(record_id: str, params_path: str, dep_hash: str | None = None):
-    from pygeodata.registry_browser.models import EntryInfo, SpecInfo
+    from pygeodata.catalog.types import EntryInfo, SpecInfo
 
     return EntryInfo(
         record_id=record_id,

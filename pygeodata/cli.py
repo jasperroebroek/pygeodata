@@ -15,9 +15,10 @@ from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config
 from pygeodata.data import Data
 from pygeodata.figure import Figure
 from pygeodata.paths import CachePathConstructor
-from pygeodata.registry import EntryRegistry, SourceRegistry, TreeRegistry
+from pygeodata.registries.registry import EntryRegistry, SourceRegistry, TreeRegistry
 from pygeodata.tracked_object import TrackedObject
-from pygeodata.versioning import Version, VersionRegistry
+from pygeodata.registries.versioning import VersionRegistry
+from pygeodata.registries.registry_types import Version
 
 
 def _fmt_mtime(mtime: str) -> str:
@@ -87,7 +88,10 @@ def _import_project_modules(root: Path, verbose: bool = False) -> int:
     if root not in sys.path:
         sys.path.insert(0, str(root))
     cfg = get_config()
-    _config_dirs = {cfg.path_cache.parts[0], cfg.path_figures.parts[0], cfg.path_registry.parts[0]}
+    _config_dirs = set()
+    for _p in (cfg.path_cache, cfg.path_figures, cfg.path_registry):
+        if _p.parts and not _p.is_absolute():
+            _config_dirs.add(_p.parts[0])
     _skip_dirs = {'venv', 'env', '.venv', 'build', 'dist', 'site-packages', 'tests', 'test', 'cache'} | _config_dirs
     count = 0
     for py_file in sorted(root.rglob('*.py')):
@@ -96,7 +100,8 @@ def _import_project_modules(root: Path, verbose: bool = False) -> int:
             continue
         if parts[-1].startswith(('test_', 'conftest', 'setup', 'manage')):
             continue
-        module_name = '.'.join(py_file.relative_to(root).with_suffix('').parts)
+        stem = '.'.join(py_file.relative_to(root).with_suffix('').parts)
+        module_name = f'pygeodata_project_{stem}'
         if module_name in sys.modules:
             continue
         try:

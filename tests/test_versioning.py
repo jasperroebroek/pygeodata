@@ -7,8 +7,8 @@ import pytest
 
 from pygeodata.config import JSONKeys
 from pygeodata.registry_browser.code_service import _build_structured_hunks, _word_segments
-from pygeodata.registry_types import ChangeStatus
-from pygeodata.versioning import VersionRegistry
+from pygeodata.registries.registry_types import ChangeStatus
+from pygeodata.registries.versioning import VersionRegistry
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +201,7 @@ def test_snapshot_at_v1_uses_latest_hashes(two_class_registry):
 
 
 def test_snapshot_at_unknown_version_returns_empty(two_class_registry):
-    from pygeodata.versioning import Version
+    from pygeodata.registries.versioning import Version
 
     vr = VersionRegistry(two_class_registry)
     fake = Version(events=[], mtime='2026-01-01T00:00:00+00:00')
@@ -495,7 +495,7 @@ def tied_mtime_registry(tmp_path: Path):
 
 def test_version_for_dep_hash_stable_under_tied_mtimes(tied_mtime_registry):
     """version_for_dep_hash must return the same version on repeated calls when mtimes tie."""
-    from pygeodata.versioning import VersionRegistry
+    from pygeodata.registries.versioning import VersionRegistry
 
     vr = VersionRegistry(tied_mtime_registry)
     results = {vr.version_for_dep_hash('dep_unknown') for _ in range(20)}
@@ -505,8 +505,8 @@ def test_version_for_dep_hash_stable_under_tied_mtimes(tied_mtime_registry):
 def test_assign_full_events_forward_pass_matches_original(spread_registry):
     """Forward-pass optimisation must produce identical events to the original O(n³) impl."""
     import copy
-    from pygeodata.registry import SourceRegistry
-    from pygeodata.versioning import VersionRegistry as VR
+    from pygeodata.registries.registry import SourceRegistry
+    from pygeodata.registries.versioning import VersionRegistry as VR
 
     # Reference: capture events from a freshly built registry (uses current impl)
     vr_ref = VR(spread_registry)
@@ -517,7 +517,7 @@ def test_assign_full_events_forward_pass_matches_original(spread_registry):
 
     @staticmethod
     def forward_pass(src, versions, initial, raw_index):
-        from pygeodata.registry_types import CodeEvent
+        from pygeodata.registries.registry_types import CodeEvent
         ordered = ([initial] if initial else []) + list(reversed(versions))
 
         running: dict = {}

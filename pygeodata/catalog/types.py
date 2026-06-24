@@ -65,7 +65,7 @@ class ParamRow:
     path: str
     key_group: str
     final_key: str
-    value_text: str  # plain text, unescaped — HTML escaping is the frontend's job
+    value_text: str
     value_type: str
     search_blob: str
     depth: int
@@ -78,7 +78,7 @@ class LinkedEntry:
     param_name: str
     class_name: str
     state_hash: str | None
-    params_summary: dict[str, str]  # plain-text key→value pairs
+    params_summary: dict[str, str]
 
 
 @dataclass

@@ -7,7 +7,7 @@ from pygeodata.artifact import Artifact
 from pygeodata.data import Data
 from pygeodata.paths import CACHE_META_FILES, CachePathConstructor
 from pygeodata.protocols import T
-from pygeodata.registry import EntryRegistry
+from pygeodata.registries.registry import EntryRegistry
 from pygeodata.spec import SpatialSpec
 from pygeodata.tracked_object import TrackedObject
 

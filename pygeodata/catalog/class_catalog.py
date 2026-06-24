@@ -1,14 +1,10 @@
-import logging
-
+from pygeodata.catalog.types import ClassInfo, EntryInfo, RegistryClassInfo
 from pygeodata.hash import calculate_cls_source_hash
 from pygeodata.paths import CodeRegistryPathConstructor, TreeRegistryPathConstructor
-from pygeodata.registry import EntryRegistry, SourceRegistry, TreeRegistry
+from pygeodata.registries.registry import EntryRegistry, SourceRegistry, TreeRegistry
 from pygeodata.registry_browser.io_utils import existing_path_str
-from pygeodata.registry_browser.models import ClassInfo, EntryInfo, RegistryClassInfo
 from pygeodata.tracked_object import TrackedObject
-from pygeodata.versioning import VersionRegistry
-
-logger = logging.getLogger(__name__)
+from pygeodata.registries.versioning import VersionRegistry
 
 
 def source_info_from_disk(

@@ -8,7 +8,7 @@ from pathlib import Path
 from pygeodata.ast import get_source_code
 from pygeodata.graphs import plot_class_dependency_graph
 
-from pygeodata.registry import SourceRegistry
+from pygeodata.registries.registry import SourceRegistry
 from pygeodata.registry_browser.io_utils import read_text
 from pygeodata.tracked_object import TrackedObject
 

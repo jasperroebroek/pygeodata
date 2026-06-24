@@ -10,10 +10,10 @@ from difflib import SequenceMatcher, unified_diff
 
 from pygeodata.hash import calculate_cls_source_hash
 from pygeodata.paths import CodeRegistryPathConstructor
-from pygeodata.registry_browser.models import CodeClassState
+from pygeodata.catalog.types import CodeClassState
 from pygeodata.registry_browser.popups import render_source_html
 from pygeodata.tracked_object import TrackedObject
-from pygeodata.versioning import VersionRegistry
+from pygeodata.registries.versioning import VersionRegistry
 
 
 def _word_segments(text_old: str, text_new: str) -> tuple[list[dict], list[dict]]:

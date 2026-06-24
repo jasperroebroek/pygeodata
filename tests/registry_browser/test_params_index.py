@@ -1,5 +1,5 @@
 from pygeodata.config import JSONKeys
-from pygeodata.registry_browser.models import LinkedEntry, ParamRow
+from pygeodata.catalog.types import LinkedEntry, ParamRow
 from pygeodata.registry_browser.params_index import flatten_params
 
 

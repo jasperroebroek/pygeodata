@@ -22,7 +22,7 @@ from pygeodata.paths import (
     RegistryResolver,
     TreeRegistryPathConstructor,
 )
-from pygeodata.registry_types import CodeState, EntryRecord, TreeSnapshot
+from pygeodata.registries.registry_types import CodeState, EntryRecord, TreeSnapshot
 
 
 class SourceRegistry:

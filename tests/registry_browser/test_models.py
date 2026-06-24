@@ -1,6 +1,6 @@
 import pytest
 
-from pygeodata.registry_browser.models import SpecInfo
+from pygeodata.catalog.types import SpecInfo
 from pygeodata.spec import SpatialSpec, format_resolution
 
 

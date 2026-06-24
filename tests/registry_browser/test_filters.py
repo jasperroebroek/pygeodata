@@ -10,7 +10,7 @@ from pygeodata.registry_browser.filters import (
     parse_filters,
     row_matches_filter,
 )
-from pygeodata.registry_browser.models import EntryInfo, ParamRow, SpecInfo
+from pygeodata.catalog.types import EntryInfo, ParamRow, SpecInfo
 
 
 def make_row(

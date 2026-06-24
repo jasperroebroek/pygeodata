@@ -12,8 +12,8 @@ import pytest
 
 from pygeodata.config import JSONKeys, set_config
 from pygeodata.paths import CachePathConstructor
-from pygeodata.registry import EntryRegistry
-from pygeodata.registry_browser.entry_catalog import (
+from pygeodata.registries.registry import EntryRegistry
+from pygeodata.catalog.entry_catalog import (
     _cache_mtime_key,
     _enrich_params_path,
     _enrich_with_cache,

@@ -6,7 +6,7 @@ from pathlib import Path
 from pygeodata.artifact import Artifact
 from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config
 from pygeodata.paths import CachePathConstructor
-from pygeodata.registry_types import EntryRecord
+from pygeodata.registries.registry_types import EntryRecord
 from pygeodata.tracked_object import TrackedObject
 
 ZARR_MARKERS = (
@@ -197,7 +197,7 @@ def clean_source_registry(dry_run: bool = True) -> None:
     Everything else is prunable.  Dry-run prints what would be deleted without
     removing anything.
     """
-    from pygeodata.registry import EntryRegistry, SourceRegistry, TreeRegistry
+    from pygeodata.registries.registry import EntryRegistry, SourceRegistry, TreeRegistry
 
     root = get_config().path_registry
     if not root.exists():

@@ -21,7 +21,7 @@ from unittest.mock import patch
 import pytest
 
 from pygeodata.config import JSONKeys, set_config
-from pygeodata.versioning import VersionRegistry
+from pygeodata.registries.versioning import VersionRegistry
 from pygeodata.registry_browser.state import AppContext, AppState
 from pygeodata.registry_browser.web import app as flask_app
 # ---------------------------------------------------------------------------
@@ -76,7 +76,7 @@ def _make_ready_ctx(version_registry: VersionRegistry | None = None):
 
 
 def _make_entry(record_id: str, dep_hash: str | None):
-    from pygeodata.registry_browser.models import EntryInfo, SpecInfo
+    from pygeodata.catalog.types import EntryInfo, SpecInfo
 
     return EntryInfo(
         record_id=record_id,
