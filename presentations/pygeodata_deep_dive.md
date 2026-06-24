@@ -409,7 +409,7 @@ FigureSlope    | Figure | ⚠ changed     | ⚠ changed   | SFTRegressionLoader,
 
 ## Slide 14 — Cache Management
 
-Two maintenance operations keep the cache healthy over time.
+Four maintenance operations keep the cache and source registry healthy over time.
 
 **`clean_cache(dry_run=True)`** — walks `data_processed/` and `figures/`, and deletes any directory whose state hash no longer matches the live hash of the corresponding class. Handles:
 - Missing hash files
@@ -417,9 +417,19 @@ Two maintenance operations keep the cache healthy over time.
 - Classes no longer in the registry (optionally, with confirmation)
 - Multiple hash files in one directory (conflict resolution)
 
+**`clean_source_registry(dry_run=True)`** — walks `.source/` and removes orphaned snapshots. Keeps the latest snapshot per class and anything referenced by a live cache entry. Also available as `pygeodata clean-source` on the CLI.
+
 **`clean_registry(dry_run=True)`** — walks `.source/` and removes entries written by a different `FORMAT_VERSION`.
 
 **`rebuild_registry()`** — wipes and rewrites all `.source/` entries from the currently-loaded classes.
+
+**`load_from_hash(state_hash, filename=None, params=None)`** — loads a cached output by its (possibly truncated) state hash without re-running `process`. Useful for scripted access to specific cached outputs:
+
+```python
+from pygeodata import load_from_hash
+
+da = load_from_hash('cc71cf42816b')
+```
 
 ---
 

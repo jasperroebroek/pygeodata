@@ -12,8 +12,10 @@ This tutorial covers:
 
 - ``clean_cache(dry_run=True/False)`` — removing stale or invalid cache
   entries
+- ``clean_source_registry(dry_run=True/False)`` — removing orphaned
+  ``.source/`` snapshots
 - ``clean_registry(dry_run=True/False)`` — removing outdated
-  ``.source/`` entries
+  ``.source/`` entries (format version mismatch)
 - ``rebuild_registry()`` — rebuilding the registry from scratch
 - The ``.source/`` layout in detail
 - Why ``.source/`` is append-only
@@ -64,6 +66,35 @@ interactively:
    OldLoader not found in registry. Delete? [y/N]
 
 Set ``delete_unregistered=False`` to skip these entries silently.
+
+clean_source_registry
+---------------------
+
+``clean_source_registry`` removes orphaned code snapshots and dependency
+trees from ``.source/``. Over time, code changes accumulate old snapshots
+that are no longer referenced by any live cache entry. This command prunes
+them while keeping:
+
+- the **latest snapshot** per class (so active classes with no entries yet
+  are not pruned), and
+- any snapshot **referenced** by a live cache entry (so you can still trace
+  exactly what code produced a given output).
+
+Everything else is eligible for deletion.
+
+.. code-block:: python
+
+   from pygeodata.cache import clean_source_registry
+
+   clean_source_registry(dry_run=True)    # preview what would be deleted
+   clean_source_registry(dry_run=False)   # delete orphaned snapshots
+
+Or from the command line:
+
+.. code-block:: bash
+
+   pygeodata clean-source          # dry run by default
+   pygeodata clean-source --no-dry-run
 
 clean_registry
 --------------
@@ -159,9 +190,11 @@ are never deleted during normal operation.
 
 The only time ``.source/`` should shrink is:
 
-1. ``clean_registry()`` — removes entries from a different
+1. ``clean_source_registry()`` — removes orphaned snapshots no longer
+   referenced by any live cache entry
+2. ``clean_registry()`` — removes entries from a different
    ``format_version``
-2. ``rebuild_registry()`` — complete reset
+3. ``rebuild_registry()`` — complete reset
 
 Entries added by different computers or collaborators can be safely
 merged because the content-addressed layout means no two entries ever

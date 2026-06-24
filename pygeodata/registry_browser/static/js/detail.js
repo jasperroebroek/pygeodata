@@ -738,7 +738,7 @@ function buildLinkedEntriesCard(entry) {
 
     // Nested params as indented lines instead of inline summary
     const paramLines = Object.entries(lnk.params_summary ?? {})
-      .map(([k, v]) => `<div class="link-param-line"><span class="link-param-key">${esc(k)}</span><span class="link-param-val">${v}</span></div>`)
+      .map(([k, v]) => `<div class="link-param-line"><span class="link-param-key">${esc(k)}</span><span class="link-param-val">${esc(v)}</span></div>`)
       .join("");
 
     return `

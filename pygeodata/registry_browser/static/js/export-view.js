@@ -153,11 +153,6 @@ export async function startExport() {
 // Init — called from boot.js
 // ---------------------------------------------------------------------------
 
-export function leaveExportView() {
-  if (_selectModeBeforeExport === false && state.select_mode) toggleSelectMode();
-  _selectModeBeforeExport = null;
-}
-
 export function initExportView() {
   setUpdateCartTab(updateCartTab);
 

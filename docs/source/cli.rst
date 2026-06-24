@@ -24,6 +24,12 @@ clear error listing the candidates.
     │     --no-dry-run            Actually delete files (default is a dry run)
     │     --no-delete-unregistered  Keep entries whose class is no longer in the registry
     │
+    ├── clean-source
+    │     Remove orphaned code snapshots and dependency trees from .source/.
+    │     Keeps the latest snapshot per class and anything referenced by a live
+    │     cache entry.  Runs as a dry run by default.
+    │     --no-dry-run            Actually delete files (default is a dry run)
+    │
     ├── import ARCHIVE
     │     Import a pygeodata .tar.gz export archive into the current project.
     │

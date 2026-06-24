@@ -180,6 +180,13 @@ class FigureElevation(Figure):
 ## Cache management
 
 ```python
+from pygeodata import load_from_hash
+
+# Load any cached output by its (truncated) state hash — no re-running required.
+da = load_from_hash('cc71cf42816b')
+```
+
+```python
 from pygeodata import clean_cache
 
 clean_cache(dry_run=True)    # preview what would be deleted
@@ -187,6 +194,15 @@ clean_cache(dry_run=False)   # delete stale entries
 ```
 
 `clean_cache` walks `data_processed/` and `figures/` and removes any directory whose state hash no longer matches the live hash of the corresponding class. Classes that have been renamed or removed from the codebase are flagged for manual confirmation.
+
+```python
+from pygeodata.cache import clean_source_registry
+
+clean_source_registry(dry_run=True)    # preview orphaned .source/ entries
+clean_source_registry(dry_run=False)   # delete them
+```
+
+`clean_source_registry` removes orphaned code snapshots and dependency trees from `.source/`. It keeps the latest snapshot per class and anything referenced by a live cache entry — everything else is prunable.
 
 ```python
 from pygeodata import rebuild_registry
