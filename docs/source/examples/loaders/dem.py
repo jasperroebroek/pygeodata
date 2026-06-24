@@ -35,6 +35,7 @@ class SlopeLoader(Data):
 
     def _process(self, spec: SpatialSpec) -> None:
         import xrspatial
+
         dem = load(self.elevation, spec)
         slope = xrspatial.slope(dem)
         slope.rio.to_raster(self.get_processed_path(spec))

@@ -59,6 +59,7 @@ def make_entry(
 
 # --- Filter.from_dict ---
 
+
 def test_filter_from_dict_defaults() -> None:
     f = Filter.from_dict({})
     assert f.target == FilterTarget.ALL
@@ -74,6 +75,7 @@ def test_filter_from_dict_explicit_values() -> None:
 
 
 # --- parse_filters ---
+
 
 def test_parse_filters_empty() -> None:
     assert parse_filters(None) == []
@@ -93,17 +95,21 @@ def test_parse_filters_multiple() -> None:
 
 # --- _compare via row_matches_filter ---
 
-@pytest.mark.parametrize('operator,value,expected', [
-    (FilterOperator.CONTAINS, 'year', True),
-    (FilterOperator.CONTAINS, 'month', False),
-    (FilterOperator.EQUALS, 'year', True),
-    (FilterOperator.EQUALS, 'YEAR', True),  # case-insensitive
-    (FilterOperator.EQUALS, 'ye', False),
-    (FilterOperator.STARTS, 'ye', True),
-    (FilterOperator.STARTS, 'ar', False),
-    (FilterOperator.NOT_CONTAINS, 'month', True),
-    (FilterOperator.NOT_CONTAINS, 'year', False),
-])
+
+@pytest.mark.parametrize(
+    'operator,value,expected',
+    [
+        (FilterOperator.CONTAINS, 'year', True),
+        (FilterOperator.CONTAINS, 'month', False),
+        (FilterOperator.EQUALS, 'year', True),
+        (FilterOperator.EQUALS, 'YEAR', True),  # case-insensitive
+        (FilterOperator.EQUALS, 'ye', False),
+        (FilterOperator.STARTS, 'ye', True),
+        (FilterOperator.STARTS, 'ar', False),
+        (FilterOperator.NOT_CONTAINS, 'month', True),
+        (FilterOperator.NOT_CONTAINS, 'year', False),
+    ],
+)
 def test_compare_operators(operator, value, expected) -> None:
     row = make_row(final_key='year')
     flt = Filter(target=FilterTarget.KEY, operator=operator, value=value)
@@ -111,6 +117,7 @@ def test_compare_operators(operator, value, expected) -> None:
 
 
 # --- row_matches_filter ---
+
 
 def test_row_matches_key_group() -> None:
     row = make_row(key_group='inputs')
@@ -151,6 +158,7 @@ def test_row_matches_non_row_target_returns_false() -> None:
 
 
 # --- entry_header_matches ---
+
 
 def test_entry_header_class_filter() -> None:
     cls, entry = make_entry(class_name='ClimateLoader')
@@ -203,6 +211,7 @@ def test_entry_header_all_no_match() -> None:
 
 
 # --- entry_matches_filters ---
+
 
 def test_entry_matches_no_filters() -> None:
     cls, entry = make_entry()
@@ -258,6 +267,7 @@ def test_entry_matches_not_any_match() -> None:
 
 
 # --- matching_rows ---
+
 
 def test_matching_rows_no_row_filters_returns_all() -> None:
     rows = [make_row(final_key='year'), make_row(final_key='region')]

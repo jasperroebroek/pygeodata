@@ -9,7 +9,7 @@ from __future__ import annotations
 from difflib import SequenceMatcher, unified_diff
 
 from pygeodata.hash import calculate_cls_source_hash
-from pygeodata.paths import CodeRegistryConstructor
+from pygeodata.paths import CodeRegistryPathConstructor
 from pygeodata.registry_browser.models import CodeClassState
 from pygeodata.registry_browser.popups import render_source_html
 from pygeodata.tracked_object import TrackedObject
@@ -22,8 +22,10 @@ def _word_segments(text_old: str, text_new: str) -> tuple[list[dict], list[dict]
     Returns (segments_old, segments_new) where each segment is
     {'type': 'eq'|'del'|'ins', 'text': str}.
     """
+
     def tokenise(s: str) -> list[str]:
         import re
+
         return re.findall(r'\w+|\W', s)
 
     tokens_old = tokenise(text_old)
@@ -60,7 +62,7 @@ def _build_structured_hunks(text_old: str, text_new: str) -> list[dict]:
             text_new.splitlines(keepends=True),
             fromfile='old',
             tofile='new',
-        )
+        ),
     )
 
     hunks: list[dict] = []
@@ -73,6 +75,7 @@ def _build_structured_hunks(text_old: str, text_new: str) -> list[dict]:
             continue
         if raw.startswith('@@'):
             import re
+
             m = re.match(r'@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@', raw)
             line_old = int(m.group(1)) if m else 1
             line_new = int(m.group(2)) if m else 1
@@ -86,7 +89,9 @@ def _build_structured_hunks(text_old: str, text_new: str) -> list[dict]:
                 current_hunk['lines'].append({'type': 'del', 'text': raw[1:], 'line_old': line_old, 'line_new': None})
                 line_old += 1
             elif raw != '\\ No newline at end of file':
-                current_hunk['lines'].append({'type': 'ctx', 'text': raw[1:], 'line_old': line_old, 'line_new': line_new})
+                current_hunk['lines'].append(
+                    {'type': 'ctx', 'text': raw[1:], 'line_old': line_old, 'line_new': line_new},
+                )
                 line_old += 1
                 line_new += 1
 
@@ -139,13 +144,15 @@ def version_classes(version_id: str, vreg: VersionRegistry) -> list[CodeClassSta
         cls = TrackedObject.find_object_class(class_name)
         is_loaded = cls is not None
         is_stale = is_loaded and calculate_cls_source_hash(cls) != source_hash
-        result.append(CodeClassState(
-            class_name=class_name,
-            object_type=best.object_type,
-            source_hash=source_hash,
-            is_loaded=is_loaded,
-            is_stale=is_stale,
-        ))
+        result.append(
+            CodeClassState(
+                class_name=class_name,
+                object_type=best.object_type,
+                source_hash=source_hash,
+                is_loaded=is_loaded,
+                is_stale=is_stale,
+            ),
+        )
     return result
 
 
@@ -196,8 +203,8 @@ def unified_diff_payload(
     the security check provably on the HTTP boundary for user-facing diffs.
     Returns None when either source file does not exist (caller should abort(404)).
     """
-    assert_allowed_path(str(CodeRegistryConstructor.from_source_hash(hash_old).source_path))
-    assert_allowed_path(str(CodeRegistryConstructor.from_source_hash(hash_new).source_path))
+    assert_allowed_path(str(CodeRegistryPathConstructor.from_source_hash(hash_old).source_path))
+    assert_allowed_path(str(CodeRegistryPathConstructor.from_source_hash(hash_new).source_path))
     return diff_hashes(hash_old, hash_new, full, vreg)
 
 
@@ -237,21 +244,25 @@ def tree_diff(record_id: str, entries: dict, vreg: VersionRegistry) -> dict:
             else:
                 payload = diff_hashes(stored_hash, live_hash, full=True, vreg=vreg)
                 if payload is not None:
-                    changes.append({
-                        'class_name': class_name,
-                        'status': 'changed',
-                        'hunks': payload['hunks'],
-                        'full_old': payload.get('full_old'),
-                        'full_new': payload.get('full_new'),
-                    })
+                    changes.append(
+                        {
+                            'class_name': class_name,
+                            'status': 'changed',
+                            'hunks': payload['hunks'],
+                            'full_old': payload.get('full_old'),
+                            'full_new': payload.get('full_new'),
+                        },
+                    )
                 else:
-                    changes.append({
-                        'class_name': class_name,
-                        'status': 'changed',
-                        'hunks': None,
-                        'full_old': None,
-                        'full_new': None,
-                    })
+                    changes.append(
+                        {
+                            'class_name': class_name,
+                            'status': 'changed',
+                            'hunks': None,
+                            'full_old': None,
+                            'full_new': None,
+                        },
+                    )
         elif stored_hash and not live_hash:
             changes.append({'class_name': class_name, 'status': 'removed', 'source_hash': stored_hash})
         else:

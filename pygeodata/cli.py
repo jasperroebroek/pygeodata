@@ -10,7 +10,7 @@ from pathlib import Path
 
 import click
 
-from pygeodata.cache import clean_cache
+from pygeodata.cache import clean_cache, clean_source_registry
 from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config
 from pygeodata.data import Data
 from pygeodata.figure import Figure
@@ -21,7 +21,6 @@ from pygeodata.versioning import Version, VersionRegistry
 
 
 def _fmt_mtime(mtime: str) -> str:
-
     try:
         return datetime.fromisoformat(mtime).strftime('%Y-%m-%d %H:%M')
     except (ValueError, AttributeError):
@@ -155,6 +154,24 @@ def browse(port: int, do_import: bool, verbose_import: bool) -> None:
 def clean_cache_cmd(dry_run: bool, delete_unregistered: bool) -> None:
     """Remove stale or invalid cache entries."""
     clean_cache(dry_run=dry_run, delete_unregistered=delete_unregistered)
+
+
+@cli.command('clean-source')
+@click.option(
+    '--no-dry-run',
+    'dry_run',
+    is_flag=True,
+    flag_value=False,
+    default=True,
+    help='Actually delete files (default is dry run).',
+)
+def clean_source_cmd(dry_run: bool) -> None:
+    """Remove orphaned code snapshots and dependency trees from .source/.
+
+    Keeps the latest snapshot per class and anything referenced by a live
+    cache entry.  Everything else is prunable.  Runs as dry run by default.
+    """
+    clean_source_registry(dry_run=dry_run)
 
 
 @cli.command('import')
@@ -651,7 +668,7 @@ def snapshot_version(registry_path: str | None, dep_hash: str) -> None:
         click.echo()
         click.echo(f'Classes  {", ".join(match.class_names)}')
     else:
-        click.echo('Initial')
+        click.echo('(not assigned to any version group)')
 
 
 # ---------------------------------------------------------------------------

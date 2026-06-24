@@ -55,12 +55,7 @@ def render_source_html(source_text: str, known_classes: frozenset[str], current_
     rows = []
     for i, line in enumerate(lines, 1):
         escaped_line = _linkify_class_names(html.escape(line), known_classes, current_class)
-        rows.append(
-            f'<tr class="diff-ctx">'
-            f'<td class="diff-ln">{i}</td>'
-            f'<td class="diff-code">{escaped_line}</td>'
-            f'</tr>'
-        )
+        rows.append(f'<tr class="diff-ctx"><td class="diff-ln">{i}</td><td class="diff-code">{escaped_line}</td></tr>')
     return f'<table class="diff-table diff-table--inline source-table">{"".join(rows)}</table>'
 
 

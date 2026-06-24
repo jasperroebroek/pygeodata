@@ -1,4 +1,8 @@
 """Tests for pygeodata.registry_browser.payloads."""
+
+import json
+from pathlib import Path
+
 import pytest
 
 from pygeodata.config import JSONKeys
@@ -19,6 +23,7 @@ from pygeodata.registry_browser.payloads import (
     _entry_matches_spec_filters,
     _sidebar_counts,
     build_browser_payload,
+    version_groups_payload,
 )
 from pygeodata.registry_browser.state import AppState
 from pygeodata.spec import SpecKeys
@@ -35,8 +40,13 @@ def make_spec(crs='EPSG:4326', resolution='0.1°', shape='180x360', bounds_latlo
 
 def make_row(key='year', value='2020', group='', path='year'):
     return ParamRow(
-        path=path, key_group=group, final_key=key, value_text=value,
-        value_type='int', search_blob=f'{group} {key} {value}'.lower(), depth=0,
+        path=path,
+        key_group=group,
+        final_key=key,
+        value_text=value,
+        value_type='int',
+        search_blob=f'{group} {key} {value}'.lower(),
+        depth=0,
     )
 
 
@@ -268,7 +278,9 @@ def test_sidebar_counts_zero_not_included():
     entry = make_entry(spec=make_spec(crs='EPSG:4326'))
     cls = make_class_info('MyLoader')
     state = make_state(entries={'rec1': entry}, classes={'MyLoader': cls}, groups={'MyLoader': ['rec1']})
-    counts = _sidebar_counts(state, kind_filter='all', spec_filters={SpecKeys.CRS: 'EPSG:3857'}, filters=[], logic_mode='AND')
+    counts = _sidebar_counts(
+        state, kind_filter='all', spec_filters={SpecKeys.CRS: 'EPSG:3857'}, filters=[], logic_mode='AND'
+    )
     assert 'MyLoader' not in counts
 
 
@@ -288,8 +300,9 @@ def test_sidebar_counts_multiple_entries():
 
 def test_build_visible_groups_returns_entry():
     state = simple_state()
-    groups = _build_visible_groups(state, selected_classes=[], kind_filter='all',
-                                   spec_filters={}, filters=[], logic_mode='AND')
+    groups = _build_visible_groups(
+        state, selected_classes=[], kind_filter='all', spec_filters={}, filters=[], logic_mode='AND'
+    )
     assert len(groups) == 1
     class_name, entries = groups[0]
     assert class_name == 'MyLoader'
@@ -298,8 +311,9 @@ def test_build_visible_groups_returns_entry():
 
 def test_build_visible_groups_kind_filter():
     state = simple_state()
-    groups = _build_visible_groups(state, selected_classes=[], kind_filter='figure',
-                                   spec_filters={}, filters=[], logic_mode='AND')
+    groups = _build_visible_groups(
+        state, selected_classes=[], kind_filter='figure', spec_filters={}, filters=[], logic_mode='AND'
+    )
     assert groups == []
 
 
@@ -311,8 +325,9 @@ def test_build_visible_groups_sorted_by_class_name():
         classes={'ZLoader': make_class_info('ZLoader'), 'ALoader': make_class_info('ALoader')},
         groups={'ZLoader': ['r1'], 'ALoader': ['r2']},
     )
-    groups = _build_visible_groups(state, selected_classes=[], kind_filter='all',
-                                   spec_filters={}, filters=[], logic_mode='AND')
+    groups = _build_visible_groups(
+        state, selected_classes=[], kind_filter='all', spec_filters={}, filters=[], logic_mode='AND'
+    )
     assert groups[0][0] == 'ALoader'
     assert groups[1][0] == 'ZLoader'
 
@@ -321,8 +336,9 @@ def test_build_visible_groups_class_with_no_group():
     # Class in state.classes but not in groups — should produce no entries
     cls = make_class_info('GhostLoader')
     state = make_state(classes={'GhostLoader': cls})
-    groups = _build_visible_groups(state, selected_classes=[], kind_filter='all',
-                                   spec_filters={}, filters=[], logic_mode='AND')
+    groups = _build_visible_groups(
+        state, selected_classes=[], kind_filter='all', spec_filters={}, filters=[], logic_mode='AND'
+    )
     assert groups == []
 
 
@@ -379,8 +395,12 @@ def test_build_table_rows_header_only():
     entry = make_entry(record_id='rec1', class_name='MyLoader', rows=[make_row()])
     groups = [('MyLoader', [entry])]
     rows = _build_table_rows(
-        visible_groups=groups, classes={'MyLoader': make_class_info('MyLoader')},
-        selected_entry=None, filters=[], logic_mode='AND', row_display='none',
+        visible_groups=groups,
+        classes={'MyLoader': make_class_info('MyLoader')},
+        selected_entry=None,
+        filters=[],
+        logic_mode='AND',
+        row_display='none',
     )
     assert len(rows) == 1
     assert rows[0]['row_type'] == 'header'
@@ -391,8 +411,12 @@ def test_build_table_rows_row_display_all():
     entry = make_entry(rows=[make_row('year', '2020'), make_row('region', 'eu')])
     groups = [('MyLoader', [entry])]
     rows = _build_table_rows(
-        visible_groups=groups, classes={'MyLoader': make_class_info('MyLoader')},
-        selected_entry=None, filters=[], logic_mode='AND', row_display='all',
+        visible_groups=groups,
+        classes={'MyLoader': make_class_info('MyLoader')},
+        selected_entry=None,
+        filters=[],
+        logic_mode='AND',
+        row_display='all',
     )
     types = [r['row_type'] for r in rows]
     assert types.count('header') == 1
@@ -401,13 +425,16 @@ def test_build_table_rows_row_display_all():
 
 def test_build_table_rows_row_display_selected():
     from pygeodata.registry_browser.filters import Filter, FilterTarget
+
     entry = make_entry(rows=[make_row('year', '2020'), make_row('region', 'eu')])
     groups = [('MyLoader', [entry])]
     rows = _build_table_rows(
-        visible_groups=groups, classes={'MyLoader': make_class_info('MyLoader')},
+        visible_groups=groups,
+        classes={'MyLoader': make_class_info('MyLoader')},
         selected_entry=None,
         filters=[Filter(target=FilterTarget.KEY, value='year')],
-        logic_mode='AND', row_display='selected',
+        logic_mode='AND',
+        row_display='selected',
     )
     detail_rows = [r for r in rows if r['row_type'] == 'detail']
     assert len(detail_rows) == 1
@@ -418,8 +445,12 @@ def test_build_table_rows_focused_entry():
     entry = make_entry(record_id='rec1')
     groups = [('MyLoader', [entry])]
     rows = _build_table_rows(
-        visible_groups=groups, classes={'MyLoader': make_class_info('MyLoader')},
-        selected_entry='rec1', filters=[], logic_mode='AND', row_display='none',
+        visible_groups=groups,
+        classes={'MyLoader': make_class_info('MyLoader')},
+        selected_entry='rec1',
+        filters=[],
+        logic_mode='AND',
+        row_display='none',
     )
     assert rows[0]['focused'] is True
 
@@ -428,8 +459,12 @@ def test_build_table_rows_unfocused():
     entry = make_entry(record_id='rec1')
     groups = [('MyLoader', [entry])]
     rows = _build_table_rows(
-        visible_groups=groups, classes={'MyLoader': make_class_info('MyLoader')},
-        selected_entry='other', filters=[], logic_mode='AND', row_display='none',
+        visible_groups=groups,
+        classes={'MyLoader': make_class_info('MyLoader')},
+        selected_entry='other',
+        filters=[],
+        logic_mode='AND',
+        row_display='none',
     )
     assert rows[0]['focused'] is False
 
@@ -438,8 +473,12 @@ def test_build_table_rows_dep_hash_stale():
     entry = make_entry(record_id='rec1', dep_hash_stale=True)
     groups = [('MyLoader', [entry])]
     rows = _build_table_rows(
-        visible_groups=groups, classes={'MyLoader': make_class_info('MyLoader')},
-        selected_entry=None, filters=[], logic_mode='AND', row_display='none',
+        visible_groups=groups,
+        classes={'MyLoader': make_class_info('MyLoader')},
+        selected_entry=None,
+        filters=[],
+        logic_mode='AND',
+        row_display='none',
     )
     assert rows[0]['dep_hash_stale'] is True
 
@@ -448,8 +487,12 @@ def test_build_table_rows_missing_class_info():
     entry = make_entry(record_id='rec1', class_name='Ghost')
     groups = [('Ghost', [entry])]
     rows = _build_table_rows(
-        visible_groups=groups, classes={},
-        selected_entry=None, filters=[], logic_mode='AND', row_display='none',
+        visible_groups=groups,
+        classes={},
+        selected_entry=None,
+        filters=[],
+        logic_mode='AND',
+        row_display='none',
     )
     assert rows[0]['source_stale'] is False
 
@@ -463,7 +506,9 @@ def test_build_detail_payload_selected_entry():
     entry = make_entry(record_id='rec1', class_name='MyLoader')
     cls = make_class_info('MyLoader')
     state = make_state(entries={'rec1': entry}, classes={'MyLoader': cls})
-    detail = _build_detail_payload(state=state, selected_entry_info=entry, selected_classes=[], vreg=state.version_registry)
+    detail = _build_detail_payload(
+        state=state, selected_entry_info=entry, selected_classes=[], vreg=state.version_registry
+    )
     assert detail is not None
     assert detail['class_name'] == 'MyLoader'
     assert detail['selected_entry']['record_id'] == 'rec1'
@@ -472,14 +517,18 @@ def test_build_detail_payload_selected_entry():
 def test_build_detail_payload_entry_class_not_in_state():
     entry = make_entry(class_name='GhostLoader')
     state = make_state()
-    detail = _build_detail_payload(state=state, selected_entry_info=entry, selected_classes=[], vreg=state.version_registry)
+    detail = _build_detail_payload(
+        state=state, selected_entry_info=entry, selected_classes=[], vreg=state.version_registry
+    )
     assert detail is None
 
 
 def test_build_detail_payload_single_selected_class():
     cls = make_class_info('MyLoader')
     state = make_state(classes={'MyLoader': cls})
-    detail = _build_detail_payload(state=state, selected_entry_info=None, selected_classes=['MyLoader'], vreg=state.version_registry)
+    detail = _build_detail_payload(
+        state=state, selected_entry_info=None, selected_classes=['MyLoader'], vreg=state.version_registry
+    )
     assert detail is not None
     assert detail['class_name'] == 'MyLoader'
     assert detail['selected_entry'] is None
@@ -487,13 +536,17 @@ def test_build_detail_payload_single_selected_class():
 
 def test_build_detail_payload_multiple_selected_classes():
     state = make_state(classes={'A': make_class_info('A'), 'B': make_class_info('B')})
-    detail = _build_detail_payload(state=state, selected_entry_info=None, selected_classes=['A', 'B'], vreg=state.version_registry)
+    detail = _build_detail_payload(
+        state=state, selected_entry_info=None, selected_classes=['A', 'B'], vreg=state.version_registry
+    )
     assert detail is None
 
 
 def test_build_detail_payload_no_selection():
     state = make_state()
-    detail = _build_detail_payload(state=state, selected_entry_info=None, selected_classes=[], vreg=state.version_registry)
+    detail = _build_detail_payload(
+        state=state, selected_entry_info=None, selected_classes=[], vreg=state.version_registry
+    )
     assert detail is None
 
 
@@ -502,7 +555,9 @@ def test_build_detail_payload_figure_preview():
     entry = make_entry(record_id='rec1', class_name='MyLoader', primary_file=file_ref)
     cls = make_class_info('MyLoader')
     state = make_state(entries={'rec1': entry}, classes={'MyLoader': cls})
-    detail = _build_detail_payload(state=state, selected_entry_info=entry, selected_classes=[], vreg=state.version_registry)
+    detail = _build_detail_payload(
+        state=state, selected_entry_info=entry, selected_classes=[], vreg=state.version_registry
+    )
     assert detail['selected_entry']['figure_previews'] == ['/data/fig.png']
 
 
@@ -511,7 +566,9 @@ def test_build_detail_payload_no_preview_for_non_image():
     entry = make_entry(record_id='rec1', class_name='MyLoader', primary_file=file_ref)
     cls = make_class_info('MyLoader')
     state = make_state(entries={'rec1': entry}, classes={'MyLoader': cls})
-    detail = _build_detail_payload(state=state, selected_entry_info=entry, selected_classes=[], vreg=state.version_registry)
+    detail = _build_detail_payload(
+        state=state, selected_entry_info=entry, selected_classes=[], vreg=state.version_registry
+    )
     assert detail['selected_entry']['figure_previews'] == []
 
 
@@ -520,7 +577,9 @@ def test_build_detail_payload_linked_entries():
     entry = make_entry(record_id='rec1', class_name='MyLoader', linked_entries=[le])
     cls = make_class_info('MyLoader')
     state = make_state(entries={'rec1': entry}, classes={'MyLoader': cls})
-    detail = _build_detail_payload(state=state, selected_entry_info=entry, selected_classes=[], vreg=state.version_registry)
+    detail = _build_detail_payload(
+        state=state, selected_entry_info=entry, selected_classes=[], vreg=state.version_registry
+    )
     linked = detail['selected_entry']['linked_entries']
     assert len(linked) == 1
     assert linked[0]['param_name'] == 'base'
@@ -557,8 +616,13 @@ def test_build_browser_payload_counts():
     state = simple_state()
     payload = build_browser_payload(
         state,
-        selected_classes=[], selected_entry=None, kind_filter='all',
-        spec_filters={}, filters=[], logic_mode='AND', row_display='none',
+        selected_classes=[],
+        selected_entry=None,
+        kind_filter='all',
+        spec_filters={},
+        filters=[],
+        logic_mode='AND',
+        row_display='none',
     )
     counts = payload['counts']
     assert counts['classes'] == 1
@@ -571,8 +635,13 @@ def test_build_browser_payload_invalid_selected_entry_cleared():
     state = simple_state()
     payload = build_browser_payload(
         state,
-        selected_classes=[], selected_entry='nonexistent', kind_filter='all',
-        spec_filters={}, filters=[], logic_mode='AND', row_display='none',
+        selected_classes=[],
+        selected_entry='nonexistent',
+        kind_filter='all',
+        spec_filters={},
+        filters=[],
+        logic_mode='AND',
+        row_display='none',
     )
     assert payload['selected_entry'] is None
 
@@ -581,7 +650,9 @@ def test_build_browser_payload_filters_parsed_from_dicts():
     state = simple_state()
     payload = build_browser_payload(
         state,
-        selected_classes=[], selected_entry=None, kind_filter='all',
+        selected_classes=[],
+        selected_entry=None,
+        kind_filter='all',
         spec_filters={},
         filters=[{'target': 'class', 'operator': 'equals', 'value': 'OtherLoader'}],
         logic_mode='AND',
@@ -594,7 +665,110 @@ def test_build_browser_payload_visible_entry_ids():
     state = simple_state()
     payload = build_browser_payload(
         state,
-        selected_classes=[], selected_entry=None, kind_filter='all',
-        spec_filters={}, filters=[], logic_mode='AND', row_display='none',
+        selected_classes=[],
+        selected_entry=None,
+        kind_filter='all',
+        spec_filters={},
+        filters=[],
+        logic_mode='AND',
+        row_display='none',
     )
     assert payload['visible_entry_ids'] == ['rec1']
+
+
+# ===========================================================================
+# version_groups_payload — has_entries (Unit 9a)
+# ===========================================================================
+
+
+def _write_snapshot(registry: Path, source_hash: str, class_name: str, mtime: str) -> None:
+    d = registry / 'code' / source_hash
+    d.mkdir(parents=True, exist_ok=True)
+    (d / 'source.py').write_text(f'class {class_name}: pass\n', encoding='utf-8')
+    (d / 'source.json').write_text(
+        json.dumps({
+            JSONKeys.CLASS_NAME: class_name,
+            JSONKeys.OBJECT_TYPE: 'Data',
+            JSONKeys.SOURCE_HASH: source_hash,
+            JSONKeys.REGISTERED_AT: mtime,
+        }),
+        encoding='utf-8',
+    )
+
+
+def _write_tree(registry: Path, dep_hash: str, nodes: dict) -> None:
+    d = registry / 'snapshots' / dep_hash
+    d.mkdir(parents=True, exist_ok=True)
+    (d / 'tree.json').write_text(
+        json.dumps({JSONKeys.NODES: nodes, JSONKeys.TREE: {}}),
+        encoding='utf-8',
+    )
+
+
+def test_version_groups_has_entries_true_when_entry_points_to_group(tmp_path: Path) -> None:
+    """A group with at least one entry dep_hash mapping to it gets has_entries=True."""
+    from pygeodata.versioning import VersionRegistry
+
+    r = tmp_path / '.source'
+    _write_snapshot(r, 'h1', 'MyLoader', '2026-01-01T00:00:00+00:00')
+    _write_snapshot(r, 'h2', 'MyLoader', '2026-06-01T00:00:00+00:00')
+    _write_tree(r, 'snap_pre', {'MyLoader': {'hash': 'h1'}})
+    _write_tree(r, 'snap_post', {'MyLoader': {'hash': 'h2'}})
+
+    vreg = VersionRegistry(r)
+    # snap_post contains h2 (the changed hash) → maps to the version-change group
+    # snap_pre contains h1 (Initial) → maps to Initial group
+    payload_with = version_groups_payload(vreg, entry_dep_hashes={'snap_post'})
+    # The version-change group (v1) should have has_entries=True
+    non_initial = [g for g in payload_with if 'Initial' not in g['label']]
+    assert non_initial, 'expected at least one non-Initial group'
+    assert non_initial[0]['has_entries'] is True
+
+
+def test_version_groups_has_entries_false_when_no_entries(tmp_path: Path) -> None:
+    """A group with no entries pointing to it gets has_entries=False."""
+    from pygeodata.versioning import VersionRegistry
+
+    r = tmp_path / '.source'
+    _write_snapshot(r, 'h1', 'MyLoader', '2026-01-01T00:00:00+00:00')
+    _write_snapshot(r, 'h2', 'MyLoader', '2026-06-01T00:00:00+00:00')
+    _write_tree(r, 'snap_post', {'MyLoader': {'hash': 'h2'}})
+
+    vreg = VersionRegistry(r)
+    # Pass an empty dep_hash set — no entries point at anything
+    payload = version_groups_payload(vreg, entry_dep_hashes=set())
+    for group in payload:
+        assert group['has_entries'] is False
+
+
+def test_version_groups_has_entries_default_true_when_no_dep_hashes_arg(tmp_path: Path) -> None:
+    """Without entry_dep_hashes kwarg every group reports has_entries=True (backward compat)."""
+    from pygeodata.versioning import VersionRegistry
+
+    r = tmp_path / '.source'
+    _write_snapshot(r, 'h1', 'MyLoader', '2026-01-01T00:00:00+00:00')
+    _write_snapshot(r, 'h2', 'MyLoader', '2026-06-01T00:00:00+00:00')
+    _write_tree(r, 'snap_post', {'MyLoader': {'hash': 'h2'}})
+
+    vreg = VersionRegistry(r)
+    payload = version_groups_payload(vreg)  # no entry_dep_hashes
+    for group in payload:
+        assert group['has_entries'] is True
+
+
+def test_version_groups_v1_has_entries_when_entry_points_there(tmp_path: Path) -> None:
+    """v1 group gets has_entries=True when an entry's dep_hash maps to it."""
+    from pygeodata.versioning import VersionRegistry
+
+    r = tmp_path / '.source'
+    _write_snapshot(r, 'h1', 'MyLoader', '2026-01-01T00:00:00+00:00')
+    _write_snapshot(r, 'h2', 'MyLoader', '2026-06-01T00:00:00+00:00')
+    _write_tree(r, 'snap_pre', {'MyLoader': {'hash': 'h1'}})
+    _write_tree(r, 'snap_post', {'MyLoader': {'hash': 'h2'}})
+
+    vreg = VersionRegistry(r)
+    # snap_pre's nodes contain h1 which is in the first (v1) group
+    payload = version_groups_payload(vreg, entry_dep_hashes={'snap_pre'})
+    v1_groups = [g for g in payload if 'v1' in g['label']]
+    assert v1_groups, 'expected v1 group'
+    assert v1_groups[0]['has_entries'] is True

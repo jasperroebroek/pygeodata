@@ -205,7 +205,7 @@ def test_first_entry_is_change_group(sample_ctx):
     # The change group carries the v2hash registration time
     assert first['mtime'] == '2026-06-01T00:00:00+00:00'
     assert 'MyLoader' in first['class_names']
-    assert 'v1' in first['label']
+    assert 'v2' in first['label']
 
 
 def test_second_entry_is_initial_group(sample_ctx):
@@ -216,10 +216,10 @@ def test_second_entry_is_initial_group(sample_ctx):
             resp = flask_app.test_client().get('/api/code/versions')
 
     data = resp.get_json()
-    initial = data[1]
-    assert 'Initial' in initial['label']
-    assert 'MyLoader' in initial['class_names']
-    assert 'MyDep' in initial['class_names']
+    v1 = data[1]
+    assert 'v1' in v1['label']
+    assert 'MyLoader' in v1['class_names']
+    assert 'MyDep' in v1['class_names']
 
 
 def test_full_payload_shape(sample_ctx):

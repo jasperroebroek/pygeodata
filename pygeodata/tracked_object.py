@@ -12,7 +12,7 @@ from pygeodata.ast import (
 from pygeodata.graph_types import ClassNode, DependencyGraph
 from pygeodata.graphs import plot_class_dependency_graph
 from pygeodata.hash import calculate_cls_source_hash, calculate_dict_hash
-from pygeodata.paths import CodeRegistryConstructor, TreeRegistryConstructor
+from pygeodata.paths import CodeRegistryPathConstructor, TreeRegistryPathConstructor
 from pygeodata.registry_types import CodeState, TreeSnapshot
 
 
@@ -183,7 +183,7 @@ class TrackedObject:
         version resolution in the Code browser.
         """
         source_hash = calculate_cls_source_hash(cls)
-        resolver = CodeRegistryConstructor.from_source_hash(source_hash)
+        resolver = CodeRegistryPathConstructor.from_source_hash(source_hash)
         resolver.directory.mkdir(parents=True, exist_ok=True)
 
         if not resolver.source_path.exists():
@@ -211,7 +211,7 @@ class TrackedObject:
         always, and ``graph.pdf`` when the class has dependencies.
         """
         dep_tree_hash = cls.get_dependency_tree_hash()
-        resolver = TreeRegistryConstructor.from_dep_tree_hash(dep_tree_hash)
+        resolver = TreeRegistryPathConstructor.from_dep_tree_hash(dep_tree_hash)
         has_dependencies = cls.has_dependencies()
         resolver.directory.mkdir(parents=True, exist_ok=True)
         complete = resolver.tree_path.exists() and (not has_dependencies or resolver.graph_path.exists())
@@ -251,10 +251,10 @@ class TrackedObject:
         bool
         """
         source_hash = calculate_cls_source_hash(cls)
-        code_resolver = CodeRegistryConstructor.from_source_hash(source_hash)
+        code_resolver = CodeRegistryPathConstructor.from_source_hash(source_hash)
         if not (code_resolver.source_path.exists() and code_resolver.meta_path.exists()):
             return False
-        tree_resolver = TreeRegistryConstructor.from_dep_tree_hash(cls.get_dependency_tree_hash())
+        tree_resolver = TreeRegistryPathConstructor.from_dep_tree_hash(cls.get_dependency_tree_hash())
         has_deps = cls.has_dependencies()
         return tree_resolver.tree_path.exists() and (not has_deps or tree_resolver.graph_path.exists())
 

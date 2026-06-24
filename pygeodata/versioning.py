@@ -2,13 +2,26 @@
 
 VersionRegistry is the single authoritative source for:
 
-    .versions                           — list[Version], newest-first, last entry is Initial
-    .version_for_source_hash(hash)      -> Version | None
-    .version_for_dep_hash(hash)         -> Version | None
-    .version_number(version)            -> int   (Initial=0, oldest change=1, ...)
-    .label(version)                     -> str
-    .class_snapshot_at_version(version) -> dict[class_name, source_hash]
-    .version_change_summary(version)    -> list[CodeEvent]
+    .versions                                  — list[Version], newest-first, last entry is Initial
+    .version_for_source_hash(hash)             -> Version | None
+    .version_for_dep_hash(hash)                -> Version | None
+    .dep_hashes_for_version(version)           -> set[str]
+    .dep_hash_to_version                       -> dict[str, Version]  (read-only)
+    .version_number(version)                   -> int   (Initial=0, oldest change=1, ...)
+    .version_by_id(version_id)                 -> Version | None
+    .label(version)                            -> str
+    .class_snapshot_at_version(version)        -> dict[class_name, source_hash]
+    .is_dependency_hash_stale(dependency_hash) -> bool  (True if any class in snapshot differs from current)
+    .version_change_summary(version)           -> list[CodeEvent] | None
+    .version_change_summary_from_id(vid)       -> list[CodeEvent] | None
+    .source_registry                           -> SourceRegistry
+    .tree_registry                             -> TreeRegistry
+
+Version groups are built from the .source/ tree by grouping CHANGED events via
+snapshot co-occurrence (a snapshot containing both old and new hashes means a
+computation ran between them, separating the events into different groups).
+Each Version.events carries the full ADDED/CHANGED/REMOVED/UNCHANGED summary
+versus its predecessor, pre-computed at build time.
 
 Construct a fresh instance to scan from disk.  Call .reload() after
 write_registry to refresh without invalidating held references.
@@ -248,10 +261,7 @@ class VersionRegistry:
         all_groups_asc = [initial_raw, *raw_groups]  # oldest-first
         VersionRegistry._inject_untracked_classes(src, all_groups_asc)
 
-        initial = (
-            Version(events=initial_raw, mtime=min(e.mtime for e in initial_raw))
-            if initial_raw else None
-        )
+        initial = Version(events=initial_raw, mtime=min(e.mtime for e in initial_raw)) if initial_raw else None
         versions: list[Version] = [
             Version(events=[], mtime=max(e.mtime for e in group)) for group in reversed(raw_groups)
         ]
@@ -310,10 +320,12 @@ class VersionRegistry:
         if initial is not None:
             versions.append(initial)
 
-        # versions is newest-first; last entry is Initial (version_number=0).
+        # versions is newest-first; last entry is Initial (version_number=1).
+        # Numbering: Initial=1, oldest change=2, ..., newest change=N.
         non_initial = versions[:-1] if versions else []
-        version_numbers: dict[str, int] = {v.version_id: 0 for v in versions}
-        for i, v in enumerate(reversed(non_initial), start=1):
+        has_initial = len(versions) > len(non_initial)
+        version_numbers: dict[str, int] = {v.version_id: 1 for v in versions}
+        for i, v in enumerate(reversed(non_initial), start=2 if has_initial else 1):
             version_numbers[v.version_id] = i
 
         source_hash_to_version: dict[str, Version] = {}
@@ -360,8 +372,8 @@ class VersionRegistry:
 
     def label(self, version: Version) -> str:
         """Return the display label for a Version, e.g. 'v3 · Jun 12, 19:39'."""
-        n = self._version_numbers.get(version.version_id, 0)
-        v = f'v{n}' if n else 'Initial'
+        n = self._version_numbers.get(version.version_id, 1)
+        v = f'v{n}'
         try:
             dt = datetime.fromisoformat(version.mtime)
             return f'{v} · {dt.strftime("%b %-d, %H:%M")}'
@@ -371,21 +383,36 @@ class VersionRegistry:
     def class_snapshot_at_version(self, version: Version) -> dict[str, str]:
         """Return {class_name: source_hash} for every class as of the given version.
 
-        Uses _source_hash_to_version (event-chain index) rather than timestamp
-        windowing, so it is immune to intra-group timestamp spread.
+        Reads directly from version.events (pre-computed at build time).
         Returns an empty dict if the version is not in this registry.
         """
         if version not in self._id_to_version.values():
             return {}
-        src = self._src
-        snapshot: dict[str, str] = {}
-        for class_name in src.class_names:
-            for state in reversed(src.get_states(class_name)):
-                sv = self._source_hash_to_version.get(state.source_hash)
-                if sv is None or sv <= version:
-                    snapshot[class_name] = state.source_hash
-                    break
-        return snapshot
+        return {e.state_new.class_name: e.state_new.source_hash for e in version.events if e.state_new}
+
+    def is_dependency_hash_stale(self, dependency_hash: str) -> bool:
+        """Return True if any class in the dependency snapshot differs from the current source.
+
+        Compares each class's source_hash in the stored tree snapshot against
+        the newest version's events. Returns False if the dependency_hash is
+        unknown, has no snapshot, or there are no versions yet.
+        """
+        if not self.versions:
+            return False
+        current = self.class_snapshot_at_version(self.versions[0])
+        snapshot = self._trees.get_snapshot_from_hash(dependency_hash)
+        if snapshot is None:
+            return False
+        for class_name, node in snapshot.nodes.items():
+            if not isinstance(node, dict):
+                continue
+            stored_hash = node.get('hash')
+            if stored_hash is None:
+                continue
+            current_hash = current.get(class_name)
+            if current_hash is not None and stored_hash != current_hash:
+                return True
+        return False
 
     def version_change_summary(self, version: Version) -> list[CodeEvent] | None:
         """Return the full per-class change summary for the given version.

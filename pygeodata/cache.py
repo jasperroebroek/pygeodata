@@ -183,3 +183,70 @@ def clean_registry(dry_run: bool = True) -> None:
             stale = True
         if stale:
             handle_invalid(meta_path.parent, dry_run=dry_run, label='Format version mismatch')
+
+
+def clean_source_registry(dry_run: bool = True) -> None:
+    """Remove orphaned code snapshots and dependency trees from .source/.
+
+    Policy: KEEP LATEST + REFERENCED.  A snapshot or tree is kept iff:
+    - it is referenced by a live cache entry (entry.dep_hash → tree nodes →
+      source hashes), OR
+    - it is the latest snapshot for its class (so in-progress classes with no
+      entry yet are not pruned).
+
+    Everything else is prunable.  Dry-run prints what would be deleted without
+    removing anything.
+    """
+    from pygeodata.registry import EntryRegistry, SourceRegistry, TreeRegistry
+
+    root = get_config().path_registry
+    if not root.exists():
+        return
+
+    src = SourceRegistry(root)
+    trees = TreeRegistry(root)
+    entries = EntryRegistry()
+
+    # Build keep-set of source_hashes: latest per class
+    keep_source_hashes: set[str] = set()
+    for class_name in src.class_names:
+        latest = src.get_latest_state_for_class(class_name)
+        if latest is not None:
+            keep_source_hashes.add(latest.source_hash)
+
+    # Build keep-set of dep_hashes: referenced by live entries
+    keep_dep_hashes: set[str] = set()
+    for record in entries.records.values():
+        if not record.dependency_tree_hash:
+            continue
+        keep_dep_hashes.add(record.dependency_tree_hash)
+        snapshot = trees.get_snapshot_from_hash(record.dependency_tree_hash)
+        if snapshot is None:
+            continue
+        for node in snapshot.nodes.values():
+            if isinstance(node, dict) and (h := node.get('hash')):
+                keep_source_hashes.add(h)
+
+    # Prune orphan code/ dirs
+    code_root = root / 'code'
+    if code_root.exists():
+        for entry in sorted(code_root.iterdir()):
+            if not entry.is_dir():
+                continue
+            source_hash = entry.name
+            if source_hash not in keep_source_hashes:
+                handle_invalid(entry, dry_run=dry_run, label='Orphan code snapshot')
+
+    # Prune orphan snapshots/ dirs
+    snapshots_root = root / 'snapshots'
+    if snapshots_root.exists():
+        for entry in sorted(snapshots_root.iterdir()):
+            if not entry.is_dir():
+                continue
+            dep_hash = entry.name
+            if dep_hash not in keep_dep_hashes:
+                handle_invalid(entry, dry_run=dry_run, label='Orphan tree snapshot')
+
+    if not dry_run:
+        prune_empty_dirs(code_root)
+        prune_empty_dirs(snapshots_root)

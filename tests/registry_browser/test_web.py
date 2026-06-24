@@ -230,9 +230,9 @@ def test_api_code_versions_only_shows_changes(tmp_path: Path) -> None:
         with patch('pygeodata.registry_browser.web._ctx', ctx):
             resp = flask_app.test_client().get('/api/code/versions')
     data = resp.get_json()
-    # Single registration → only the Initial group (no change groups)
+    # Single registration → only one group (no change groups)
     assert len(data) == 1
-    assert 'Initial' in data[0]['label']
+    assert 'v1' in data[0]['label']
 
 
 def test_api_code_versions_shows_second_entry(tmp_path: Path) -> None:
@@ -245,15 +245,15 @@ def test_api_code_versions_shows_second_entry(tmp_path: Path) -> None:
         with patch('pygeodata.registry_browser.web._ctx', ctx):
             resp = flask_app.test_client().get('/api/code/versions')
     data = resp.get_json()
-    # Two entries: the change event + synthetic Initial baseline
+    # Two entries: the change group (v2) + first group (v1)
     assert len(data) == 2
     # First entry: the actual change group
     assert data[0]['class_names'] == ['MyLoader']
     assert data[0]['mtime'] == '2026-06-01T00:00:00+00:00'
-    assert 'v1' in data[0]['label']
-    # Second entry: synthetic Initial baseline
-    assert 'Initial' in data[1]['label']
-    # Initial timestamp uses the oldest registration (Jan 1), not the change time
+    assert 'v2' in data[0]['label']
+    # Second entry: first (original) group
+    assert 'v1' in data[1]['label']
+    # v1 timestamp uses the oldest registration (Jan 1), not the change time
     assert 'Jan' in data[1]['label']
 
 

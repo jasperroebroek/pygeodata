@@ -207,7 +207,8 @@ def test_resolve_reference_name_returns_none_for_unresolved_import():
     )
     tables = build_symbol_tables(tree)
     name_node = next(
-        node for node in ast.walk(tree)
+        node
+        for node in ast.walk(tree)
         if isinstance(node, ast.Name) and node.id == 'Bar' and isinstance(node.ctx, ast.Load)
     )
     assert resolve_reference_name(name_node, tables, {'Other'}) is None
@@ -224,7 +225,8 @@ def test_resolve_reference_name_local_def_not_in_valid_names():
     )
     tables = build_symbol_tables(tree)
     name_node = next(
-        node for node in ast.walk(tree)
+        node
+        for node in ast.walk(tree)
         if isinstance(node, ast.Name) and node.id == 'Loader' and isinstance(node.ctx, ast.Load)
     )
     assert resolve_reference_name(name_node, tables, {'Other'}) is None
@@ -238,10 +240,7 @@ def test_resolve_reference_name_nested_attribute_chain():
         """,
     )
     tables = build_symbol_tables(tree)
-    attr_node = next(
-        node for node in ast.walk(tree)
-        if isinstance(node, ast.Attribute) and node.attr == 'Loader'
-    )
+    attr_node = next(node for node in ast.walk(tree) if isinstance(node, ast.Attribute) and node.attr == 'Loader')
     assert resolve_reference_name(attr_node, tables, {'Loader'}) is None
 
 

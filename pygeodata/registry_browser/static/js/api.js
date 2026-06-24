@@ -164,3 +164,8 @@ export async function deleteEntry(recordId) {
 export function postCleanCache(dryRun = true) {
   return postJSON("/api/clean-cache", { dry_run: dryRun });
 }
+
+/** Run clean-source on the server. Returns { lines, dry_run }. */
+export function postCleanSource(dryRun = true) {
+  return postJSON("/api/clean-source", { dry_run: dryRun });
+}

@@ -5,7 +5,7 @@ import pytest
 
 from pygeodata.config import JSONKeys
 from pygeodata.hash import calculate_cls_source_hash
-from pygeodata.paths import CodeRegistryConstructor, TreeRegistryConstructor
+from pygeodata.paths import CodeRegistryPathConstructor, TreeRegistryPathConstructor
 from pygeodata.tracked_object import TrackedObject
 from tests.fixtures.tracked_objects import Bar, C, D, Foo, SimpleTrackedObject, TrackedBase, TrackedChild
 
@@ -40,8 +40,8 @@ def test_initialize_registry_creates_files() -> None:
     """Basic sanity: update_registry writes source.py, source.json, and tree.json."""
     SimpleTrackedObject.update_registry()
 
-    code_resolver = CodeRegistryConstructor.from_source_hash(calculate_cls_source_hash(SimpleTrackedObject))
-    tree_resolver = TreeRegistryConstructor.from_dep_tree_hash(SimpleTrackedObject.get_dependency_tree_hash())
+    code_resolver = CodeRegistryPathConstructor.from_source_hash(calculate_cls_source_hash(SimpleTrackedObject))
+    tree_resolver = TreeRegistryPathConstructor.from_dep_tree_hash(SimpleTrackedObject.get_dependency_tree_hash())
 
     assert code_resolver.meta_path.exists()
     assert code_resolver.source_path.exists()
@@ -67,8 +67,8 @@ def test_initialize_registry_handles_real_call_cycle() -> None:
     # correctly tracks visited classes.
     C.update_registry()
 
-    c_tree = TreeRegistryConstructor.from_dep_tree_hash(C.get_dependency_tree_hash())
-    d_tree = TreeRegistryConstructor.from_dep_tree_hash(D.get_dependency_tree_hash())
+    c_tree = TreeRegistryPathConstructor.from_dep_tree_hash(C.get_dependency_tree_hash())
+    d_tree = TreeRegistryPathConstructor.from_dep_tree_hash(D.get_dependency_tree_hash())
     assert c_tree.tree_path.exists()
     assert d_tree.tree_path.exists()
 

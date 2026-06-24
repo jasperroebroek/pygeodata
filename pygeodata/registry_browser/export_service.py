@@ -13,7 +13,7 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 
-from pygeodata.paths import CodeRegistryConstructor
+from pygeodata.paths import CodeRegistryPathConstructor
 from pygeodata.registry import TreeRegistry
 
 # ---------------------------------------------------------------------------
@@ -61,7 +61,7 @@ def collect_export_files(
                     src_hash = node.get('hash') if isinstance(node, dict) else None
                     if src_hash and src_hash not in seen_src_hashes:
                         seen_src_hashes.add(src_hash)
-                        code_dir = CodeRegistryConstructor.from_source_hash(src_hash).directory
+                        code_dir = CodeRegistryPathConstructor.from_source_hash(src_hash).directory
                         if code_dir.exists():
                             for f in code_dir.iterdir():
                                 if f.is_file():

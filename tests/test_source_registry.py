@@ -188,14 +188,14 @@ def two_version_registry(tmp_path: Path):
 
 
 def test_version_groups_single_change(two_version_registry: Path) -> None:
-    """One class with two states → one change group (v1) + Initial."""
+    """One class with two states → one change group (v2) + first group (v1)."""
     vr = VersionRegistry(two_version_registry)
     assert len(vr.versions) == 2
-    v1, initial = vr.versions
+    v2, v1 = vr.versions
+    assert vr.version_number(v2) == 2
+    assert v2.class_names == ['MyLoader']
     assert vr.version_number(v1) == 1
-    assert v1.class_names == ['MyLoader']
-    assert vr.version_number(initial) == 0
-    assert 'MyLoader' in initial.class_names
+    assert 'MyLoader' in v1.class_names
 
 
 def test_snapshot_pre_change_assigned_to_initial(two_version_registry: Path) -> None:
@@ -229,13 +229,13 @@ def test_snapshot_with_unknown_node_hash_assigned_to_initial(tmp_path: Path) -> 
 
 
 def test_no_changes_produces_only_initial(tmp_path: Path) -> None:
-    """Single registration per class → no change events → only Initial group."""
+    """Single registration per class → no change events → only one group (v1)."""
     registry = tmp_path / '.source'
     _write_snapshot(registry, 'h1', 'A', mtime='2026-01-01T00:00:00+00:00')
     _write_tree(registry, 'snap1', {'A': {'hash': 'h1'}})
     vr = VersionRegistry(registry)
     assert len(vr.versions) == 1
-    assert vr.version_number(vr.versions[0]) == 0
+    assert vr.version_number(vr.versions[0]) == 1
 
 
 def test_snapshot_using_change_hash_assigned_to_its_group(tmp_path: Path) -> None:

@@ -111,7 +111,6 @@ class EntryInfo:
 
     @property
     def format_version_stale(self) -> bool:
-
         return self.format_version != FORMAT_VERSION
 
     def to_dict(self) -> dict[str, Any]:

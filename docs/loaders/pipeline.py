@@ -5,6 +5,7 @@ These live in a separate importable module because pygeodata reads class source
 code via inspect.getsource() for cache invalidation — classes defined
 interactively in a notebook cannot be inspected this way.
 """
+
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,6 +25,7 @@ from pygeodata.spec import SpatialSpec
 # Notebook 01 – Getting Started
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ElevationLoader(Data):
     """Reproject the bundled DEM (EPSG:3035, 1 km) to the target spec."""
@@ -38,6 +40,7 @@ class ElevationLoader(Data):
 # ---------------------------------------------------------------------------
 # Notebook 02 – Building a Pipeline
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class WaterTableDepthLoader(Data):
@@ -84,6 +87,7 @@ class LandWaterTableDepth(Data):
 # Notebook 03 – Reprojection
 # ---------------------------------------------------------------------------
 
+
 class LUH2C3AnnLoader(Data):
     """C3 annual crops fraction from LUH2 (no embedded CRS → supply EPSG:4326)."""
 
@@ -116,6 +120,7 @@ class ElevationFeetLoader(Data):
 # ---------------------------------------------------------------------------
 # Notebook 04 – Rasterization
 # ---------------------------------------------------------------------------
+
 
 class CountryIndexLoader(Data):
     """Rasterize countries, burning the integer row index into each pixel."""
@@ -150,10 +155,8 @@ class ClippedCountryMaskLoader(Data):
 
         def _load_clipped(spec: SpatialSpec) -> gpd.GeoDataFrame:
             b = spec.bounds
-            gdf = gpd.read_file(
-                'data/countries/ne_110m_admin_0_map_units.shp'
-            ).to_crs(spec.crs)
-            return gdf.cx[b.left:b.right, b.bottom:b.top]
+            gdf = gpd.read_file('data/countries/ne_110m_admin_0_map_units.shp').to_crs(spec.crs)
+            return gdf.cx[b.left : b.right, b.bottom : b.top]
 
         return Rasterizer(load_df=_load_clipped, values=1, fill_value=0)
 
@@ -161,6 +164,7 @@ class ClippedCountryMaskLoader(Data):
 # ---------------------------------------------------------------------------
 # Notebook 05 – Custom Processing
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class MeanStdLoader(Data):
@@ -184,16 +188,17 @@ class MeanStdLoader(Data):
         wtd_da = load(self.wtd, spec).where(load(self.mask, spec) == 1)
 
         mean_loader = MeanStdLoader(wtd=self.wtd, mask=self.mask, stat='mean')
-        std_loader  = MeanStdLoader(wtd=self.wtd, mask=self.mask, stat='std')
+        std_loader = MeanStdLoader(wtd=self.wtd, mask=self.mask, stat='std')
 
         mean_path = mean_loader.get_processed_path(spec)
-        std_path  = std_loader.get_processed_path(spec)
+        std_path = std_loader.get_processed_path(spec)
         mean_path.parent.mkdir(parents=True, exist_ok=True)
         std_path.parent.mkdir(parents=True, exist_ok=True)
 
         mean_val = float(wtd_da.mean())
-        std_val  = float(wtd_da.std())
+        std_val = float(wtd_da.std())
         import xarray as xr
+
         for val, path in ((mean_val, mean_path), (std_val, std_path)):
             da_out = xr.full_like(wtd_da, fill_value=val)
             da_out = da_out.rio.write_crs(wtd_da.rio.crs)
@@ -219,6 +224,7 @@ class WTDFigure(Data):
 
     def _process(self, spec: SpatialSpec) -> None:
         import matplotlib
+
         matplotlib.use('Agg')
         import matplotlib.pyplot as plt
         import rioxarray  # noqa: F401
@@ -226,8 +232,7 @@ class WTDFigure(Data):
         da = load(self.wtd, spec).where(load(self.mask, spec) == 1)
 
         fig, ax = plt.subplots(figsize=(8, 5))
-        da.plot(ax=ax, cmap='Blues_r', vmin=0, vmax=50,
-                cbar_kwargs={'label': 'Water table depth (m)'})
+        da.plot(ax=ax, cmap='Blues_r', vmin=0, vmax=50, cbar_kwargs={'label': 'Water table depth (m)'})
         ax.set_title('Water Table Depth — Australia')
         fig.tight_layout()
         fig.savefig(self.get_processed_path(spec), dpi=120)
@@ -237,6 +242,7 @@ class WTDFigure(Data):
 # ---------------------------------------------------------------------------
 # Notebook 06 – Custom Drivers / _load
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class WTDStatsLoader(Data):
@@ -257,8 +263,7 @@ class WTDStatsLoader(Data):
         values = da.values
         path = self.get_processed_path(spec)
         path.parent.mkdir(parents=True, exist_ok=True)
-        np.savez(path, mean=values.mean(), std=values.std(),
-                 min=values.min(), max=values.max())
+        np.savez(path, mean=values.mean(), std=values.std(), min=values.min(), max=values.max())
 
     def _load(self, path):
         data = np.load(path)
@@ -268,6 +273,7 @@ class WTDStatsLoader(Data):
 # ---------------------------------------------------------------------------
 # Notebook 02 – dependency injection demo
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class Red(Data):

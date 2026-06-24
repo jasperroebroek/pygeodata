@@ -16,7 +16,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from pygeodata.config import get_config
-from pygeodata.paths import CachePathResolver, CodeRegistryConstructor, RegistryResolver, TreeRegistryConstructor
+from pygeodata.paths import (
+    CachePathResolver,
+    CodeRegistryPathConstructor,
+    RegistryResolver,
+    TreeRegistryPathConstructor,
+)
 from pygeodata.registry_types import CodeState, EntryRecord, TreeSnapshot
 
 
@@ -68,7 +73,7 @@ class SourceRegistry:
 
     def get_source(self, source_hash: str) -> str | None:
         """Return source.py text for source_hash, or None if absent."""
-        path = CodeRegistryConstructor.from_source_hash(source_hash, self._registry_root).source_path
+        path = CodeRegistryPathConstructor.from_source_hash(source_hash, self._registry_root).source_path
         return path.read_text(encoding='utf-8') if path.exists() else None
 
     def get_latest_state_for_class(self, class_name: str) -> CodeState | None:
@@ -178,7 +183,7 @@ class TreeRegistry:
 
     def get_tree_path(self, dependency_hash: str) -> Path:
         """Return the path to tree.json for dep_hash (may not exist)."""
-        return TreeRegistryConstructor.from_dep_tree_hash(dependency_hash, self._registry_root).tree_path
+        return TreeRegistryPathConstructor.from_dep_tree_hash(dependency_hash, self._registry_root).tree_path
 
     def get_call_dependencies(self, dependency_hash: str) -> list[str]:
         """Sorted direct call-dependency names for dep_hash, or empty list."""

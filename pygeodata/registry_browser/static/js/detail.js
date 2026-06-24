@@ -586,11 +586,11 @@ function buildClassCard(detail) {
     </div>`).join("");
 
   const statusBadges = [
-    !detail.loaded      ? `<span class="badge badge--sm badge-cache"  title="Not loaded in Python registry — Source and Graph reflect registry snapshot">cache-only</span>` : "",
-    detail.source_stale ? `<span class="badge badge--sm badge-warn" title="Source code changed since last run — Source and Graph reflect current code, not the registry snapshot">stale</span>` : "",
+    !detail.loaded      ? `<span class="badge badge-cache"  title="Not loaded in Python registry — Source and Graph reflect registry snapshot">cache-only</span>` : "",
+    detail.source_stale ? `<span class="badge badge-warn" title="Source code changed since last run — Source and Graph reflect current code, not the registry snapshot">stale</span>` : "",
     (!detail.source_stale && detail.deps_stale)
-      ? `<span class="badge badge--sm badge-deps" title="An upstream dependency changed since last run — Source and Graph reflect current code, not the registry snapshot">stale</span>` : "",
-  ].filter(Boolean).join("");
+      ? `<span class="badge badge-deps" title="An upstream dependency changed since last run — Source and Graph reflect current code, not the registry snapshot">stale</span>` : "",
+  ].filter(Boolean).join(" ");
 
   const typeBadge = detail.object_type ? `${badge(detail.object_type, "badge-neutral")}` : "";
 

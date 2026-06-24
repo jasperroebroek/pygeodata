@@ -15,6 +15,7 @@ from pygeodata.tracked_object import TrackedObject
 
 # --- _linkify_class_names ---
 
+
 def test_linkify_replaces_known_class() -> None:
     result = _linkify_class_names('class MyLoader:', frozenset({'MyLoader'}), 'Other')
     assert 'data-cls="MyLoader"' in result
@@ -54,6 +55,7 @@ def test_linkify_escapes_html_in_class_name() -> None:
 
 # --- _inject_graph_links ---
 
+
 def test_inject_graph_links_adds_data_cls() -> None:
     svg = '<g id="node1" class="node">\n<title>MyLoader</title><text>x</text></g>'
     result = _inject_graph_links(svg, frozenset({'MyLoader'}))
@@ -72,6 +74,7 @@ def test_inject_graph_links_empty_svg() -> None:
 
 
 # --- build_json_popup ---
+
 
 def test_build_json_popup_valid(tmp_path: Path) -> None:
     f = tmp_path / 'data.json'
@@ -94,6 +97,7 @@ def test_build_json_popup_invalid_json(tmp_path: Path) -> None:
 
 
 # --- build_source_popup ---
+
 
 def test_build_source_popup_from_registry(tmp_path: Path) -> None:
     source_file = tmp_path / 'source.py'

@@ -1,7 +1,7 @@
 import logging
 
 from pygeodata.hash import calculate_cls_source_hash
-from pygeodata.paths import CodeRegistryConstructor, TreeRegistryConstructor
+from pygeodata.paths import CodeRegistryPathConstructor, TreeRegistryPathConstructor
 from pygeodata.registry import EntryRegistry, SourceRegistry, TreeRegistry
 from pygeodata.registry_browser.io_utils import existing_path_str
 from pygeodata.registry_browser.models import ClassInfo, EntryInfo, RegistryClassInfo
@@ -30,7 +30,7 @@ def source_info_from_disk(
         return RegistryClassInfo()
 
     source_hash = latest.source_hash
-    code_resolver = CodeRegistryConstructor.from_source_hash(source_hash) if source_hash else None
+    code_resolver = CodeRegistryPathConstructor.from_source_hash(source_hash) if source_hash else None
     meta_path = code_resolver.meta_path if code_resolver else None
 
     call_dep_names: list[str] = []
@@ -73,8 +73,8 @@ def discover_loaded_classes() -> dict[str, ClassInfo]:
         inheritance_dependency_names = sorted(dep.get_class_name() for dep in cls.get_inheritance_dependencies())
 
         live_source_hash = calculate_cls_source_hash(cls)
-        code_resolver = CodeRegistryConstructor.from_source_hash(live_source_hash)
-        tree_resolver = TreeRegistryConstructor.from_dep_tree_hash(cls.get_dependency_tree_hash())
+        code_resolver = CodeRegistryPathConstructor.from_source_hash(live_source_hash)
+        tree_resolver = TreeRegistryPathConstructor.from_dep_tree_hash(cls.get_dependency_tree_hash())
 
         # Source is stale when the current source hash has no code snapshot yet
         source_stale = not code_resolver.exists()
@@ -117,8 +117,9 @@ def merge_unloaded_classes(
 
         deps_stale = False
         if entries is not None and version_registry is not None:
-            # Find the most recently versioned entry's dep_hash; older entries
-            # legitimately have stale dep trees (they predate a code change).
+            # Use the most recently versioned entry's dep_hash to represent the class.
+            # If the newest entry is current, the class dot stays clear even if older
+            # entries are stale — the user has already rerun at the current version.
             best_dep_hash: str | None = None
             best_version = None
             for rid in entry_registry.get_state_hashes(class_name):
@@ -130,7 +131,7 @@ def merge_unloaded_classes(
                     best_version = v
                     best_dep_hash = entry.dep_hash
             if best_dep_hash is not None:
-                deps_stale = version_registry.is_dep_hash_stale(best_dep_hash)
+                deps_stale = version_registry.is_dependency_hash_stale(best_dep_hash)
 
         merged[class_name] = ClassInfo(
             class_name=class_name,

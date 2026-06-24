@@ -59,11 +59,11 @@ class CachePathResolver:
 
 
 @dataclass
-class CodeRegistryConstructor:
+class CodeRegistryPathConstructor:
     directory: Path
 
     @classmethod
-    def from_source_hash(cls, source_hash: str, registry_root: Path | None = None) -> CodeRegistryConstructor:
+    def from_source_hash(cls, source_hash: str, registry_root: Path | None = None) -> CodeRegistryPathConstructor:
         base = registry_root if registry_root is not None else get_config().path_registry
         return cls(base / 'code' / source_hash)
 
@@ -80,11 +80,11 @@ class CodeRegistryConstructor:
 
 
 @dataclass
-class TreeRegistryConstructor:
+class TreeRegistryPathConstructor:
     directory: Path
 
     @classmethod
-    def from_dep_tree_hash(cls, dep_tree_hash: str, registry_root: Path | None = None) -> TreeRegistryConstructor:
+    def from_dep_tree_hash(cls, dep_tree_hash: str, registry_root: Path | None = None) -> TreeRegistryPathConstructor:
         base = registry_root if registry_root is not None else get_config().path_registry
         return cls(base / 'snapshots' / dep_tree_hash)
 

@@ -15,7 +15,7 @@ import dataclasses
 from flask import Flask, abort, jsonify, render_template, request, send_file
 
 from pygeodata.artifact import Artifact
-from pygeodata.cache import clean_cache
+from pygeodata.cache import clean_cache, clean_source_registry
 from pygeodata.config import get_config
 from pygeodata.registry_browser import code_service, export_service, payloads
 from pygeodata.registry_browser.logging import configure_logging
@@ -196,12 +196,26 @@ def api_clean_cache():
     return jsonify({'lines': lines, 'dry_run': dry_run})
 
 
+@app.post('/api/clean-source')
+def api_clean_source():
+    body = request.get_json(force=True) or {}
+    dry_run = bool(body.get('dry_run', True))
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        clean_source_registry(dry_run=dry_run)
+    lines = [ln for ln in buf.getvalue().splitlines() if ln.strip()]
+    if not dry_run:
+        _ctx.start_reload()
+    return jsonify({'lines': lines, 'dry_run': dry_run})
+
+
 @app.get('/api/code/versions')
 def api_code_versions():
     """Return merged version groups sorted newest first, with a synthetic Initial entry last."""
     if _ctx.is_loading() or _ctx.state is None:
         return _loading
-    return jsonify(payloads.version_groups_payload(_ctx.state.version_registry))
+    entry_dep_hashes = {e.dep_hash for e in _ctx.state.entries.values() if e.dep_hash}
+    return jsonify(payloads.version_groups_payload(_ctx.state.version_registry, entry_dep_hashes))
 
 
 @app.get('/api/code/resolve-dep-hash')
@@ -254,7 +268,9 @@ def api_code_version_classes():
     if _ctx.is_loading() or _ctx.state is None:
         return _loading
     version_id = request.args.get('version_id', '')
-    return jsonify([dataclasses.asdict(c) for c in code_service.version_classes(version_id, _ctx.state.version_registry)])
+    return jsonify(
+        [dataclasses.asdict(c) for c in code_service.version_classes(version_id, _ctx.state.version_registry)]
+    )
 
 
 @app.get('/api/code/version-changes')
@@ -297,7 +313,9 @@ def api_code_diff():
     if not hash_old or not hash_new:
         abort(400)
     full = request.args.get('full') == '1'
-    result = code_service.unified_diff_payload(hash_old, hash_new, full, _assert_allowed_path, _ctx.state.version_registry)
+    result = code_service.unified_diff_payload(
+        hash_old, hash_new, full, _assert_allowed_path, _ctx.state.version_registry
+    )
     if result is None:
         abort(404)
     return jsonify(result)

@@ -243,8 +243,8 @@ def discover_entries(
             obj_cls = TrackedObject.find_object_class(entry.class_name)
             if obj_cls is not None:
                 entry.dep_hash_stale = obj_cls.get_dependency_tree_hash() != entry.dep_hash
-            else:
-                entry.dep_hash_stale = version_registry.is_dep_hash_stale(entry.dep_hash)
+            elif version_registry is not None:
+                entry.dep_hash_stale = version_registry.is_dependency_hash_stale(entry.dep_hash)
 
         entries[record_id] = entry
 

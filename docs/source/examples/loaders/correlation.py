@@ -28,5 +28,6 @@ class FeatureCorrelationLoader(Data):
         y = load(self.variable, spec)
         corr = np.corrcoef(x.values.ravel(), y.values.ravel())[0, 1]
         import xarray as xr
+
         out = xr.full_like(x, fill_value=float(corr))
         out.rio.to_raster(self.get_processed_path(spec))

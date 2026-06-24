@@ -24,6 +24,7 @@ let _codeSelectedClass   = null;  // class_name string
 let _codeLoaded          = false;
 let _codeBrowseMode      = localStorage.getItem('code_browse_mode') ?? 'version'; // 'version' | 'class'
 let _codeKindFilter      = 'all'; // 'all' | 'data' | 'figure'
+let _hideEmptyVersions   = localStorage.getItem('hide_empty_versions') === 'true'; // default show
 let _codeDiffMode        = false;  // true while showing a unified diff in the source pane
 let _diffExpand          = localStorage.getItem('diff_expand')    ?? 'hunks'; // 'hunks' | 'full'
 
@@ -63,12 +64,23 @@ function renderCodeVersionList() {
   const el = $('#code-version-list');
   if (!el) return;
 
-  if (!_codeVersions.length) {
-    el.innerHTML = `<div class="detail-empty">No code snapshots found.</div>`;
+  const visible = _hideEmptyVersions
+    ? _codeVersions.filter((v) => v.has_entries)
+    : _codeVersions;
+
+  if (!visible.length) {
+    const msg = _hideEmptyVersions && _codeVersions.length
+      ? 'All versions are empty. <a href="#" id="show-all-versions-link">Show all</a>'
+      : 'No code snapshots found.';
+    el.innerHTML = `<div class="detail-empty">${msg}</div>`;
+    el.querySelector('#show-all-versions-link')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      _setHideEmptyVersions(false);
+    });
     return;
   }
 
-  el.innerHTML = _codeVersions.map((v) => {
+  el.innerHTML = visible.map((v) => {
     const isActive = v.version_id === _codeSelectedVersion;
     return `
       <div class="code-version-item ${isActive ? 'active' : ''}" data-version-id="${esc(v.version_id)}">
@@ -593,6 +605,8 @@ export async function showWhatChanged(recordId) {
   } catch { toast('Could not load tree diff'); }
 }
 
+const _STATUS_ORDER = { changed: 0, added: 1, unchanged: 2, removed: 3 };
+
 async function _showVersionChangeSummary(versionMeta) {
   const panel = $('#code-source-panel');
   if (!panel) return;
@@ -615,16 +629,19 @@ async function _showVersionChangeSummary(versionMeta) {
     return;
   }
 
-  // Only show ADDED/CHANGED/REMOVED — skip UNCHANGED
-  const visible = changes.filter((c) => c.status !== 'unchanged');
+  // Sort: changed → added → unchanged → removed
+  changes = [...changes].sort((a, b) =>
+    (_STATUS_ORDER[a.status] ?? 99) - (_STATUS_ORDER[b.status] ?? 99)
+  );
 
   const wrap = document.createElement('div');
   wrap.className = 'tree-diff-container';
-  wrap.innerHTML = visible.map((c) => {
+  wrap.innerHTML = changes.map((c) => {
     const open = c.status === 'changed' ? ' open' : '';
-    const canExpand = (c.status === 'changed' && c.hash_old && c.hash_new)
-                   || (c.status === 'added'   && c.hash_new)
-                   || (c.status === 'removed' && c.hash_old);
+    const canExpand = (c.status === 'changed'   && c.hash_old && c.hash_new)
+                   || (c.status === 'added'     && c.hash_new)
+                   || (c.status === 'removed'   && c.hash_old)
+                   || (c.status === 'unchanged' && c.hash_new);
     return `<div class="tree-diff-class ${esc(c.status)}${open}" data-class="${esc(c.class_name)}"
                  data-hash-old="${esc(c.hash_old ?? '')}" data-hash-new="${esc(c.hash_new ?? '')}">
       <div class="tree-diff-header">
@@ -643,14 +660,14 @@ async function _showVersionChangeSummary(versionMeta) {
     const body = card.querySelector('.tree-diff-body');
     const hashOld = card.dataset.hashOld;
     const hashNew = card.dataset.hashNew;
-    if (!body) return;
+    const status = card.classList.contains('unchanged') ? 'unchanged' : null;
 
     const _maybeRender = async () => {
-      if (body.dataset.rendered) return;
+      if (!body || body.dataset.rendered) return;
       body.dataset.rendered = '1';
       body.innerHTML = '<div class="diff-loading">Loading…</div>';
       try {
-        if (hashOld && hashNew) {
+        if (hashOld && hashNew && status !== 'unchanged') {
           const data = await fetch(
             `/api/code/diff?hash_old=${encodeURIComponent(hashOld)}&hash_new=${encodeURIComponent(hashNew)}&full=1`
           ).then((r) => r.json());
@@ -669,6 +686,7 @@ async function _showVersionChangeSummary(versionMeta) {
     };
 
     hdr.onclick = () => {
+      if (!body) return;
       card.classList.toggle('open');
       if (card.classList.contains('open')) _maybeRender();
     };
@@ -982,3 +1000,20 @@ $$('#code-diff-expand-seg .kind-tab').forEach((btn) => {
     _rerenderCurrentDiff();
   });
 });
+
+// Hide-empty-versions toggle
+function _setHideEmptyVersions(hide) {
+  _hideEmptyVersions = hide;
+  localStorage.setItem('hide_empty_versions', hide ? 'true' : 'false');
+  const btn = document.getElementById('btn-hide-empty-versions');
+  if (btn) btn.classList.toggle('active', hide);
+  renderCodeVersionList();
+}
+
+{
+  const btn = document.getElementById('btn-hide-empty-versions');
+  if (btn) {
+    btn.classList.toggle('active', _hideEmptyVersions);
+    btn.addEventListener('click', () => _setHideEmptyVersions(!_hideEmptyVersions));
+  }
+}

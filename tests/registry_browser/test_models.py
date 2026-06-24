@@ -65,17 +65,22 @@ def test_spec_info_bounds_latlon_none_when_no_transform_no_area() -> None:
     # A CRS with no area_of_use and no transform → bounds raises ValueError → bounds_latlon is None
     from pyproj import CRS
     from pygeodata.spec import SpatialSpec
+
     # Build a custom CRS with no area_of_use (e.g. a local engineering CRS)
     # Fall back: just test the ValueError path in from_spec directly
     class _BadSpec:
         crs = CRS.from_epsg(4326)
+
         @property
         def bounds(self):
             raise ValueError('no bounds')
+
         @property
         def resolution(self):
             raise ValueError('no resolution')
+
         shape = None
+
     info = SpecInfo.from_spec(_BadSpec())  # type: ignore[arg-type]
     assert info.bounds_latlon is None
 
@@ -84,11 +89,13 @@ def test_spec_info_bounds_latlon_invalid_crs_does_not_raise() -> None:
     # CRS.from_user_input('NOT_A_CRS') raises at SpatialSpec.from_dict level;
     # here we verify compute_bounds_latlon handles ProjError gracefully.
     from pygeodata.spec import compute_bounds_latlon
+
     result = compute_bounds_latlon([0, 0, 1, 1], 'NOT_A_CRS')
     assert result is None
 
 
 # --- format_resolution ---
+
 
 def test_format_resolution_none() -> None:
     assert format_resolution(None, None) is None
@@ -133,6 +140,7 @@ def test_format_resolution_unknown_crs_defaults_to_metres() -> None:
 
 def test_format_resolution_accepts_crs_object() -> None:
     from pyproj import CRS
+
     crs = CRS.from_epsg(4326)
     result = format_resolution([0.1, 0.1], crs)
     assert '°' in result

@@ -289,7 +289,6 @@ def test_discover_entries_empty_cache(tmp_path):
 
 
 def test_discover_entries_single_entry(tmp_path):
-
     d = tmp_path / 'data_processed' / 'MyLoader'
     write_cache_entry(
         d,

@@ -28,12 +28,14 @@ def _write_snapshot(
     code_dir.mkdir(parents=True, exist_ok=True)
     (code_dir / 'source.py').write_text(source_text, encoding='utf-8')
     (code_dir / 'source.json').write_text(
-        json.dumps({
-            JSONKeys.CLASS_NAME: class_name,
-            JSONKeys.OBJECT_TYPE: object_type,
-            JSONKeys.SOURCE_HASH: source_hash,
-            JSONKeys.REGISTERED_AT: mtime,
-        }),
+        json.dumps(
+            {
+                JSONKeys.CLASS_NAME: class_name,
+                JSONKeys.OBJECT_TYPE: object_type,
+                JSONKeys.SOURCE_HASH: source_hash,
+                JSONKeys.REGISTERED_AT: mtime,
+            }
+        ),
         encoding='utf-8',
     )
 
@@ -61,8 +63,8 @@ def two_class_registry(tmp_path: Path):
     r = tmp_path / '.source'
     _write_snapshot(r, 'h1', 'MyLoader', 'class MyLoader:\n    x = 1\n', mtime='2026-01-01T00:00:00+00:00')
     _write_snapshot(r, 'h2', 'MyLoader', 'class MyLoader:\n    x = 2\n', mtime='2026-06-01T00:00:00+00:00')
-    _write_snapshot(r, 'd1', 'MyDep',    'class MyDep: pass\n',          mtime='2026-03-01T00:00:00+00:00')
-    _write_tree(r, 'snap_pre',  {'MyLoader': {'hash': 'h1'}, 'MyDep': {'hash': 'd1'}})
+    _write_snapshot(r, 'd1', 'MyDep', 'class MyDep: pass\n', mtime='2026-03-01T00:00:00+00:00')
+    _write_tree(r, 'snap_pre', {'MyLoader': {'hash': 'h1'}, 'MyDep': {'hash': 'd1'}})
     _write_tree(r, 'snap_post', {'MyLoader': {'hash': 'h2'}, 'MyDep': {'hash': 'd1'}})
     return r
 
@@ -79,12 +81,12 @@ def test_two_versions_produced(two_class_registry):
 
 def test_initial_is_last(two_class_registry):
     vr = VersionRegistry(two_class_registry)
-    assert vr.version_number(vr.versions[-1]) == 0
+    assert vr.version_number(vr.versions[-1]) == 1
 
 
-def test_v1_is_first(two_class_registry):
+def test_v2_is_first(two_class_registry):
     vr = VersionRegistry(two_class_registry)
-    assert vr.version_number(vr.versions[0]) == 1
+    assert vr.version_number(vr.versions[0]) == 2
 
 
 def test_initial_class_names_includes_both(two_class_registry):
@@ -194,6 +196,7 @@ def test_snapshot_at_v1_uses_latest_hashes(two_class_registry):
 
 def test_snapshot_at_unknown_version_returns_empty(two_class_registry):
     from pygeodata.versioning import Version
+
     vr = VersionRegistry(two_class_registry)
     fake = Version(events=[], mtime='2026-01-01T00:00:00+00:00')
     assert vr.class_snapshot_at_version(fake) == {}
@@ -212,12 +215,12 @@ def test_snapshot_at_unknown_version_returns_empty(two_class_registry):
 def spread_registry(tmp_path: Path):
     r = tmp_path / '.source'
     # v1 group: A, B, C all changed together (no intermediate snapshot proves separation)
-    _write_snapshot(r, 'a1', 'A', 'class A: pass\n',  mtime='2026-01-01T00:00:00+00:00')
-    _write_snapshot(r, 'b1', 'B', 'class B: pass\n',  mtime='2026-01-02T00:00:00+00:00')
-    _write_snapshot(r, 'c1', 'C', 'class C: pass\n',  mtime='2026-01-03T00:00:00+00:00')
-    _write_snapshot(r, 'a2', 'A', 'class A: v2\n',    mtime='2026-06-01T00:00:00+00:00')
-    _write_snapshot(r, 'b2', 'B', 'class B: v2\n',    mtime='2026-06-02T00:00:00+00:00')
-    _write_snapshot(r, 'c2', 'C', 'class C: v2\n',    mtime='2026-06-03T00:00:00+00:00')
+    _write_snapshot(r, 'a1', 'A', 'class A: pass\n', mtime='2026-01-01T00:00:00+00:00')
+    _write_snapshot(r, 'b1', 'B', 'class B: pass\n', mtime='2026-01-02T00:00:00+00:00')
+    _write_snapshot(r, 'c1', 'C', 'class C: pass\n', mtime='2026-01-03T00:00:00+00:00')
+    _write_snapshot(r, 'a2', 'A', 'class A: v2\n', mtime='2026-06-01T00:00:00+00:00')
+    _write_snapshot(r, 'b2', 'B', 'class B: v2\n', mtime='2026-06-02T00:00:00+00:00')
+    _write_snapshot(r, 'c2', 'C', 'class C: v2\n', mtime='2026-06-03T00:00:00+00:00')
     return r
 
 

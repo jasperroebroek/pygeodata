@@ -17,7 +17,7 @@ import {
 } from './table.js';
 import { renderClassList, toggleClass, setClassListLoaders, setClassListDashboard, setClassListCodeState, _multiSelectEnabled as _clMultiSelect } from './class-list.js';
 import { renderDetail, renderEntryPills, setDetailActions, openModal as _openModal } from './detail.js';
-import { fetchDashboard, postCleanCache } from './api.js';
+import { fetchDashboard, postCleanCache, postCleanSource } from './api.js';
 
 
 // ---------------------------------------------------------------------------
@@ -29,9 +29,9 @@ function _renderVersionSelect(options) {
   if (!sel) return;
   sel.innerHTML =
     `<option value="all">All snapshots</option>` +
-    options.map((o) => `<option value="${esc(o.mtime)}">${esc(o.label)}</option>`).join("");
+    options.map((o) => `<option value="${esc(o.version_id)}">${esc(o.label)}</option>`).join("");
   // Restore selection if still valid
-  if (state.version_filter && options.some((o) => o.mtime === state.version_filter)) {
+  if (state.version_filter && options.some((o) => o.version_id === state.version_filter)) {
     sel.value = state.version_filter;
   } else {
     sel.value = 'all';
@@ -291,12 +291,17 @@ export function showDiagnostics() {
      </table>
      <div class="diag-footer">
        <button class="act-btn diag-clean-btn" id="btn-open-clean-cache">Clean cache…</button>
+       <button class="act-btn diag-clean-btn" id="btn-open-clean-source">Clean source…</button>
      </div>`,
     "sm"
   );
 
   document.getElementById("btn-open-clean-cache")?.addEventListener("click", () => {
     _openModal("Clean Cache", _buildCleanCacheModal(), "md");
+  });
+  document.getElementById("btn-open-clean-source")?.addEventListener("click", () => {
+    _openModal("Clean Source Registry", _buildCleanSourceModal(), "md");
+    document.getElementById("btn-clean-source-run")?.addEventListener("click", runCleanSource);
   });
 }
 
@@ -415,6 +420,46 @@ export async function runCleanCache() {
   output.textContent = "Running…";
   try {
     const result = await postCleanCache(dryRun);
+    output.textContent = result.lines.length ? result.lines.join("\n") : "(nothing to clean)";
+    if (!dryRun) loadEntries();
+  } catch (e) {
+    output.textContent = `Error: ${e}`;
+  } finally {
+    runBtn.disabled = false;
+  }
+}
+
+
+// ---------------------------------------------------------------------------
+// Clean-source modal (launched from diagnostics)
+// ---------------------------------------------------------------------------
+
+export function _buildCleanSourceModal() {
+  return `
+    <div class="clean-cache-modal">
+      <p style="margin:0 0 8px;font-size:0.85em;color:var(--text-muted)">
+        Removes orphaned code snapshots and dependency trees from <code>.source/</code>.
+        Keeps the latest snapshot per class and anything referenced by a live cache entry.
+      </p>
+      <label class="clean-cache-opt">
+        <input type="checkbox" id="clean-source-dry-run" checked>
+        Dry run (preview only — no files will be deleted)
+      </label>
+      <pre class="clean-cache-output" id="clean-source-output">Press Run to start…</pre>
+      <div class="clean-cache-footer">
+        <button class="act-btn" id="btn-clean-source-run">Run</button>
+      </div>
+    </div>`;
+}
+
+export async function runCleanSource() {
+  const dryRun = document.getElementById("clean-source-dry-run").checked;
+  const output = document.getElementById("clean-source-output");
+  const runBtn = document.getElementById("btn-clean-source-run");
+  runBtn.disabled = true;
+  output.textContent = "Running…";
+  try {
+    const result = await postCleanSource(dryRun);
     output.textContent = result.lines.length ? result.lines.join("\n") : "(nothing to clean)";
     if (!dryRun) loadEntries();
   } catch (e) {

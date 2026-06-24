@@ -323,4 +323,6 @@ tr.diff-ctx   { color: var(--text); }
   font-size: 10px;
   color: var(--muted);
   flex-shrink: 0;
+  padding: 0 4px;
+  cursor: pointer;
 }

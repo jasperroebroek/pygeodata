@@ -371,14 +371,29 @@ def _build_instance_hash_index(entries: dict[str, 'EntryInfo']) -> dict[str, lis
     return index
 
 
-def version_groups_payload(vreg: VersionRegistry) -> list[dict]:
-    """Serialize VersionRegistry.versions for the browser API."""
+def version_groups_payload(vreg: VersionRegistry, entry_dep_hashes: set[str] | None = None) -> list[dict]:
+    """Serialize VersionRegistry.versions for the browser API.
+
+    entry_dep_hashes: the set of dep_hashes from live entries.  When provided,
+    each group is annotated with has_entries=True iff at least one entry's
+    dep_hash maps to that group.  When omitted, has_entries is always True.
+    """
+    if entry_dep_hashes is not None:
+        version_has_entries: dict[str, bool] = {v.version_id: False for v in vreg.versions}
+        for dh in entry_dep_hashes:
+            v = vreg.version_for_dep_hash(dh)
+            if v is not None:
+                version_has_entries[v.version_id] = True
+    else:
+        version_has_entries = {v.version_id: True for v in vreg.versions}
+
     return [
         {
             'version_id': vi.version_id,
             'mtime': vi.mtime,
             'label': vreg.label(vi),
             'class_names': vi.class_names,
+            'has_entries': version_has_entries.get(vi.version_id, False),
         }
         for vi in vreg.versions
     ]

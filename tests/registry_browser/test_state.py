@@ -138,9 +138,7 @@ def test_rebuild_picks_up_new_entry(tmp_path: Path) -> None:
     assert ctx.ready.is_set()
     assert ctx.load_error is None, ctx.load_error
     assert ctx.state is not None
-    assert len(ctx.state.entries) == initial_count + 1 or 'new001' in {
-        e.state_hash for e in ctx.state.entries.values()
-    }
+    assert len(ctx.state.entries) == initial_count + 1 or 'new001' in {e.state_hash for e in ctx.state.entries.values()}
 
 
 # ---------------------------------------------------------------------------

@@ -6,6 +6,7 @@ import pytest
 from pygeodata.cache import (
     clean_cache,
     clean_registry,
+    clean_source_registry,
     format_version_matches,
     hash_matches_live,
     read_cache_class_name,
@@ -334,3 +335,147 @@ def test_rebuild_registry_clears_and_rewrites() -> None:
     rebuild_registry()
     rebuild_registry()
     assert SimpleLoader.is_registry_valid()
+
+
+# ===========================================================================
+# clean_source_registry (Unit 9b)
+# ===========================================================================
+
+
+def _write_code(registry: Path, source_hash: str, class_name: str, mtime: str) -> None:
+    d = registry / 'code' / source_hash
+    d.mkdir(parents=True, exist_ok=True)
+    (d / 'source.py').write_text(f'class {class_name}: pass\n', encoding='utf-8')
+    (d / 'source.json').write_text(
+        json.dumps({
+            JSONKeys.CLASS_NAME: class_name,
+            JSONKeys.OBJECT_TYPE: 'Data',
+            JSONKeys.SOURCE_HASH: source_hash,
+            JSONKeys.REGISTERED_AT: mtime,
+        }),
+        encoding='utf-8',
+    )
+
+
+def _write_snap(registry: Path, dep_hash: str, nodes: dict) -> None:
+    d = registry / 'snapshots' / dep_hash
+    d.mkdir(parents=True, exist_ok=True)
+    (d / 'tree.json').write_text(
+        json.dumps({JSONKeys.NODES: nodes, JSONKeys.TREE: {}}),
+        encoding='utf-8',
+    )
+
+
+def _write_entry(cache_dir: Path, state_hash: str, dep_tree_hash: str, class_name: str) -> None:
+    """Write a minimal meta.json that EntryRegistry can scan."""
+    from pygeodata.paths import CachePathConstructor
+
+    entry_dir = cache_dir / class_name / state_hash
+    entry_dir.mkdir(parents=True, exist_ok=True)
+    CachePathConstructor(entry_dir).state_hash_path.write_text(
+        json.dumps({
+            JSONKeys.FORMAT_VERSION: FORMAT_VERSION,
+            JSONKeys.CLASS_NAME: class_name,
+            JSONKeys.STATE_HASH: state_hash,
+            JSONKeys.DEPENDENCY_TREE_HASH: dep_tree_hash,
+            JSONKeys.INSTANCE_HASH: 'inst1',
+        })
+    )
+    CachePathConstructor(entry_dir).params_path.write_text(json.dumps({}))
+    CachePathConstructor(entry_dir).spec_path.write_text(json.dumps({}))
+
+
+class _CleanSourceSetup:
+    """Shared fixture: one referenced snapshot + one orphan each for code and snapshots."""
+
+    def __init__(self, tmp_path: Path):
+        from pygeodata.config import set_config as _sc
+
+        self.tmp = tmp_path
+        self.registry = tmp_path / '.source'
+        self.cache = tmp_path / 'cache'
+        self._sc = _sc
+
+        # Two code snapshots for MyLoader: h1 (initial) and h2 (latest/changed)
+        _write_code(self.registry, 'h1', 'MyLoader', '2026-01-01T00:00:00+00:00')
+        _write_code(self.registry, 'h2', 'MyLoader', '2026-06-01T00:00:00+00:00')
+        # An orphan snapshot for OtherClass that has no entry and is not latest
+        _write_code(self.registry, 'old_orphan', 'OtherClass', '2025-01-01T00:00:00+00:00')
+        # Latest for OtherClass (no entry — unrun class, must be kept)
+        _write_code(self.registry, 'other_latest', 'OtherClass', '2026-03-01T00:00:00+00:00')
+
+        # One tree snapshot referenced by an entry (contains h2)
+        _write_snap(self.registry, 'snap_ref', {'MyLoader': {'hash': 'h2'}})
+        # An orphan tree snapshot (no entry points to it)
+        _write_snap(self.registry, 'snap_orphan', {'MyLoader': {'hash': 'h1'}})
+
+        # One live entry that references snap_ref (and through it, h2)
+        _write_entry(self.cache, 'state_abc', 'snap_ref', 'MyLoader')
+
+    def context(self):
+        return self._sc(
+            path_cache=self.cache,
+            path_figures=self.tmp / 'figures',
+            path_registry=self.registry,
+        )
+
+
+@pytest.fixture
+def src_setup(tmp_path: Path):
+    return _CleanSourceSetup(tmp_path)
+
+
+def test_clean_source_dry_run_deletes_nothing(src_setup) -> None:
+    """Dry run must not delete any files."""
+    s = src_setup
+    with s.context():
+        clean_source_registry(dry_run=True)
+
+    # All dirs still present
+    assert (s.registry / 'code' / 'old_orphan').exists()
+    assert (s.registry / 'snapshots' / 'snap_orphan').exists()
+
+
+def test_clean_source_prunes_orphan_code(src_setup) -> None:
+    """Unreferenced, non-latest code snapshot is deleted."""
+    s = src_setup
+    with s.context():
+        clean_source_registry(dry_run=False)
+
+    assert not (s.registry / 'code' / 'old_orphan').exists(), 'orphan code should be pruned'
+
+
+def test_clean_source_keeps_referenced_code(src_setup) -> None:
+    """Code snapshot referenced by a live entry is kept."""
+    s = src_setup
+    with s.context():
+        clean_source_registry(dry_run=False)
+
+    assert (s.registry / 'code' / 'h2').exists(), 'referenced code h2 must be kept'
+
+
+def test_clean_source_keeps_latest_for_unrun_class(src_setup) -> None:
+    """Latest snapshot for a class with no entry is kept (unrun class protection)."""
+    s = src_setup
+    with s.context():
+        clean_source_registry(dry_run=False)
+
+    assert (s.registry / 'code' / 'other_latest').exists(), 'latest-for-class must be kept'
+
+
+def test_clean_source_prunes_orphan_tree(src_setup) -> None:
+    """Tree snapshot not referenced by any entry is deleted."""
+    s = src_setup
+    with s.context():
+        clean_source_registry(dry_run=False)
+
+    assert not (s.registry / 'snapshots' / 'snap_orphan').exists(), 'orphan tree should be pruned'
+
+
+def test_clean_source_keeps_referenced_tree(src_setup) -> None:
+    """Tree snapshot referenced by a live entry is kept."""
+    s = src_setup
+    with s.context():
+        clean_source_registry(dry_run=False)
+
+    assert (s.registry / 'snapshots' / 'snap_ref').exists(), 'referenced tree must be kept'
