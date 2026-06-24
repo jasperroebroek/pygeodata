@@ -461,6 +461,47 @@ def _events_snapshot(vr: VersionRegistry) -> dict:
     return result
 
 
+# ===========================================================================
+# version_for_dep_hash: mtime-tie stability (Bug 3)
+#
+# Two dep hashes point to versions that share the same mtime.  The tiebreaker
+# on Version.__lt__ (version_id) must make max() deterministic, so repeated
+# calls return the same result regardless of dict/set iteration order.
+# ===========================================================================
+
+
+@pytest.fixture
+def tied_mtime_registry(tmp_path: Path):
+    """Two version-change groups with the same mtime; a dep hash that hits the fallback path.
+
+    MyBase changes twice at identical mtimes (v1 and v2 are tied).  dep_unknown
+    references a source hash not tracked in any version, so _build_dep_hash_index
+    falls through to the non_initial_asc fallback — the path that used to iterate
+    oldest-first and break on the first tie candidate, producing non-deterministic
+    output.  The tiebreaker on Version.__lt__ makes max() stable.
+    """
+    r = tmp_path / '.source'
+    MTIME = '2026-05-01T00:00:00+00:00'
+    # MyBase: initial state + two changes, all at the same mtime to create a tie
+    _write_snapshot(r, 'mb0', 'MyBase', 'class MyBase: v0\n', mtime='2026-01-01T00:00:00+00:00')
+    _write_snapshot(r, 'mb1', 'MyBase', 'class MyBase: v1\n', mtime=MTIME)
+    _write_snapshot(r, 'mb2', 'MyBase', 'class MyBase: v2\n', mtime=MTIME)
+    # Snapshot separating mb1 and mb2 into distinct version groups
+    _write_tree(r, 'sep', {'MyBase': {'hash': 'mb1'}})
+    # A dep hash whose node hash is unknown — exercises the fallback
+    _write_tree(r, 'dep_unknown', {'MyBase': {'hash': 'mb0'}})
+    return r
+
+
+def test_version_for_dep_hash_stable_under_tied_mtimes(tied_mtime_registry):
+    """version_for_dep_hash must return the same version on repeated calls when mtimes tie."""
+    from pygeodata.versioning import VersionRegistry
+
+    vr = VersionRegistry(tied_mtime_registry)
+    results = {vr.version_for_dep_hash('dep_unknown') for _ in range(20)}
+    assert len(results) == 1, 'version_for_dep_hash is non-deterministic under tied mtimes'
+
+
 def test_assign_full_events_forward_pass_matches_original(spread_registry):
     """Forward-pass optimisation must produce identical events to the original O(n³) impl."""
     import copy

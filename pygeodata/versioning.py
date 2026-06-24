@@ -7,7 +7,7 @@ VersionRegistry is the single authoritative source for:
     .version_for_dep_hash(hash)                -> Version | None
     .dep_hashes_for_version(version)           -> set[str]
     .dep_hash_to_version                       -> dict[str, Version]  (read-only)
-    .version_number(version)                   -> int   (Initial=0, oldest change=1, ...)
+    .version_number(version)                   -> int   (Initial=1, oldest change=2, ...)
     .version_by_id(version_id)                 -> Version | None
     .label(version)                            -> str
     .class_snapshot_at_version(version)        -> dict[class_name, source_hash]
@@ -74,7 +74,9 @@ class Version:
     def __lt__(self, other: object) -> bool:
         if not isinstance(other, Version):
             return NotImplemented
-        return self.mtime < other.mtime
+        if self.mtime != other.mtime:
+            return self.mtime < other.mtime
+        return self.version_id < other.version_id
 
     def __hash__(self) -> int:
         return hash(self.version_id)
@@ -307,10 +309,9 @@ class VersionRegistry:
                 max_reg = max(node_reg_times) if node_reg_times else None
                 assigned = initial_version
                 if max_reg is not None:
-                    for v in non_initial_asc:
-                        if v.mtime <= max_reg:
-                            assigned = v
-                            break
+                    candidates = [v for v in non_initial_asc if v.mtime <= max_reg]
+                    if candidates:
+                        assigned = max(candidates)
                 result[dep_hash] = assigned
         return result
 
@@ -378,13 +379,16 @@ class VersionRegistry:
         """Return the Version with the given UUID, or None if not found."""
         return self._id_to_version.get(version_id)
 
-    def version_number(self, version: Version) -> int:
-        """Return the version number for a Version (Initial=0, oldest change=1, ...)."""
-        return self._version_numbers.get(version.version_id, 0)
+    def version_number(self, version: Version) -> int | None:
+        """Return the version number for a Version (Initial=1, oldest change=2, ...).
+
+        Returns None if the version is not found in this registry.
+        """
+        return self._version_numbers.get(version.version_id)
 
     def label(self, version: Version) -> str:
         """Return the display label for a Version, e.g. 'v3 · Jun 12, 19:39'."""
-        n = self._version_numbers.get(version.version_id, 1)
+        n = self._version_numbers.get(version.version_id, 0)
         v = f'v{n}'
         try:
             dt = datetime.fromisoformat(version.mtime)
