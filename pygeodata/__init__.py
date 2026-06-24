@@ -1,4 +1,4 @@
-from pygeodata.api import load, process
+from pygeodata.api import load, load_from_hash, process
 from pygeodata.artifact import Artifact
 from pygeodata.cache import clean_cache, clean_registry
 from pygeodata.config import get_config, set_config
@@ -17,6 +17,7 @@ __all__ = [
     'clean_registry',
     'get_config',
     'load',
+    'load_from_hash',
     'process',
     'set_config',
 ]

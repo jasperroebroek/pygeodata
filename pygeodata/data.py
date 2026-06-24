@@ -3,9 +3,7 @@ from typing import ClassVar, Generic
 
 from pygeodata.artifact import Artifact
 from pygeodata.config import get_config
-from pygeodata.paths import CACHE_META_FILES, CachePathConstructor
 from pygeodata.protocols import Driver, T
-from pygeodata.registry import EntryRegistry
 from pygeodata.spec import SpatialSpec
 
 
@@ -137,42 +135,6 @@ class Data(Artifact, Generic[T]):
         spec = self.resolve_spec(spec)
         self.process(spec)
         return self._load(self.get_processed_path(spec))
-
-    @classmethod
-    def load_by_hash(cls, state_hash: str) -> T:
-        """Load a cached output by (truncated) state hash.
-
-        Looks up the full hash in :class:`~pygeodata.registry.EntryRegistry`,
-        resolves the processed file path, and returns the data without
-        re-running ``process``.
-
-        Raises
-        ------
-        KeyError
-            If *state_hash* matches zero or more than one entry.
-        FileNotFoundError
-            If the resolved output file does not exist on disk.
-        """
-        registry = EntryRegistry()
-        full_hash = registry.resolve_hash_prefix(state_hash)
-        if full_hash is None:
-            raise KeyError(f'No entry found for hash prefix {state_hash!r}')
-        record = registry.records[full_hash]
-        if record.hash_path is None:
-            raise FileNotFoundError(f'Entry {matches[0]!r} has no hash_path')
-        resolver = CachePathConstructor.from_path(Path(record.hash_path))
-        candidates = [p for p in resolver.directory.iterdir() if p.name not in CACHE_META_FILES]
-        if not candidates:
-            raise FileNotFoundError(f'No output file found for hash {matches[0]!r} in {resolver.directory}')
-        path = candidates[0]
-        instance = cls.__new__(cls)
-        try:
-            return instance._load(path)
-        except AttributeError as e:
-            raise TypeError(
-                f'{cls.__name__}._load requires instance attributes (params). '
-                f'Override _load as a classmethod or ensure driver is param-independent.',
-            ) from e
 
     def _load(self, path: Path) -> T:
         return self.driver(path)
