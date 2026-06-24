@@ -55,23 +55,30 @@ def _resolve_dest(
     parts: tuple[str, ...],
     cache_roots: dict[str, Path | None],
     source_root: Path,
-) -> Path | None:
+) -> tuple[Path, Path] | None:
+    if any(p in ('..', '') or Path(p).is_absolute() for p in parts):
+        return None
     if parts[0] == 'cache' and len(parts) >= 3:
         cache_root = cache_roots.get(parts[1])
         if cache_root is None:
             return None
-        return cache_root / Path(*parts[1:])
+        return cache_root / Path(*parts[1:]), cache_root
     if parts[0] in ('code', 'snapshots') and len(parts) >= 3:
-        return source_root / Path(*parts)
+        return source_root / Path(*parts), source_root
     return None
 
 
-def _extract_member(tar: tarfile.TarFile, member: tarfile.TarInfo, dest: Path) -> None:
-    dest.parent.mkdir(parents=True, exist_ok=True)
+def _extract_member(tar: tarfile.TarFile, member: tarfile.TarInfo, dest: Path, root: Path) -> None:
+    resolved = dest.resolve()
+    try:
+        resolved.relative_to(root.resolve())
+    except ValueError:
+        return
+    resolved.parent.mkdir(parents=True, exist_ok=True)
     src = tar.extractfile(member)
     if src is None:
         return
-    with src, dest.open('wb') as out:
+    with src, resolved.open('wb') as out:
         shutil.copyfileobj(src, out)
 
 
@@ -195,10 +202,13 @@ def import_archive(archive: str) -> None:
             parts = Path(member.name).parts
             if not parts or member.isdir():
                 continue
-            dest = _resolve_dest(parts, cache_roots, source_root)
-            if dest is None or dest.exists():
+            resolved = _resolve_dest(parts, cache_roots, source_root)
+            if resolved is None:
                 continue
-            _extract_member(tar, member, dest)
+            dest, root = resolved
+            if dest.exists():
+                continue
+            _extract_member(tar, member, dest, root)
             counts[parts[0]] = counts.get(parts[0], 0) + 1
 
     click.echo(
@@ -705,7 +715,7 @@ def _stale_indicator(rec, vreg: VersionRegistry | None = None) -> str:
         if obj_cls is not None:
             dep_stale = obj_cls.get_dependency_tree_hash() != rec.dependency_tree_hash
         else:
-            dep_stale = (vreg or VersionRegistry()).is_dep_hash_stale(rec.dependency_tree_hash)
+            dep_stale = (vreg or VersionRegistry()).is_dependency_hash_stale(rec.dependency_tree_hash)
         if dep_stale:
             return 'S'
     return ' '

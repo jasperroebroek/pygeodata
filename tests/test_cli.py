@@ -195,3 +195,80 @@ def test_import_ignores_malformed_paths(tmp_path: Path) -> None:
 
     output = _invoke(archive)
     assert 'Imported' in output
+
+
+# ---------------------------------------------------------------------------
+# Task 1: entry list/show with unimportable class — no AttributeError
+# ---------------------------------------------------------------------------
+
+
+def _write_entry(state_hash: str, class_name: str) -> None:
+    """Write a minimal meta.json for an entry in the configured cache dir."""
+    from pygeodata.config import FORMAT_VERSION
+
+    cache_dir = get_config().path_cache / state_hash
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    meta = {
+        JSONKeys.CLASS_NAME: class_name,
+        JSONKeys.OBJECT_TYPE: 'Data',
+        JSONKeys.DEPENDENCY_TREE_HASH: 'fakehash1234',
+        JSONKeys.FORMAT_VERSION: FORMAT_VERSION,
+        JSONKeys.STATE_HASH: state_hash,
+    }
+    (cache_dir / 'meta.json').write_text(json.dumps(meta), encoding='utf-8')
+
+
+def test_entry_list_unimportable_class_no_crash() -> None:
+    state_hash = 'aabbccdd1122'
+    _write_entry(state_hash, 'NoSuchModuleEver.UnknownClass')
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ['entry', 'list'])
+
+    assert result.exit_code == 0, result.output
+    assert 'AttributeError' not in (result.output + str(result.exception or ''))
+
+
+def test_entry_show_unimportable_class_no_crash() -> None:
+    state_hash = 'aabbccdd5566'
+    _write_entry(state_hash, 'NoSuchModuleEver.UnknownClass')
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ['entry', 'show', state_hash[:8]])
+
+    assert result.exit_code == 0, result.output
+    assert 'AttributeError' not in (result.output + str(result.exception or ''))
+
+
+# ---------------------------------------------------------------------------
+# Task 2: import path traversal blocked
+# ---------------------------------------------------------------------------
+
+
+def test_import_path_traversal_blocked(tmp_path: Path) -> None:
+    """A malicious tar member must NOT escape the project roots."""
+    escape_target = tmp_path / 'escapee.txt'
+    src_hash = 'deadbeef'
+
+    # Build archive with a traversal member and a normal code member
+    archive = tmp_path / 'evil.tar.gz'
+    with tarfile.open(archive, 'w:gz') as tar:
+        # normal member
+        normal_content = b'class Foo: pass'
+        info_normal = tarfile.TarInfo(name=f'code/{src_hash}/source.py')
+        info_normal.size = len(normal_content)
+        tar.addfile(info_normal, io.BytesIO(normal_content))
+
+        # traversal member — tries to write outside registry root (source_root is tmp/.source)
+        evil_name = f'code/x/../../../{escape_target.name}'
+        evil_content = b'pwned'
+        info_evil = tarfile.TarInfo(name=evil_name)
+        info_evil.size = len(evil_content)
+        tar.addfile(info_evil, io.BytesIO(evil_content))
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ['import', str(archive)])
+
+    assert result.exit_code == 0
+    assert not escape_target.exists(), 'traversal path was written outside project root'
+    assert (get_config().path_registry / 'code' / src_hash / 'source.py').exists()

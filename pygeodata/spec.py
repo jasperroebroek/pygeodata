@@ -157,7 +157,7 @@ class SpatialSpec:
                 [b.left, b.bottom, b.right, b.top],
                 self.crs,
             )
-        except ValueError:
+        except (ValueError, AttributeError):
             return None
 
     @classmethod
