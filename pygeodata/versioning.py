@@ -112,8 +112,6 @@ class VersionRegistry:
         events: list[CodeEvent] = []
         for class_name in src.class_names:
             states = src.get_states(class_name)
-            if states:
-                events.append(CodeEvent(state_new=states[0], state_old=None))
             for prev, curr in itertools.pairwise(states):
                 events.append(CodeEvent(state_new=curr, state_old=prev))
         events.sort(key=lambda e: e.mtime)
@@ -194,7 +192,7 @@ class VersionRegistry:
                 if class_name in in_version_groups:
                     continue
                 target_idx = max(
-                    (i for i in range(1, len(all_groups)) if not group_lower[i] or group_lower[i] <= first_reg),
+                    (i for i in range(1, len(all_groups)) if group_lower[i] <= first_reg),
                     default=0,
                 )
                 all_groups[target_idx].append(CodeEvent(state_new=states[0], state_old=None))
@@ -212,7 +210,7 @@ class VersionRegistry:
         all_groups and all_versions are parallel, oldest-first.
         """
         index: dict[str, Version] = {}
-        for group, vi in zip(all_groups, all_versions, strict=False):
+        for group, vi in zip(all_groups, all_versions, strict=True):
             for e in group:
                 if e.state_new:
                     index[e.state_new.source_hash] = vi
@@ -228,19 +226,19 @@ class VersionRegistry:
         """Compute and assign full ADDED/CHANGED/REMOVED/UNCHANGED events to each Version."""
         ordered = ([initial] if initial else []) + list(reversed(versions))  # oldest-first
 
-        def snapshot_at(vi: Version) -> dict[str, CodeState]:
-            snap: dict[str, CodeState] = {}
+        running: dict[str, CodeState] = {}
+        snapshots: list[dict[str, CodeState]] = []
+        for vi in ordered:
             for class_name in src.class_names:
                 for state in reversed(src.get_states(class_name)):
-                    sv = raw_index.get(state.source_hash)
-                    if sv is None or sv <= vi:
-                        snap[class_name] = state
+                    if raw_index.get(state.source_hash) is vi:
+                        running[class_name] = state
                         break
-            return snap
+            snapshots.append(dict(running))
 
         for idx, vi in enumerate(ordered):
-            snap_new = snapshot_at(vi)
-            snap_old = snapshot_at(ordered[idx - 1]) if idx > 0 else {}
+            snap_new = snapshots[idx]
+            snap_old = snapshots[idx - 1] if idx > 0 else {}
             vi.events = [
                 CodeEvent(state_new=snap_new.get(cn), state_old=snap_old.get(cn))
                 for cn in sorted(set(snap_new) | set(snap_old))
@@ -328,6 +326,10 @@ class VersionRegistry:
         for i, v in enumerate(reversed(non_initial), start=2 if has_initial else 1):
             version_numbers[v.version_id] = i
 
+        # Final index — derived from full assigned events (ADDED + CHANGED across all
+        # classes). Replaces the provisional raw_index built in _build_version_groups,
+        # which only covered CHANGED state_new hashes from raw groups and couldn't
+        # include ADDED events (those are injected by _inject_untracked_classes).
         source_hash_to_version: dict[str, Version] = {}
         for v in versions:
             for e in v.events:
@@ -386,7 +388,7 @@ class VersionRegistry:
         Reads directly from version.events (pre-computed at build time).
         Returns an empty dict if the version is not in this registry.
         """
-        if version not in self._id_to_version.values():
+        if version.version_id not in self._id_to_version:
             return {}
         return {e.state_new.class_name: e.state_new.source_hash for e in version.events if e.state_new}
 
@@ -420,7 +422,7 @@ class VersionRegistry:
         This is the pre-computed Version.events list — a direct lookup.
         Returns None if version is not in this registry.
         """
-        if version not in self._id_to_version.values():
+        if version.version_id not in self._id_to_version:
             return None
         return version.events
 
@@ -446,4 +448,4 @@ class VersionRegistry:
     @property
     def dep_hash_to_version(self) -> dict[str, Version]:
         """Full dep_hash → Version mapping (read-only view)."""
-        return self._dep_hash_to_version
+        return dict(self._dep_hash_to_version)

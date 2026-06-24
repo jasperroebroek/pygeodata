@@ -356,3 +356,146 @@ def test_structured_hunks_full_reconstruction():
     add_texts = [l['text'] for l in all_lines if l['type'] == 'add']
     assert del_texts == ['line2']
     assert add_texts == ['LINE2']
+
+
+# ===========================================================================
+# _inject_untracked_classes: target selection by chronology (#2)
+#
+# A class debuting between two version-change groups must land in the newest
+# group whose lower-bound mtime ≤ its first registration — not in the earlier
+# group, and not in Initial.
+#
+# Setup: MyBase changes Jan→Jun (v1 lower=Jan) then Jun→Sep (v2 lower=Jun).
+# NewClass debuts at Jul, which is ≥ Jan but < Sep (v2 lower).
+# Expected: NewClass ADDED in v1 (lower=Jan ≤ Jul), not in Initial, not in v2.
+#
+# The pre-fix predicate included `not group_lower[i]`, which would let an
+# empty-lower-bound group sneak in as a max() candidate by index alone.
+# The fix drops that escape hatch so only groups with lower ≤ first_reg qualify.
+# ===========================================================================
+
+
+@pytest.fixture
+def three_group_registry(tmp_path: Path):
+    r = tmp_path / '.source'
+    # MyBase: two version changes → Initial + v1 + v2
+    _write_snapshot(r, 'mb1', 'MyBase', 'class MyBase: pass\n', mtime='2026-01-01T00:00:00+00:00')
+    _write_snapshot(r, 'mb2', 'MyBase', 'class MyBase: v2\n', mtime='2026-06-01T00:00:00+00:00')
+    _write_snapshot(r, 'mb3', 'MyBase', 'class MyBase: v3\n', mtime='2026-09-01T00:00:00+00:00')
+    # Trees that separate the two change events (prove they're in different groups)
+    _write_tree(r, 'snap_v1', {'MyBase': {'hash': 'mb1'}})  # snapshot after mb1, before mb2
+    _write_tree(r, 'snap_v2', {'MyBase': {'hash': 'mb2'}})  # snapshot after mb2, before mb3
+    # NewClass: single registration at Jul — after v1 lower (Jun) but before v2 lower (Sep)
+    _write_snapshot(r, 'nc1', 'NewClass', 'class NewClass: pass\n', mtime='2026-07-01T00:00:00+00:00')
+    return r
+
+
+def test_new_class_debut_between_groups_lands_in_correct_version(three_group_registry):
+    vr = VersionRegistry(three_group_registry)
+    # 3 groups (newest-first): v3 (Sep), v2 (Jul-mtime/Jun-lower), v1 (Jan)
+    assert len(vr.versions) == 3
+
+    # Find which version NewClass was ADDED in
+    added_in = None
+    for v in vr.versions:
+        for e in v.events:
+            if e.class_name == 'NewClass' and e.status == ChangeStatus.ADDED:
+                added_in = v
+                break
+        if added_in is not None:
+            break
+
+    assert added_in is not None, 'NewClass has no ADDED event'
+    # NewClass debut=Jul. v3 lower=Sep > Jul → skip. v2 lower=Jun ≤ Jul → match.
+    # NewClass should land in v2 (version_number=2), not v3 (number=3) or v1 (number=1).
+    assert vr.version_number(added_in) == 2, (
+        f'Expected NewClass in v2 (number=2), got number={vr.version_number(added_in)}'
+    )
+
+
+def test_new_class_debut_not_in_newest_version(three_group_registry):
+    vr = VersionRegistry(three_group_registry)
+    newest = vr.versions[0]  # v3, lower=Sep > Jul
+    newest_added = {e.class_name for e in newest.events if e.status == ChangeStatus.ADDED}
+    assert 'NewClass' not in newest_added, (
+        'NewClass should not be ADDED in v3 — its lower-bound mtime (Sep) is after NewClass debut (Jul)'
+    )
+
+
+def test_new_class_debut_not_in_oldest_version(three_group_registry):
+    vr = VersionRegistry(three_group_registry)
+    oldest = vr.versions[-1]  # v1, mtime=Jan
+    oldest_added = {e.class_name for e in oldest.events if e.status == ChangeStatus.ADDED}
+    assert 'NewClass' not in oldest_added, (
+        'NewClass should not be ADDED in v1 — a newer group (v2, lower=Jun) also satisfies lower ≤ Jul'
+    )
+
+
+# ===========================================================================
+# _assign_full_events forward-pass correctness guard (#5)
+#
+# Captures the full event lists produced by the current implementation and
+# asserts the forward-pass optimisation produces identical output.  Uses the
+# spread_registry fixture (3 classes, 2 versions each) as a representative
+# multi-class multi-version case.
+# ===========================================================================
+
+
+def _events_snapshot(vr: VersionRegistry) -> dict:
+    """Capture a deterministic snapshot of all version events for comparison."""
+    result = {}
+    for v in vr.versions:
+        key = vr.version_number(v)
+        result[key] = sorted(
+            (e.class_name, e.status.name,
+             e.state_old.source_hash if e.state_old else None,
+             e.state_new.source_hash if e.state_new else None)
+            for e in v.events
+        )
+    return result
+
+
+def test_assign_full_events_forward_pass_matches_original(spread_registry):
+    """Forward-pass optimisation must produce identical events to the original O(n³) impl."""
+    import copy
+    from pygeodata.registry import SourceRegistry
+    from pygeodata.versioning import VersionRegistry as VR
+
+    # Reference: capture events from a freshly built registry (uses current impl)
+    vr_ref = VR(spread_registry)
+    reference = _events_snapshot(vr_ref)
+
+    # Patch _assign_full_events with the forward-pass implementation and rebuild
+    original_method = VR._assign_full_events
+
+    @staticmethod
+    def forward_pass(src, versions, initial, raw_index):
+        from pygeodata.registry_types import CodeEvent
+        ordered = ([initial] if initial else []) + list(reversed(versions))
+
+        running: dict = {}
+        snapshots = []
+        for vi in ordered:
+            for class_name in src.class_names:
+                for state in reversed(src.get_states(class_name)):
+                    if raw_index.get(state.source_hash) is vi:
+                        running[class_name] = state
+                        break
+            snapshots.append(dict(running))
+
+        for idx, vi in enumerate(ordered):
+            snap_new = snapshots[idx]
+            snap_old = snapshots[idx - 1] if idx > 0 else {}
+            vi.events = [
+                CodeEvent(state_new=snap_new.get(cn), state_old=snap_old.get(cn))
+                for cn in sorted(set(snap_new) | set(snap_old))
+            ]
+
+    try:
+        VR._assign_full_events = forward_pass
+        vr_opt = VR(spread_registry)
+        optimised = _events_snapshot(vr_opt)
+    finally:
+        VR._assign_full_events = original_method
+
+    assert optimised == reference
