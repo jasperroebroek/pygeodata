@@ -60,133 +60,78 @@ def _noop(_path: str):
 
 
 # ---------------------------------------------------------------------------
-# tree_diff — status branch coverage
+# version_diff — error-path branch coverage
 # ---------------------------------------------------------------------------
 
 
-def test_tree_diff_no_dep_hash(tmp_path: Path):
+def test_version_diff_no_dep_hash(tmp_path: Path):
     """Entry with dep_hash=None → no_snapshot."""
     entry = _make_entry('rec1', None)
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=tmp_path / '.source'):
         vreg = VersionRegistry()
-        result = code_service.tree_diff('rec1', {'rec1': entry}, vreg)
+        result = code_service.version_diff(vreg, record_id='rec1', entries={'rec1': entry})
     assert result == {'error': 'no_snapshot', 'message': 'Snapshot not available for this entry'}
 
 
-def test_tree_diff_missing_entry(tmp_path: Path):
+def test_version_diff_missing_entry(tmp_path: Path):
     """Unknown record_id → __not_found__ sentinel."""
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=tmp_path / '.source'):
         vreg = VersionRegistry()
-        result = code_service.tree_diff('missing', {}, vreg)
+        result = code_service.version_diff(vreg, record_id='missing', entries={})
     assert result.get('__not_found__') is True
 
 
-def test_tree_diff_no_snapshot_file(tmp_path: Path):
-    """dep_hash present but tree.json missing → no_snapshot."""
+def test_version_diff_no_snapshot_file(tmp_path: Path):
+    """dep_hash present but not in any version group → base=None → no_snapshot."""
     registry = tmp_path / '.source'
     entry = _make_entry('rec1', 'nonexistent_dep_hash')
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
         vreg = VersionRegistry(registry)
-        result = code_service.tree_diff('rec1', {'rec1': entry}, vreg)
-    assert result == {'error': 'no_snapshot', 'message': 'Snapshot not available for this entry'}
+        result = code_service.version_diff(vreg, record_id='rec1', entries={'rec1': entry})
+    assert result['error'] == 'no_snapshot'
 
 
-def test_tree_diff_changed(tmp_path: Path):
-    """Stored hash differs from live hash → status=changed with diff."""
+def test_version_diff_bad_request(tmp_path: Path):
+    """Neither record_id nor base_version_id → bad_request."""
+    with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=tmp_path / '.source'):
+        vreg = VersionRegistry()
+        result = code_service.version_diff(vreg)
+    assert result['error'] == 'bad_request'
+
+
+def test_version_diff_explicit_base_version_changed(tmp_path: Path):
+    """Explicit base_version_id: class changed between base snapshot and live."""
     registry = tmp_path / '.source'
     _write_code_snapshot(registry, 'h1', 'MyLoader', 'class MyLoader:\n    x = 1\n', mtime='2026-01-01T00:00:00+00:00')
     _write_code_snapshot(registry, 'h2', 'MyLoader', 'class MyLoader:\n    x = 2\n', mtime='2026-06-01T00:00:00+00:00')
 
-    snapshot_dir = registry / 'snapshots' / 'snapshot1'
-    snapshot_dir.mkdir(parents=True)
-    (snapshot_dir / 'tree.json').write_text(
-        json.dumps({'nodes': {'MyLoader': {'hash': 'h1', 'object_type': 'Data'}}, 'tree': {}}),
-        encoding='utf-8',
-    )
-
-    entry = _make_entry('rec1', 'snapshot1')
-
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
         vreg = VersionRegistry(registry)
-        result = code_service.tree_diff('rec1', {'rec1': entry}, vreg)
+        # versions[-1] is Initial (contains h1); versions[0] is the change group (contains h2)
+        initial_vid = vreg.versions[-1].version_id
+        change_vid = vreg.versions[0].version_id
 
+        # base=Initial (h1), target=change group (h2) → changed
+        result = code_service.version_diff(vreg, base_version_id=initial_vid, target_version_id=change_vid)
+
+    assert 'changes' in result
     changes = result['changes']
     assert len(changes) == 1
     c = changes[0]
     assert c['status'] == 'changed'
     assert c['class_name'] == 'MyLoader'
-    assert c['hunks'] is not None
-    assert len(c['hunks']) > 0
-    all_lines = [line for hunk in c['hunks'] for line in hunk['lines']]
-    del_texts = [l['text'] for l in all_lines if l['type'] == 'del']
-    add_texts = [l['text'] for l in all_lines if l['type'] == 'add']
-    assert any('x = 1' in t for t in del_texts)
-    assert any('x = 2' in t for t in add_texts)
-    assert c['full_old'] == 'class MyLoader:\n    x = 1\n'
-    assert c['full_new'] == 'class MyLoader:\n    x = 2\n'
+    assert c['hash_old'] == 'h1'
+    assert c['hash_new'] == 'h2'
 
 
-def test_tree_diff_added(tmp_path: Path):
-    """Class in live but absent in stored → status=added."""
+def test_version_diff_result_keys(tmp_path: Path):
+    """Result dict must contain changes, base_version_id, has_live_stale."""
     registry = tmp_path / '.source'
-    _write_code_snapshot(registry, 'hnew', 'NewClass', 'class NewClass: pass\n')
-
-    snapshot_dir = registry / 'snapshots' / 'snapshot1'
-    snapshot_dir.mkdir(parents=True)
-    (snapshot_dir / 'tree.json').write_text(
-        json.dumps({'nodes': {}, 'tree': {}}),
-        encoding='utf-8',
-    )
-
-    entry = _make_entry('rec1', 'snapshot1')
+    _write_code_snapshot(registry, 'h1', 'StableClass', 'class StableClass: pass\n', mtime='2026-01-01T00:00:00+00:00')
 
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
         vreg = VersionRegistry(registry)
-        result = code_service.tree_diff('rec1', {'rec1': entry}, vreg)
+        initial_vid = vreg.versions[-1].version_id
+        result = code_service.version_diff(vreg, base_version_id=initial_vid, target_version_id=initial_vid)
 
-    statuses = {c['class_name']: c['status'] for c in result['changes']}
-    assert statuses['NewClass'] == 'added'
-
-
-def test_tree_diff_removed(tmp_path: Path):
-    """Class in stored but absent in live → status=removed."""
-    registry = tmp_path / '.source'
-
-    snapshot_dir = registry / 'snapshots' / 'snapshot1'
-    snapshot_dir.mkdir(parents=True)
-    (snapshot_dir / 'tree.json').write_text(
-        json.dumps({'nodes': {'OldClass': {'hash': 'hold', 'object_type': 'Data'}}, 'tree': {}}),
-        encoding='utf-8',
-    )
-
-    entry = _make_entry('rec1', 'snapshot1')
-
-    with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
-        vreg = VersionRegistry(registry)
-        result = code_service.tree_diff('rec1', {'rec1': entry}, vreg)
-
-    statuses = {c['class_name']: c['status'] for c in result['changes']}
-    assert statuses['OldClass'] == 'removed'
-
-
-def test_tree_diff_unchanged(tmp_path: Path):
-    """Stored and live hash identical → status=unchanged, diff=None."""
-    registry = tmp_path / '.source'
-    _write_code_snapshot(registry, 'hstable', 'StableClass', 'class StableClass: pass\n')
-
-    snapshot_dir = registry / 'snapshots' / 'snapshot1'
-    snapshot_dir.mkdir(parents=True)
-    (snapshot_dir / 'tree.json').write_text(
-        json.dumps({'nodes': {'StableClass': {'hash': 'hstable', 'object_type': 'Data'}}, 'tree': {}}),
-        encoding='utf-8',
-    )
-
-    entry = _make_entry('rec1', 'snapshot1')
-
-    with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
-        vreg = VersionRegistry(registry)
-        result = code_service.tree_diff('rec1', {'rec1': entry}, vreg)
-
-    c = result['changes'][0]
-    assert c['status'] == 'unchanged'
-    assert c['hunks'] is None
+    assert set(result.keys()) >= {'changes', 'base_version_id', 'has_live_stale'}

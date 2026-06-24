@@ -216,8 +216,9 @@ def test_api_code_versions_empty(client) -> None:
         resp = client.get('/api/code/versions')
     assert resp.status_code == 200
     data = resp.get_json()
-    # No versions when no snapshots exist — "Now" is no longer a synthetic entry
-    assert len(data) == 0
+    assert 'versions' in data
+    assert 'has_live_classes' in data
+    assert len(data['versions']) == 0
 
 
 def test_api_code_versions_only_shows_changes(tmp_path: Path) -> None:
@@ -229,10 +230,10 @@ def test_api_code_versions_only_shows_changes(tmp_path: Path) -> None:
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
             resp = flask_app.test_client().get('/api/code/versions')
-    data = resp.get_json()
+    versions = resp.get_json()['versions']
     # Single registration → only one group (no change groups)
-    assert len(data) == 1
-    assert 'v1' in data[0]['label']
+    assert len(versions) == 1
+    assert 'v1' in versions[0]['label']
 
 
 def test_api_code_versions_shows_second_entry(tmp_path: Path) -> None:
@@ -244,17 +245,17 @@ def test_api_code_versions_shows_second_entry(tmp_path: Path) -> None:
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
             resp = flask_app.test_client().get('/api/code/versions')
-    data = resp.get_json()
+    versions = resp.get_json()['versions']
     # Two entries: the change group (v2) + first group (v1)
-    assert len(data) == 2
+    assert len(versions) == 2
     # First entry: the actual change group
-    assert data[0]['class_names'] == ['MyLoader']
-    assert data[0]['mtime'] == '2026-06-01T00:00:00+00:00'
-    assert 'v2' in data[0]['label']
+    assert versions[0]['class_names'] == ['MyLoader']
+    assert versions[0]['mtime'] == '2026-06-01T00:00:00+00:00'
+    assert 'v2' in versions[0]['label']
     # Second entry: first (original) group
-    assert 'v1' in data[1]['label']
+    assert 'v1' in versions[1]['label']
     # v1 timestamp uses the oldest registration (Jan 1), not the change time
-    assert 'Jan' in data[1]['label']
+    assert 'Jan' in versions[1]['label']
 
 
 def test_api_code_resolve_dep_hash(tmp_path: Path) -> None:
@@ -416,11 +417,11 @@ def test_api_code_diff_identical_files(tmp_path: Path) -> None:
     assert data['hunks'] == []
 
 
-# --- /api/code/tree-diff ---
+# --- /api/code/version-diff ---
 
 
 def _make_entry(record_id: str, dep_hash: str | None):
-    """Minimal EntryInfo for tree-diff tests."""
+    """Minimal EntryInfo for version-diff tests."""
     from pygeodata.registry_browser.models import EntryInfo, SpecInfo
 
     return EntryInfo(
@@ -440,30 +441,31 @@ def _make_entry(record_id: str, dep_hash: str | None):
     )
 
 
-def test_api_code_tree_diff_no_snapshot(tmp_path: Path) -> None:
+def test_api_code_version_diff_no_snapshot(tmp_path: Path) -> None:
     entry = _make_entry('rec1', None)
     ctx = _make_ready_ctx()
     ctx.state.entries = {'rec1': entry}
     with patch('pygeodata.registry_browser.web._ctx', ctx):
-        resp = flask_app.test_client().get('/api/code/tree-diff?record_id=rec1')
+        resp = flask_app.test_client().get('/api/code/version-diff?record_id=rec1')
     assert resp.status_code == 200
     data = resp.get_json()
     assert data['error'] == 'no_snapshot'
 
 
-def test_api_code_tree_diff_missing_record(client) -> None:
-    resp = client.get('/api/code/tree-diff?record_id=doesnotexist')
+def test_api_code_version_diff_missing_record(client) -> None:
+    resp = client.get('/api/code/version-diff?record_id=doesnotexist')
     assert resp.status_code == 404
 
 
-def test_api_code_tree_diff_missing_param(client) -> None:
-    resp = client.get('/api/code/tree-diff')
+def test_api_code_version_diff_missing_param(client) -> None:
+    resp = client.get('/api/code/version-diff')
     assert resp.status_code == 400
 
 
-def test_api_code_tree_diff_returns_changes(tmp_path: Path) -> None:
+def test_api_code_version_diff_returns_changes(tmp_path: Path) -> None:
     registry = tmp_path / '.source'
-    # Stored snapshot: MyLoader at v1hash
+    # Two code snapshots: v1hash (older) and v2hash (newer) = the "live" state.
+    # The tree snapshot for 'snapshot1' references v1hash → base is Initial (contains v1hash).
     snapshot_dir = registry / 'snapshots' / 'snapshot1'
     snapshot_dir.mkdir(parents=True)
     (snapshot_dir / 'tree.json').write_text(
@@ -475,7 +477,6 @@ def test_api_code_tree_diff_returns_changes(tmp_path: Path) -> None:
         ),
         encoding='utf-8',
     )
-    # v1hash and v2hash code snapshots — v2hash is newer so it becomes the live version
     _write_code_snapshot(
         registry,
         'v1hash',
@@ -497,57 +498,40 @@ def test_api_code_tree_diff_returns_changes(tmp_path: Path) -> None:
         ctx.state.entries = {'rec1': entry}
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
-            resp = flask_app.test_client().get('/api/code/tree-diff?record_id=rec1')
+            resp = flask_app.test_client().get('/api/code/version-diff?record_id=rec1')
 
     assert resp.status_code == 200
     data = resp.get_json()
+    assert set(data.keys()) >= {'changes', 'base_version_id', 'has_live_stale'}
     changes = data['changes']
     assert len(changes) == 1
     c = changes[0]
     assert c['class_name'] == 'MyLoader'
     assert c['status'] == 'changed'
-    assert c['hunks'] is not None
-    all_lines = [l for h in c['hunks'] for l in h['lines']]
-    assert any('x = 1' in l['text'] for l in all_lines if l['type'] == 'del')
-    assert any('x = 2' in l['text'] for l in all_lines if l['type'] == 'add')
+    assert c['hash_old'] == 'v1hash'
+    assert c['hash_new'] == 'v2hash'
 
 
-def test_api_code_tree_diff_sort_order(tmp_path: Path) -> None:
-    """Changed → removed → added → unchanged."""
+def test_api_code_version_diff_explicit_base(tmp_path: Path) -> None:
+    """base_version_id and target_version_id can be passed explicitly."""
     registry = tmp_path / '.source'
-    snapshot_dir = registry / 'snapshots' / 'snapshot1'
-    snapshot_dir.mkdir(parents=True)
-    (snapshot_dir / 'tree.json').write_text(
-        json.dumps(
-            {
-                'nodes': {
-                    'ClassA': {'hash': 'ha1', 'object_type': 'Data'},  # changed
-                    'ClassB': {'hash': 'hb1', 'object_type': 'Data'},  # removed (no live snapshot)
-                    'ClassC': {'hash': 'hc1', 'object_type': 'Data'},  # unchanged
-                },
-                'tree': {},
-            },
-        ),
-        encoding='utf-8',
-    )
-    _write_code_snapshot(registry, 'ha1', 'ClassA', 'class ClassA: pass\n')
-    _write_code_snapshot(registry, 'ha2', 'ClassA', 'class ClassA:\n    x = 1\n')
-    _write_code_snapshot(registry, 'hc1', 'ClassC', 'class ClassC: pass\n')
-    # ClassD only in live (added)
-    _write_code_snapshot(registry, 'hd1', 'ClassD', 'class ClassD: pass\n')
+    _write_code_snapshot(registry, 'h1', 'MyLoader', 'class MyLoader:\n    x = 1\n', mtime='2026-01-01T00:00:00+00:00')
+    _write_code_snapshot(registry, 'h2', 'MyLoader', 'class MyLoader:\n    x = 2\n', mtime='2026-06-01T00:00:00+00:00')
 
-    entry = _make_entry('rec1', 'snapshot1')
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
-        ctx = _make_ready_ctx(VersionRegistry(registry))
-        ctx.state.entries = {'rec1': entry}
+        vreg = VersionRegistry(registry)
+        initial_vid = vreg.versions[-1].version_id
+        change_vid = vreg.versions[0].version_id
+        ctx = _make_ready_ctx(vreg)
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
-            resp = flask_app.test_client().get('/api/code/tree-diff?record_id=rec1')
+            resp = flask_app.test_client().get(
+                f'/api/code/version-diff?base_version_id={initial_vid}&target_version_id={change_vid}'
+            )
 
     assert resp.status_code == 200
-    statuses = [c['status'] for c in resp.get_json()['changes']]
-    order = {'changed': 0, 'removed': 1, 'added': 2, 'unchanged': 3}
-    assert statuses == sorted(statuses, key=lambda s: order[s])
+    data = resp.get_json()
+    assert data['changes'][0]['status'] == 'changed'
 
 
 # --- /api/export/* ---

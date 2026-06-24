@@ -174,6 +174,14 @@ class TrackedObject:
         return state.source_hash if state else None
 
     @classmethod
+    def to_code_state(cls) -> CodeState:
+        return CodeState(
+            source_hash=calculate_cls_source_hash(cls),
+            class_name=cls.get_class_name(),
+            object_type=cls.object_type.get_class_name(),
+        )
+
+    @classmethod
     def _write_code_registry(cls) -> None:
         """Write source code and metadata to ``.source/code/{source_hash}/``.
 
@@ -191,11 +199,7 @@ class TrackedObject:
             tmp.write_text(get_source_code(cls), encoding='utf-8')
             tmp.replace(resolver.source_path)
 
-        state = CodeState(
-            source_hash=source_hash,
-            class_name=cls.get_class_name(),
-            object_type=cls.object_type.get_class_name(),
-        )
+        state = cls.to_code_state()
 
         previously_active = cls._previously_active_source_hash()
         if not resolver.meta_path.exists() or (previously_active is not None and previously_active != source_hash):

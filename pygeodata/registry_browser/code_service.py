@@ -208,66 +208,57 @@ def unified_diff_payload(
     return diff_hashes(hash_old, hash_new, full, vreg)
 
 
-def tree_diff(record_id: str, entries: dict, vreg: VersionRegistry) -> dict:
-    """Compare the stored dep tree for an entry against the live code registry.
+def version_diff(
+    vreg: VersionRegistry,
+    *,
+    record_id: str | None = None,
+    entries: dict | None = None,
+    base_version_id: str | None = None,
+    target_version_id: str = 'live',
+) -> dict:
+    """Compare two version snapshots and return a complete diff payload.
 
-    Returns the jsonifiable response dict.  Never raises — errors are encoded
-    as {'error': 'no_snapshot', 'message': ...}.
+    base_version_id is resolved in order:
+      1. Explicit base_version_id argument.
+      2. The version the entry (record_id) was produced at.
+    target_version_id defaults to 'live' (in-memory/disk current state).
+    Either base or target may be 'live'.
+
+    Returns {changes, base_version_id, has_live_stale} or an error dict.
+    Never raises — errors are encoded as {'error': ..., 'message': ...}.
     """
-    entry = entries.get(record_id)
-    if entry is None:
-        return {'__not_found__': True}
+    def _resolve(version_id: str) -> dict[str, str] | None:
+        if version_id == 'live':
+            return vreg.live_snapshot()
+        if version_id == 'none':
+            return {}
+        return vreg.snapshot_for_version(version_id)
 
-    dep_hash = entry.dep_hash
-    if not dep_hash:
-        return {'error': 'no_snapshot', 'message': 'Snapshot not available for this entry'}
+    # Resolve base
+    resolved_base_id = base_version_id
+    if resolved_base_id is None:
+        if record_id is None or entries is None:
+            return {'error': 'bad_request', 'message': 'base_version_id or record_id required'}
+        entry = entries.get(record_id)
+        if entry is None:
+            return {'__not_found__': True}
+        dep_hash = entry.dep_hash
+        if not dep_hash:
+            return {'error': 'no_snapshot', 'message': 'Snapshot not available for this entry'}
+        version = vreg.dep_hash_to_version.get(dep_hash)
+        resolved_base_id = version.version_id if version else None
 
-    stored_tree = vreg.tree_registry.get_snapshot_from_hash(dep_hash)
-    if stored_tree is None:
-        return {'error': 'no_snapshot', 'message': 'Snapshot not available for this entry'}
+    base = _resolve(resolved_base_id) if resolved_base_id else None
+    target = _resolve(target_version_id)
 
-    src = vreg.source_registry
-    live_nodes: dict[str, str] = {
-        cn: s.source_hash for cn in src.class_names if (s := src.get_latest_state_for_class(cn)) is not None
+    if base is None:
+        return {'error': 'no_snapshot', 'message': 'Base version not found'}
+    if target is None:
+        return {'error': 'no_snapshot', 'message': 'Target version not found'}
+
+    changes = [e.to_dict() for e in vreg.compare_versions(base, target)]
+    return {
+        'changes': changes,
+        'base_version_id': resolved_base_id,
+        'has_live_stale': vreg.has_live_stale(),
     }
-
-    changes = []
-    all_classes = set(stored_tree.nodes.keys()) | set(live_nodes.keys())
-
-    for class_name in sorted(all_classes):
-        stored_hash = stored_tree.get_source_hash(class_name)
-        live_hash = live_nodes.get(class_name)
-
-        if stored_hash and live_hash:
-            if stored_hash == live_hash:
-                changes.append({'class_name': class_name, 'status': 'unchanged', 'hunks': None})
-            else:
-                payload = diff_hashes(stored_hash, live_hash, full=True, vreg=vreg)
-                if payload is not None:
-                    changes.append(
-                        {
-                            'class_name': class_name,
-                            'status': 'changed',
-                            'hunks': payload['hunks'],
-                            'full_old': payload.get('full_old'),
-                            'full_new': payload.get('full_new'),
-                        },
-                    )
-                else:
-                    changes.append(
-                        {
-                            'class_name': class_name,
-                            'status': 'changed',
-                            'hunks': None,
-                            'full_old': None,
-                            'full_new': None,
-                        },
-                    )
-        elif stored_hash and not live_hash:
-            changes.append({'class_name': class_name, 'status': 'removed', 'source_hash': stored_hash})
-        else:
-            changes.append({'class_name': class_name, 'status': 'added', 'source_hash': live_hash})
-
-    order = {'changed': 0, 'removed': 1, 'added': 2, 'unchanged': 3}
-    changes.sort(key=lambda c: (order[c['status']], c['class_name']))
-    return {'changes': changes}

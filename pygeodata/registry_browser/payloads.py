@@ -393,6 +393,7 @@ def version_groups_payload(vreg: VersionRegistry, entry_dep_hashes: set[str] | N
             'mtime': vi.mtime,
             'label': vreg.label(vi),
             'class_names': vi.class_names,
+            'changed_class_names': vi.changed_class_names,
             'has_entries': version_has_entries.get(vi.version_id, False),
         }
         for vi in vreg.versions

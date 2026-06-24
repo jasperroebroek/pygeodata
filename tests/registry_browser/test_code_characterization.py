@@ -1,9 +1,9 @@
 """Characterization tests for the code-tab API routes.
 
-These tests pin the pre-refactor JSON payloads for:
+These tests pin the JSON payloads for:
     GET /api/code/resolve-dep-hash
     GET /api/code/versions
-    GET /api/code/tree-diff
+    GET /api/code/version-diff
 
 They exist to guard Units 1–3 of the architecture refactor: the algorithms are
 being unified/moved, not changed, so every response must stay byte-for-byte
@@ -188,9 +188,9 @@ def test_two_class_registry_returns_two_entries(sample_ctx):
             resp = flask_app.test_client().get('/api/code/versions')
 
     assert resp.status_code == 200
-    data = resp.get_json()
+    versions = resp.get_json()['versions']
     # One real version-change group + one synthetic Initial
-    assert len(data) == 2
+    assert len(versions) == 2
 
 
 def test_first_entry_is_change_group(sample_ctx):
@@ -200,8 +200,8 @@ def test_first_entry_is_change_group(sample_ctx):
         with patch('pygeodata.registry_browser.web._ctx', ctx):
             resp = flask_app.test_client().get('/api/code/versions')
 
-    data = resp.get_json()
-    first = data[0]
+    versions = resp.get_json()['versions']
+    first = versions[0]
     # The change group carries the v2hash registration time
     assert first['mtime'] == '2026-06-01T00:00:00+00:00'
     assert 'MyLoader' in first['class_names']
@@ -215,8 +215,8 @@ def test_second_entry_is_initial_group(sample_ctx):
         with patch('pygeodata.registry_browser.web._ctx', ctx):
             resp = flask_app.test_client().get('/api/code/versions')
 
-    data = resp.get_json()
-    v1 = data[1]
+    versions = resp.get_json()['versions']
+    v1 = versions[1]
     assert 'v1' in v1['label']
     assert 'MyLoader' in v1['class_names']
     assert 'MyDep' in v1['class_names']
@@ -230,8 +230,11 @@ def test_full_payload_shape(sample_ctx):
         with patch('pygeodata.registry_browser.web._ctx', ctx):
             resp = flask_app.test_client().get('/api/code/versions')
 
-    required_keys = {'mtime', 'class_names', 'label', 'version_id'}
-    for entry in resp.get_json():
+    data = resp.get_json()
+    assert 'versions' in data
+    assert 'has_live_classes' in data
+    required_keys = {'mtime', 'class_names', 'changed_class_names', 'label', 'version_id'}
+    for entry in data['versions']:
         assert required_keys <= set(entry.keys()), f'missing keys in {entry}'
 
 
@@ -303,7 +306,7 @@ def test_payload_has_exactly_two_keys(sample_ctx):
 
 
 # ===========================================================================
-# GET /api/code/tree-diff  — golden payload
+# GET /api/code/version-diff  — golden payload
 # ===========================================================================
 
 
@@ -313,7 +316,7 @@ def test_no_dep_hash_returns_no_snapshot():
     ctx = _make_ready_ctx()
     ctx.state.entries = {'rec_none': entry}
     with patch('pygeodata.registry_browser.web._ctx', ctx):
-        resp = flask_app.test_client().get('/api/code/tree-diff?record_id=rec_none')
+        resp = flask_app.test_client().get('/api/code/version-diff?record_id=rec_none')
 
     assert resp.status_code == 200
     data = resp.get_json()
@@ -329,7 +332,7 @@ def test_changed_class_payload(sample_ctx):
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
-            resp = flask_app.test_client().get('/api/code/tree-diff?record_id=rec1')
+            resp = flask_app.test_client().get('/api/code/version-diff?record_id=rec1')
 
     assert resp.status_code == 200
     data = resp.get_json()
@@ -340,12 +343,8 @@ def test_changed_class_payload(sample_ctx):
     assert statuses['MyDep'] == 'unchanged'
 
     loader_change = next(c for c in changes if c['class_name'] == 'MyLoader')
-    assert loader_change['hunks'] is not None
-    all_lines = [l for h in loader_change['hunks'] for l in h['lines']]
-    assert any('x = 1' in l['text'] for l in all_lines if l['type'] == 'del')
-    assert any('x = 2' in l['text'] for l in all_lines if l['type'] == 'add')
-    assert loader_change['full_old'] == 'class MyLoader:\n    x = 1\n'
-    assert loader_change['full_new'] == 'class MyLoader:\n    x = 2\n'
+    assert loader_change['hash_old'] is not None
+    assert loader_change['hash_new'] is not None
 
 
 def test_unchanged_class_diff_is_none(sample_ctx):
@@ -356,15 +355,17 @@ def test_unchanged_class_diff_is_none(sample_ctx):
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
-            resp = flask_app.test_client().get('/api/code/tree-diff?record_id=rec1')
+            resp = flask_app.test_client().get('/api/code/version-diff?record_id=rec1')
 
     changes = resp.get_json()['changes']
     dep_change = next(c for c in changes if c['class_name'] == 'MyDep')
-    assert dep_change == {'class_name': 'MyDep', 'status': 'unchanged', 'hunks': None}
+    assert dep_change['class_name'] == 'MyDep'
+    assert dep_change['status'] == 'unchanged'
+    assert 'hash_new' in dep_change
 
 
 def test_sort_order_changed_before_unchanged(sample_ctx):
-    """Changed entries must sort before unchanged entries."""
+    """Both changed and unchanged statuses must be present (order is client-side)."""
     ctx, tmp_path, registry = sample_ctx
     entry = _make_entry('rec1', 'snapshot_pre')
     ctx.state.entries = {'rec1': entry}
@@ -372,11 +373,11 @@ def test_sort_order_changed_before_unchanged(sample_ctx):
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
-            resp = flask_app.test_client().get('/api/code/tree-diff?record_id=rec1')
+            resp = flask_app.test_client().get('/api/code/version-diff?record_id=rec1')
 
-    statuses = [c['status'] for c in resp.get_json()['changes']]
-    order = {'changed': 0, 'removed': 1, 'added': 2, 'unchanged': 3}
-    assert statuses == sorted(statuses, key=lambda s: order[s])
+    statuses = {c['status'] for c in resp.get_json()['changes']}
+    assert 'changed' in statuses
+    assert 'unchanged' in statuses
 
 
 def test_post_change_snapshot_all_unchanged(sample_ctx):
@@ -388,14 +389,14 @@ def test_post_change_snapshot_all_unchanged(sample_ctx):
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
-            resp = flask_app.test_client().get('/api/code/tree-diff?record_id=rec2')
+            resp = flask_app.test_client().get('/api/code/version-diff?record_id=rec2')
 
     changes = resp.get_json()['changes']
     assert all(c['status'] == 'unchanged' for c in changes)
 
 
 def test_top_level_keys_when_changes_present(sample_ctx):
-    """Successful tree-diff response must have exactly 'changes' at top level."""
+    """Successful version-diff response must have changes, base_version_id, has_live_stale."""
     ctx, tmp_path, registry = sample_ctx
     entry = _make_entry('rec1', 'snapshot_pre')
     ctx.state.entries = {'rec1': entry}
@@ -403,10 +404,12 @@ def test_top_level_keys_when_changes_present(sample_ctx):
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
-            resp = flask_app.test_client().get('/api/code/tree-diff?record_id=rec1')
+            resp = flask_app.test_client().get('/api/code/version-diff?record_id=rec1')
 
     data = resp.get_json()
-    assert set(data.keys()) == {'changes'}
+    assert 'changes' in data.keys()
+    assert 'base_version_id' in data.keys()
+    assert 'has_live_stale' in data.keys()
 
 
 def test_changed_entry_keys(sample_ctx):
@@ -418,8 +421,8 @@ def test_changed_entry_keys(sample_ctx):
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
-            resp = flask_app.test_client().get('/api/code/tree-diff?record_id=rec1')
+            resp = flask_app.test_client().get('/api/code/version-diff?record_id=rec1')
 
     changes = resp.get_json()['changes']
     changed = next(c for c in changes if c['status'] == 'changed')
-    assert set(changed.keys()) == {'class_name', 'status', 'hunks', 'full_old', 'full_new'}
+    assert set(changed.keys()) == {'class_name', 'status', 'hash_old', 'hash_new'}

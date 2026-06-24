@@ -95,10 +95,16 @@ def test_initial_class_names_includes_both(two_class_registry):
     assert set(initial.class_names) == {'MyLoader', 'MyDep'}
 
 
-def test_v1_class_names_includes_only_changed(two_class_registry):
+def test_v1_changed_class_names_includes_only_changed(two_class_registry):
     vr = VersionRegistry(two_class_registry)
     v1 = vr.versions[0]
-    assert v1.class_names == ['MyLoader']
+    assert v1.changed_class_names == ['MyLoader']
+
+
+def test_v1_class_names_includes_all(two_class_registry):
+    vr = VersionRegistry(two_class_registry)
+    v1 = vr.versions[0]
+    assert set(v1.class_names) == {'MyLoader', 'MyDep'}
 
 
 # ===========================================================================

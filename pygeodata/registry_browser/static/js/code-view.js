@@ -19,7 +19,7 @@ import { scheduleSelectFirst } from './entries.js';
 let _codeVersions        = [];   // [{version_id, mtime, class_names, label}]
 let _codeClasses         = [];   // [{class_name, object_type, source_hash, is_loaded, is_stale}]
 let _codeAllClasses      = [];   // full class list for class-first mode (always 'now' state)
-let _codeSelectedVersion = null;  // version_id string
+let _codeSelectedVersion = null;  // version_id string or 'live'
 let _codeSelectedClass   = null;  // class_name string
 let _codeLoaded          = false;
 let _codeBrowseMode      = localStorage.getItem('code_browse_mode') ?? 'version'; // 'version' | 'class'
@@ -27,6 +27,8 @@ let _codeKindFilter      = 'all'; // 'all' | 'data' | 'figure'
 let _hideEmptyVersions   = localStorage.getItem('hide_empty_versions') === 'true'; // default show
 let _codeDiffMode        = false;  // true while showing a unified diff in the source pane
 let _diffExpand          = localStorage.getItem('diff_expand')    ?? 'hunks'; // 'hunks' | 'full'
+let _hasLiveStale        = false;  // true when in-memory code diverges from newest on-disk version
+let _hasLiveClasses      = false;  // true when TrackedObject._registry has any entries
 
 // Accessors used by events.js
 export function getCodeState()         { return { version: _codeSelectedVersion, className: _codeSelectedClass }; }
@@ -47,8 +49,16 @@ function _codeState() { return getCodeState(); }
 // ---------------------------------------------------------------------------
 
 export async function loadCodeView() {
-  const versions = await fetch('/api/code/versions').then((r) => r.json());
-  _codeVersions = versions;
+  const resp = await fetch('/api/code/versions').then((r) => r.json());
+  _codeVersions = resp.versions ?? resp;
+  _hasLiveClasses = resp.has_live_classes ?? false;
+  _hasLiveStale = false;
+  if (_hasLiveClasses && _codeVersions.length) {
+    const liveCheck = await fetch(
+      `/api/code/version-diff?base_version_id=${encodeURIComponent(_codeVersions[0].version_id)}&target_version_id=live`
+    ).then((r) => r.ok ? r.json() : null).catch(() => null);
+    _hasLiveStale = liveCheck?.has_live_stale ?? false;
+  }
   _codeAllClasses = [];
   _codeLoaded = true;
   applyCodeBrowseMode(_codeBrowseMode, { silent: true });
@@ -80,7 +90,14 @@ function renderCodeVersionList() {
     return;
   }
 
-  el.innerHTML = visible.map((v) => {
+  const liveActive = _codeSelectedVersion === 'live';
+  const staleDot = _hasLiveStale ? ' <span class="stale-dot" title="In-memory code differs from disk"></span>' : '';
+  const liveHtml = _hasLiveClasses ? `
+    <div class="code-version-item ${liveActive ? 'active' : ''}" data-version-id="live">
+      Live${staleDot}
+    </div>` : '';
+
+  el.innerHTML = liveHtml + visible.map((v) => {
     const isActive = v.version_id === _codeSelectedVersion;
     return `
       <div class="code-version-item ${isActive ? 'active' : ''}" data-version-id="${esc(v.version_id)}">
@@ -89,7 +106,13 @@ function renderCodeVersionList() {
   }).join('');
 
   el.querySelectorAll('.code-version-item').forEach((item) => {
-    item.onclick = () => selectCodeVersion(item.dataset.versionId);
+    item.onclick = () => {
+      if (item.dataset.versionId === 'live') {
+        _selectLiveVersion();
+      } else {
+        selectCodeVersion(item.dataset.versionId);
+      }
+    };
   });
 }
 
@@ -115,9 +138,8 @@ export async function selectCodeVersion(version_id, { silent = false } = {}) {
   _codeClasses = data;
   renderCodeClassList();
 
-  // If this version has a defined set of changed classes, show a diff overview
-  // instead of auto-selecting the first class.
-  const changedNames = versionMeta?.class_names ?? [];
+  // If this version has changed classes, show a diff overview instead of auto-selecting first.
+  const changedNames = versionMeta?.changed_class_names ?? [];
   if (changedNames.length) {
     await _showVersionChangeSummary(versionMeta);
     return;
@@ -125,6 +147,92 @@ export async function selectCodeVersion(version_id, { silent = false } = {}) {
 
   // Fallback (Initial group or no changes listed): select first class
   if (_codeClasses.length) selectCodeClass(_codeClasses[0].class_name, _codeClasses[0].source_hash, { silent: true });
+}
+
+async function _selectLiveVersion({ scrollToClass = null } = {}) {
+  pushHistory(_viewMode, _codeState());
+  _codeSelectedVersion = 'live';
+  renderCodeVersionList();
+  // Load class list from newest registered version for the sidebar
+  if (_codeVersions.length) {
+    _codeClasses = await fetch(_versionClassesUrl(_codeVersions[0])).then((r) => r.json());
+    renderCodeClassList();
+  }
+  await _showVersionDiff({ base: _codeVersions[0]?.version_id ?? null, target: 'live', scrollToClass });
+}
+
+// ---------------------------------------------------------------------------
+// _showVersionDiff — fetch /api/code/version-diff and render with dropdowns
+// ---------------------------------------------------------------------------
+
+async function _showVersionDiff({ base, target = 'live', scrollToClass = null } = {}) {
+  const panel = $('#code-source-panel');
+  if (!panel) return;
+
+  _codeDiffMode = true;
+  _summaryMode = true;
+  _diffAvailable = true;
+  _currentDiffData = null;
+  _codeSelectedClass = null;
+  renderCodeClassList();
+  _syncDiffSegments();
+
+  const targetId = target ?? (_hasLiveClasses ? 'live' : (_codeVersions[0]?.version_id ?? 'live'));
+  // Default base: predecessor of target in the version list, or oldest version.
+  const targetIdx = targetId === 'live' ? -1 : _codeVersions.findIndex((v) => v.version_id === targetId);
+  const defaultBase = targetId === 'live'
+    ? (_codeVersions[0]?.version_id ?? 'none')         // Live → compare with newest registered
+    : (_codeVersions[targetIdx + 1]?.version_id ?? 'none'); // vN → compare with predecessor (or empty)
+  const baseId = base ?? defaultBase;
+
+  let params = `target_version_id=${encodeURIComponent(targetId)}`;
+  params += `&base_version_id=${encodeURIComponent(baseId)}`;
+
+  let result;
+  try {
+    result = await fetch(`/api/code/version-diff?${params}`).then((r) => r.json());
+  } catch {
+    panel.innerHTML = '<div class="diff-no-snapshot">Could not load diff.</div>';
+    return;
+  }
+
+  if (result.error) {
+    panel.innerHTML = `<div class="diff-no-snapshot">${esc(result.message ?? result.error)}</div>`;
+    return;
+  }
+
+  // Base-only dropdown — target is whatever is selected in the sidebar.
+  // Only include Live when classes are actually loaded in memory.
+  const baseOptions = [
+    ...(_hasLiveClasses ? [{ value: 'live', label: 'Live' }] : []),
+    ..._codeVersions.map((v) => ({ value: v.version_id, label: v.label })),
+    { value: 'none', label: '(empty)' },
+  ];
+  const resolvedBase = result.base_version_id ?? baseId ?? defaultBase;
+
+  const header = document.createElement('div');
+  header.className = 'diff-version-header';
+  header.innerHTML =
+    `<span class="diff-version-label">Compare with</span>` +
+    `<select class="diff-version-select" data-role="base">` +
+    baseOptions.map((o) =>
+      `<option value="${esc(o.value)}"${o.value === resolvedBase ? ' selected' : ''}>${esc(o.label)}</option>`
+    ).join('') +
+    `</select>`;
+
+  header.querySelector('.diff-version-select').onchange = (e) => {
+    _showVersionDiff({ base: e.target.value, target: targetId });
+  };
+
+  panel.innerHTML = '';
+  panel.appendChild(header);
+
+  if (!result.changes?.length) {
+    panel.insertAdjacentHTML('beforeend', '<div class="diff-no-snapshot">No changes between these versions.</div>');
+    return;
+  }
+
+  _renderChangeSummary(panel, result.changes, { scrollToClass, append: true });
 }
 
 
@@ -165,7 +273,7 @@ function renderCodeClassList() {
       if (item.dataset.cls === _codeSelectedClass) {
         // Deselect — return to version change summary if this version has changed classes
         const versionMeta = _codeVersions.find((v) => v.version_id === _codeSelectedVersion);
-        const changedNames = versionMeta?.class_names ?? [];
+        const changedNames = versionMeta?.changed_class_names ?? [];
         if (changedNames.length) {
           _showVersionChangeSummary(versionMeta);
         }
@@ -400,6 +508,8 @@ function _renderDiffInto(container, diffData) {
       while (curOld < hunk.start_old && curNew < hunk.start_new) {
         rows.push(ctxRow(curOld++, curNew++));
       }
+      while (curOld < hunk.start_old) rows.push(ctxRow(curOld++, curNew));
+      while (curNew < hunk.start_new) rows.push(ctxRow(curOld, curNew++));
       rows.push(renderHunk(hunk));
       // Advance cursors past hunk lines
       for (const line of hunk.lines) {
@@ -432,6 +542,7 @@ let _currentDiffData  = null;
 let _diffOptions      = []; // [{label, hashA, hashB}]
 let _diffOptionIdx    = 0;  // which option is selected
 let _diffAvailable    = false; // true when selected class has at least one diffable version
+let _selectClassSeq   = 0;
 let _summaryMode      = false; // true when showing a multi-class version/tree-diff summary
 
 function _syncDiffSegments() {
@@ -474,6 +585,7 @@ function _rerenderCurrentDiff() {
   if (!panel) return;
   if (_currentDiffData) {
     _renderDiffInto(panel, _currentDiffData);
+    _renderDiffHeader(panel);
     return;
   }
   // Re-render all open tree-diff bodies (version change summary or tree-diff view).
@@ -491,9 +603,10 @@ async function _buildDiffOptions() {
   if (!selectedEntry) return [];
 
   const currentVersion   = _codeVersions[0] ?? null;
-  const selectedIdx      = _codeVersions.findIndex((v) => v.version_id === _codeSelectedVersion);
-  const prevVersion      = selectedIdx >= 0 ? _codeVersions[selectedIdx + 1] ?? null : null;
-  const isViewingCurrent = currentVersion && _codeSelectedVersion === currentVersion.version_id;
+  const isLive           = _codeSelectedVersion === 'live';
+  const effectiveIdx     = isLive ? 0 : _codeVersions.findIndex((v) => v.version_id === _codeSelectedVersion);
+  const prevVersion      = effectiveIdx >= 0 ? _codeVersions[effectiveIdx + 1] ?? null : null;
+  const isViewingCurrent = isLive || (currentVersion && _codeSelectedVersion === currentVersion.version_id);
 
   const opts = [];
 
@@ -502,8 +615,7 @@ async function _buildDiffOptions() {
       const classes = await fetch(_versionClassesUrl(prevVersion)).then((r) => r.json());
       const match   = classes.find((c) => c.class_name === _codeSelectedClass);
       if (match && match.source_hash !== selectedEntry.source_hash) {
-        // hash_old = prev (older), hash_new = selected (newer)
-        opts.push({ label: 'vs. prev', hash_old: match.source_hash, hash_new: selectedEntry.source_hash });
+        opts.push({ label: prevVersion.label, hash_old: match.source_hash, hash_new: selectedEntry.source_hash });
       }
     } catch { /* skip */ }
   }
@@ -512,32 +624,34 @@ async function _buildDiffOptions() {
     const currentEntry = _codeAllClasses.find((c) => c.class_name === _codeSelectedClass)
       ?? _codeClasses.find((c) => c.class_name === _codeSelectedClass);
     if (currentEntry && currentEntry.source_hash !== selectedEntry.source_hash) {
-      // hash_old = selected (older snapshot), hash_new = current (live)
-      opts.push({ label: 'vs. current', hash_old: selectedEntry.source_hash, hash_new: currentEntry.source_hash });
+      const currentLabel = _hasLiveClasses ? 'Live' : currentVersion.label;
+      opts.push({ label: currentLabel, hash_old: selectedEntry.source_hash, hash_new: currentEntry.source_hash });
     }
   }
 
   return opts;
 }
 
-// Render the diff-target selector (small pills above the diff table)
-function _renderDiffTargetBar(panel) {
-  const existing = panel.querySelector('.diff-target-bar');
+function _renderDiffHeader(panel) {
+  const existing = panel.querySelector('.diff-version-header');
   if (existing) existing.remove();
-  if (_diffOptions.length <= 1) return; // only one option — no selector needed
+  if (!_diffOptions.length) return;
 
-  const bar = document.createElement('div');
-  bar.className = 'diff-target-bar';
-  bar.innerHTML = _diffOptions.map((o, i) =>
-    `<button class="kind-tab${i === _diffOptionIdx ? ' active' : ''}" data-idx="${i}">${esc(o.label)}</button>`
-  ).join('');
-  bar.querySelectorAll('[data-idx]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      _diffOptionIdx = +btn.dataset.idx;
-      await _loadAndRenderDiff(_diffOptions[_diffOptionIdx]);
-    });
-  });
-  panel.prepend(bar);
+  const header = document.createElement('div');
+  header.className = 'diff-version-header';
+  header.innerHTML =
+    `<span class="diff-version-label">Compare with</span>` +
+    `<select class="diff-version-select">` +
+    _diffOptions.map((o, i) =>
+      `<option value="${i}"${i === _diffOptionIdx ? ' selected' : ''}>${esc(o.label)}</option>`
+    ).join('') +
+    `</select>`;
+
+  header.querySelector('select').onchange = async (e) => {
+    _diffOptionIdx = +e.target.value;
+    await _loadAndRenderDiff(_diffOptions[_diffOptionIdx]);
+  };
+  panel.prepend(header);
 }
 
 async function _loadAndRenderDiff(opt) {
@@ -549,7 +663,7 @@ async function _loadAndRenderDiff(opt) {
     const panel = $('#code-source-panel');
     if (panel) {
       _renderDiffInto(panel, data);
-      _renderDiffTargetBar(panel);
+      _renderDiffHeader(panel);
     }
     _syncDiffSegments();
   } catch { toast('Diff unavailable'); }
@@ -581,12 +695,18 @@ export function exitDiffMode() {
   else _syncDiffSegments();
 }
 
-export async function showWhatChanged(recordId) {
+export async function showWhatChanged(recordId, entryClassName = null) {
   try {
-    const data = await fetch(`/api/code/tree-diff?record_id=${encodeURIComponent(recordId)}`).then((r) => r.json());
+    pushHistory(_viewMode, null);
     showView('code');
     if (!_codeLoaded) await loadCodeView();
-    if (data.error === 'no_snapshot') {
+
+    // Resolve the base version for this entry (the version it was produced at).
+    const data = await fetch(
+      `/api/code/version-diff?record_id=${encodeURIComponent(recordId)}`
+    ).then((r) => r.json());
+
+    if (data.error === 'no_snapshot' || data.error === 'bad_request') {
       const panel = $('#code-source-panel');
       if (panel) panel.innerHTML = `<div class="diff-no-snapshot">${esc(data.message ?? 'Snapshot not available for this entry')}</div>`;
       _codeDiffMode = false;
@@ -595,40 +715,27 @@ export async function showWhatChanged(recordId) {
       _syncDiffSegments();
       return;
     }
-    _codeDiffMode = true;
-    _summaryMode = true;
-    _diffAvailable = true;
-    _currentDiffData = null;
-    _codeSelectedClass = null;
-    _syncDiffSegments();
-    renderTreeDiffResult(data.changes);
-  } catch { toast('Could not load tree diff'); }
+
+    const baseVersionId = data.base_version_id ?? null;
+    _hasLiveStale = data.has_live_stale ?? false;
+
+    // Select Live in the sidebar when classes are loaded; otherwise fall back to newest version.
+    const targetId = _hasLiveClasses ? 'live' : (_codeVersions[0]?.version_id ?? 'live');
+    _codeSelectedVersion = targetId;
+
+    const baseVersionMeta = _codeVersions.find((v) => v.version_id === baseVersionId) ?? _codeVersions[0];
+    if (baseVersionMeta) {
+      _codeClasses = await fetch(_versionClassesUrl(baseVersionMeta)).then((r) => r.json());
+    }
+    renderCodeVersionList();
+
+    await _showVersionDiff({ base: baseVersionId, target: targetId, scrollToClass: entryClassName });
+  } catch { toast('Could not load diff'); }
 }
 
 const _STATUS_ORDER = { changed: 0, added: 1, unchanged: 2, removed: 3 };
 
-async function _showVersionChangeSummary(versionMeta) {
-  const panel = $('#code-source-panel');
-  if (!panel) return;
-
-  _codeDiffMode = true;
-  _summaryMode = true;
-  _diffAvailable = true;
-  _currentDiffData = null;
-  _codeSelectedClass = null;
-  renderCodeClassList();
-  _syncDiffSegments();
-
-  let changes;
-  try {
-    changes = await fetch(
-      `/api/code/version-changes?version_id=${encodeURIComponent(versionMeta.version_id)}`
-    ).then((r) => r.json());
-  } catch {
-    panel.innerHTML = '<div class="diff-no-snapshot">Could not load version changes.</div>';
-    return;
-  }
-
+function _renderChangeSummary(panel, changes, { scrollToClass = null, append = false } = {}) {
   // Sort: changed → added → unchanged → removed
   changes = [...changes].sort((a, b) =>
     (_STATUS_ORDER[a.status] ?? 99) - (_STATUS_ORDER[b.status] ?? 99)
@@ -652,7 +759,7 @@ async function _showVersionChangeSummary(versionMeta) {
       ${canExpand ? `<div class="tree-diff-body"></div>` : ''}
     </div>`;
   }).join('');
-  panel.innerHTML = '';
+  if (!append) panel.innerHTML = '';
   panel.appendChild(wrap);
 
   wrap.querySelectorAll('.tree-diff-header').forEach((hdr) => {
@@ -693,77 +800,21 @@ async function _showVersionChangeSummary(versionMeta) {
 
     if (card.classList.contains('open')) _maybeRender();
   });
+
+  if (scrollToClass) {
+    const target = wrap.querySelector(`.tree-diff-class[data-class="${CSS.escape(scrollToClass)}"]`);
+    target?.scrollIntoView({ block: 'nearest' });
+  }
 }
 
-
-function renderTreeDiffResult(changes) {
-  const panel = $('#code-source-panel');
-  if (!panel) return;
-  if (!changes?.length) {
-    panel.innerHTML = '<div class="diff-no-snapshot">No dependency changes found.</div>';
-    return;
-  }
-  const wrap = document.createElement('div');
-  wrap.className = 'tree-diff-container';
-  wrap.innerHTML = changes.map((c) => {
-    const open = (c.status === 'changed' || c.status === 'removed') ? ' open' : '';
-    const hasDiff = c.diff && c.status === 'changed';
-    const hasSource = (c.status === 'added' || c.status === 'removed') && c.source_hash;
-    const canExpand = hasDiff || hasSource;
-    return `<div class="tree-diff-class ${esc(c.status)}${open}"
-               data-class="${esc(c.class_name)}"
-               data-source-hash="${esc(c.source_hash ?? '')}">
-      <div class="tree-diff-header">
-        <span class="tree-diff-status">${esc(c.status)}</span>
-        <span class="tree-diff-name">${esc(c.class_name)}</span>
-        ${canExpand ? '<span class="tree-diff-expand">▶</span>' : ''}
-      </div>
-      ${canExpand ? `<div class="tree-diff-body"></div>` : ''}
-    </div>`;
-  }).join('');
-  panel.innerHTML = '';
-  panel.appendChild(wrap);
-
-  // Wire headers — click to expand/collapse, lazy-render on first open
-  wrap.querySelectorAll('.tree-diff-header').forEach((hdr) => {
-    const card = hdr.parentElement;
-    const body = card.querySelector('.tree-diff-body');
-    const className = card.dataset.class;
-    const change = changes.find((c) => c.class_name === className);
-    if (!body || !change) return;
-
-    const _maybeRender = async () => {
-      if (body.dataset.rendered) return;
-      body.dataset.rendered = '1';
-      if (change.hunks) {
-        const diffData = { hunks: change.hunks, full_old: change.full_old ?? null, full_new: change.full_new ?? null };
-        body.dataset.diff = JSON.stringify(diffData);
-        _renderDiffInto(body, diffData);
-        _syncDiffSegments();
-      } else if (change.source_hash) {
-        body.innerHTML = '<div class="diff-loading">Loading…</div>';
-        try {
-          const data = await fetch(
-            `/api/code/snapshot?source_hash=${encodeURIComponent(change.source_hash)}`
-          ).then((r) => r.json());
-          body.innerHTML = data.html ?? '<div class="diff-no-snapshot">Source unavailable</div>';
-          bindCodeSourceLinks();
-        } catch { body.innerHTML = '<div class="diff-no-snapshot">Source unavailable</div>'; }
-      }
-    };
-
-    hdr.onclick = () => {
-      card.classList.toggle('open');
-      if (card.classList.contains('open')) _maybeRender();
-    };
-
-    if (card.classList.contains('open')) _maybeRender();
-  });
+async function _showVersionChangeSummary(versionMeta) {
+  await _showVersionDiff({ target: versionMeta.version_id });
 }
 
 
 export async function selectCodeClass(className, sourceHash, { silent = false } = {}) {
   if (!silent) pushHistory(_viewMode, _codeState());
+  const seq = ++_selectClassSeq;
   _codeSelectedClass = className;
   _codeDiffMode = false;
   _summaryMode = false;
@@ -780,6 +831,8 @@ export async function selectCodeClass(className, sourceHash, { silent = false } 
     fetch(`/api/code/snapshot?source_hash=${encodeURIComponent(sourceHash)}`).then((r) => r.json()).catch(() => null),
     _buildDiffOptions(),
   ]);
+
+  if (seq !== _selectClassSeq) return;
 
   _diffAvailable = diffOpts.length > 0;
 

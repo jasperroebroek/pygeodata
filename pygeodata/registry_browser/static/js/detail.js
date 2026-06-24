@@ -395,7 +395,7 @@ export function bindFileActions(root) {
   });
 
   root.querySelectorAll(".js-what-changed").forEach((btn) => {
-    btn.onclick = () => _showWhatChanged(btn.dataset.recordId);
+    btn.onclick = () => _showWhatChanged(btn.dataset.recordId, btn.dataset.className);
   });
 
   root.querySelectorAll(".js-delete-entry").forEach((btn) => {
@@ -673,7 +673,7 @@ function buildEntryCard(entry) {
     : "";
 
   const whatChangedBtn = entry.dep_hash_stale && entry.record_id
-    ? `<button class="act-btn js-what-changed" data-record-id="${esc(entry.record_id)}">Show diff</button>`
+    ? `<button class="act-btn js-what-changed" data-record-id="${esc(entry.record_id)}" data-class-name="${esc(entry.class_name ?? '')}">Show diff</button>`
     : "";
 
   const deleteBtn = entry.record_id

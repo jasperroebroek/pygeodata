@@ -14,6 +14,10 @@ VersionRegistry is the single authoritative source for:
     .is_dependency_hash_stale(dependency_hash) -> bool  (True if any class in snapshot differs from current)
     .version_change_summary(version)           -> list[CodeEvent] | None
     .version_change_summary_from_id(vid)       -> list[CodeEvent] | None
+    .live_snapshot()                           -> dict[class_name, source_hash]  (live in-memory state)
+    .has_live_stale()                          -> bool  (True when any loaded class diverges from disk)
+    .snapshot_for_version(version_id)          -> dict[class_name, source_hash] | None
+    .compare_versions(base, target)            -> list[CodeEvent]
     .source_registry                           -> SourceRegistry
     .tree_registry                             -> TreeRegistry
 
@@ -38,6 +42,7 @@ from pathlib import Path
 
 from pygeodata.registry import SourceRegistry, TreeRegistry
 from pygeodata.registry_types import ChangeStatus, CodeEvent, CodeState
+from pygeodata.tracked_object import TrackedObject
 
 
 @total_ordering
@@ -76,7 +81,12 @@ class Version:
 
     @property
     def class_names(self) -> list[str]:
-        """Classes that are ADDED or CHANGED in this version (not REMOVED/UNCHANGED)."""
+        """All class names present in this version (ADDED, CHANGED, REMOVED, UNCHANGED)."""
+        return sorted({e.class_name for e in self.events})
+
+    @property
+    def changed_class_names(self) -> list[str]:
+        """Class names that are ADDED or CHANGED in this version."""
         return sorted({e.class_name for e in self.events if e.status in (ChangeStatus.ADDED, ChangeStatus.CHANGED)})
 
     @property
@@ -449,3 +459,67 @@ class VersionRegistry:
     def dep_hash_to_version(self) -> dict[str, Version]:
         """Full dep_hash → Version mapping (read-only view)."""
         return dict(self._dep_hash_to_version)
+
+    def live_snapshot(self) -> dict[str, str]:
+        """Return {class_name: source_hash} for the current live state.
+
+        Prefers the in-memory hash from a loaded TrackedObject over the newest
+        on-disk hash so that unsaved edits are reflected.
+        """
+        nodes: dict[str, str] = {}
+        for class_name in self._src.class_names:
+            state = self._src.get_latest_state_for_class(class_name)
+            if state is None:
+                continue
+            cls = TrackedObject.find_object_class(class_name)
+            nodes[class_name] = cls.to_code_state().source_hash if cls is not None else state.source_hash
+        return nodes
+
+    def has_live_stale(self) -> bool:
+        """True when any loaded class's in-memory hash diverges from its newest on-disk hash."""
+        for class_name in self._src.class_names:
+            state = self._src.get_latest_state_for_class(class_name)
+            if state is None:
+                continue
+            cls = TrackedObject.find_object_class(class_name)
+            if cls is not None and cls.to_code_state().source_hash != state.source_hash:
+                return True
+        return False
+
+    def snapshot_for_version(self, version_id: str) -> dict[str, str] | None:
+        """Return {class_name: source_hash} for version_id, or None if not found."""
+        vi = self.version_by_id(version_id)
+        if vi is None:
+            return None
+        return self.class_snapshot_at_version(vi)
+
+    def compare_versions(
+        self,
+        base: dict[str, str],
+        target: dict[str, str],
+    ) -> list[CodeEvent]:
+        """Compare two {class_name: source_hash} snapshots; return CodeEvents sorted by class_name.
+
+        For hashes not found on disk (e.g. an unregistered in-memory live hash),
+        a CodeState is constructed via TrackedObject.to_code_state().
+        """
+
+        def _resolve(class_name: str, source_hash: str) -> CodeState | None:
+            state = self._src.get_state_by_hash(source_hash)
+            if state is not None:
+                return state
+            cls = TrackedObject.find_object_class(class_name)
+            if cls is not None and cls.to_code_state().source_hash == source_hash:
+                return cls.to_code_state()
+            return None
+
+        events: list[CodeEvent] = []
+        for class_name in sorted(set(base) | set(target)):
+            h_old = base.get(class_name)
+            h_new = target.get(class_name)
+            state_old = _resolve(class_name, h_old) if h_old else None
+            state_new = _resolve(class_name, h_new) if h_new else None
+            if state_old is None and state_new is None:
+                continue
+            events.append(CodeEvent(state_new=state_new, state_old=state_old))
+        return events

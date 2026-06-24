@@ -82,13 +82,8 @@ export function renderPills() {
   });
 
   if (state.version_filter) {
-    let label;
-    if (state.version_filter === 'now') {
-      label = 'Now';
-    } else {
-      const opt = (_lastVersionOptions ?? []).find((o) => o.mtime === state.version_filter);
-      label = opt?.label ?? state.version_filter;
-    }
+    const opt = (_lastVersionOptions ?? []).find((o) => o.version_id === state.version_filter);
+    const label = opt?.label ?? state.version_filter;
     const pill = document.createElement("span");
     pill.className = "pill pill-filter";
     pill.innerHTML = `<span class="pill-meta">Snapshot</span> ${esc(label)}<button class="pill-rm">✕</button>`;

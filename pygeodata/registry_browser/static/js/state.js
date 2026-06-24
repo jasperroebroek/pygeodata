@@ -78,8 +78,12 @@ function _restore(snapshot) {
   state.logic_mode        = snapshot.logic_mode       ?? state.logic_mode;
   state.row_display       = snapshot.row_display      ?? state.row_display;
   state.version_filter    = snapshot.version_filter    ?? null;
-  state.spec_filters      = snapshot.spec_filters;
-  state.filters           = snapshot.filters;
+  state.spec_filters      = {
+    crs:        [...snapshot.spec_filters.crs],
+    resolution: [...snapshot.spec_filters.resolution],
+    bounds:     [...snapshot.spec_filters.bounds],
+  };
+  state.filters           = snapshot.filters.map((f) => ({ ...f }));
 }
 
 /**

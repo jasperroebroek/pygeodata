@@ -193,7 +193,7 @@ def test_version_groups_single_change(two_version_registry: Path) -> None:
     assert len(vr.versions) == 2
     v2, v1 = vr.versions
     assert vr.version_number(v2) == 2
-    assert v2.class_names == ['MyLoader']
+    assert v2.changed_class_names == ['MyLoader']
     assert vr.version_number(v1) == 1
     assert 'MyLoader' in v1.class_names
 

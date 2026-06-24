@@ -214,8 +214,12 @@ def api_code_versions():
     """Return merged version groups sorted newest first, with a synthetic Initial entry last."""
     if _ctx.is_loading() or _ctx.state is None:
         return _loading
+    from pygeodata.tracked_object import TrackedObject
     entry_dep_hashes = {e.dep_hash for e in _ctx.state.entries.values() if e.dep_hash}
-    return jsonify(payloads.version_groups_payload(_ctx.state.version_registry, entry_dep_hashes))
+    return jsonify({
+        'versions': payloads.version_groups_payload(_ctx.state.version_registry, entry_dep_hashes),
+        'has_live_classes': bool(TrackedObject._registry),
+    })
 
 
 @app.get('/api/code/resolve-dep-hash')
@@ -321,20 +325,34 @@ def api_code_diff():
     return jsonify(result)
 
 
-@app.get('/api/code/tree-diff')
-def api_code_tree_diff():
-    """Compare stored dep tree for an entry against the live tree.
+@app.get('/api/code/version-diff')
+def api_code_version_diff():
+    """Compare two version snapshots and return a per-class change list.
 
-    Returns per-class change status sorted: changed, removed, added, unchanged.
+    Pass either:
+      - record_id          to use the entry's version as base (target defaults to 'live')
+      - base_version_id    to set the base explicitly (version_id or 'live')
+    Optional: target_version_id (version_id or 'live'; defaults to 'live')
+
+    Returns {changes, base_version_id, has_live_stale}.
     """
     if _ctx.is_loading() or _ctx.state is None:
         return _loading
 
-    record_id = request.args.get('record_id', '')
-    if not record_id:
+    record_id       = request.args.get('record_id') or None
+    base_version_id = request.args.get('base_version_id') or None
+    target_version_id = request.args.get('target_version_id') or 'live'
+
+    if record_id is None and base_version_id is None:
         abort(400)
 
-    result = code_service.tree_diff(record_id, _ctx.state.entries, _ctx.state.version_registry)
+    result = code_service.version_diff(
+        _ctx.state.version_registry,
+        record_id=record_id,
+        entries=_ctx.state.entries if record_id else None,
+        base_version_id=base_version_id,
+        target_version_id=target_version_id,
+    )
     if result.get('__not_found__'):
         abort(404)
     return jsonify(result)
