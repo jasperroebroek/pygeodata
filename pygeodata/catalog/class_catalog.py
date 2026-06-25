@@ -1,4 +1,4 @@
-from pygeodata.catalog.types import ClassInfo, EntryInfo, RegistryClassInfo
+from pygeodata.catalog.types import ClassInfo, EntryInfo
 from pygeodata.hash import calculate_cls_source_hash
 from pygeodata.paths import CodeRegistryPathConstructor, TreeRegistryPathConstructor
 from pygeodata.registries.registry import EntryRegistry, SourceRegistry, TreeRegistry
@@ -11,19 +11,19 @@ def source_info_from_disk(
     class_name: str,
     src: SourceRegistry | None = None,
     trees: TreeRegistry | None = None,
-) -> RegistryClassInfo:
+) -> ClassInfo:
     """Read class metadata from the content-addressed code registry.
 
     Uses :class:`SourceRegistry` to find the most recent snapshot for
     ``class_name``, then searches ``snapshots/*/tree.json`` for a dependency
     tree that has this class as root.
 
-    Returns a default :class:`RegistryClassInfo` if nothing is found.
+    Returns a default :class:`ClassInfo` if nothing is found.
     """
     registry = src if src is not None else SourceRegistry()
     latest = registry.get_latest_state_for_class(class_name)
     if latest is None:
-        return RegistryClassInfo()
+        return ClassInfo(class_name=class_name, object_type=None, loaded=False)
 
     source_hash = latest.source_hash
     code_resolver = CodeRegistryPathConstructor.from_source_hash(source_hash) if source_hash else None
@@ -46,18 +46,18 @@ def source_info_from_disk(
 
     state = registry.get_state_by_hash(source_hash) if source_hash else None
 
-    return RegistryClassInfo(
+    return ClassInfo(
+        class_name=class_name,
         object_type=state.object_type if state else None,
+        loaded=False,
         call_dependency_names=call_dep_names,
         inheritance_dependency_names=inh_dep_names,
-        stored_source_hash=source_hash,
-        stored_dependency_tree_hash=None,
-        source_path=str(code_resolver.source_path.resolve())
+        class_source_path=str(code_resolver.source_path.resolve())
         if code_resolver and code_resolver.source_path.exists()
         else None,
-        graph_path=graph_path_str,
-        registry_path=str(meta_path.resolve()) if meta_path and meta_path.exists() else None,
-        tree_path=tree_path_str,
+        class_graph_path=graph_path_str,
+        class_registry_path=str(meta_path.resolve()) if meta_path and meta_path.exists() else None,
+        class_tree_path=tree_path_str,
     )
 
 
@@ -135,10 +135,10 @@ def merge_unloaded_classes(
             loaded=False,
             call_dependency_names=info.call_dependency_names,
             inheritance_dependency_names=info.inheritance_dependency_names,
-            class_source_path=info.source_path,
-            class_graph_path=info.graph_path,
-            class_registry_path=info.registry_path,
-            class_tree_path=info.tree_path,
+            class_source_path=info.class_source_path,
+            class_graph_path=info.class_graph_path,
+            class_registry_path=info.class_registry_path,
+            class_tree_path=info.class_tree_path,
             deps_stale=deps_stale,
         )
 

@@ -8,18 +8,6 @@ from pygeodata.config import FORMAT_VERSION
 from pygeodata.spec import SpatialSpec, SpecKeys, compute_bounds_latlon, format_resolution
 
 
-@dataclass(slots=True)
-class RegistryClassInfo:
-    object_type: str | None = None
-    call_dependency_names: list[str] = field(default_factory=list)
-    inheritance_dependency_names: list[str] = field(default_factory=list)
-    stored_source_hash: str | None = None
-    stored_dependency_tree_hash: str | None = None
-    source_path: str | None = None
-    graph_path: str | None = None
-    registry_path: str | None = None
-    tree_path: str | None = None
-
 
 @dataclass(slots=True)
 class FileRef:
