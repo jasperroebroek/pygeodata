@@ -24,6 +24,7 @@ change, enabling reproducible, incremental pipelines.
    quickstart
    cli
    api
+   registry_architecture
    whats_new
 
 .. toctree::

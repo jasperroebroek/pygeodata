@@ -365,10 +365,10 @@ def code_show(registry_path: str | None, full_hash: bool, class_name: str | None
 
 @code.command('versions')
 @_registry_option
-@click.option('--class', 'class_name', default=None, help='Filter to groups containing this class.')
-@click.option('--hash', 'source_hash', default=None, help='Which version group owns this source hash.')
+@click.option('--class', 'class_name', default=None, help='List version groups that include this class.')
+@click.option('--hash', 'source_hash', default=None, help='Show which version group owns this source hash (prefix ok).')
 def code_versions(registry_path: str | None, class_name: str | None, source_hash: str | None) -> None:
-    """Show version groups, newest-first."""
+    """Look up which version group contains a given class or source hash."""
     root = _apply_registry_path(registry_path)
     vreg = VersionRegistry(root)
 
@@ -588,9 +588,9 @@ def _echo_version_group(vi: Version, vreg: VersionRegistry, full_hash: bool = Fa
 @_full_hash_option
 @click.option('--class', 'class_name', default=None, help='Show version history for a specific class.')
 def versions_cmd(registry_path: str | None, full_hash: bool, class_name: str | None) -> None:
-    """Show version groups with classes and dep-tree snapshots, newest-first.
+    """Show the full version timeline: groups, changed classes, and dep-tree snapshots.
 
-    With --class, show that class's full state history instead (mirrors the
+    With --class, show that class's full snapshot history instead (mirrors the
     browser's per-class Versions card).
     """
     root = _apply_registry_path(registry_path)

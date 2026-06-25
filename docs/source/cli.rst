@@ -19,6 +19,15 @@ clear error listing the candidates.
     │     --import-all            Import all .py files from cwd before starting
     │     --verbose-import        Print each module imported (with --import-all)
     │
+    ├── classes
+    │     Show staleness for all loaded and known classes, grouped by type.
+    │     --import-all            Import all .py files from cwd first
+    │     --verbose-import        Print each module imported (with --import-all)
+    │     --type TEXT             Filter to one object type: DATA or FIGURE
+    │     --hide-current          Omit classes with no staleness
+    │     --full-hash             Print full source hashes
+    │     --registry TEXT         Path to .source/ registry root
+    │
     ├── clean-cache
     │     Remove stale or invalid cache entries.
     │     --no-dry-run            Actually delete files (default is a dry run)
@@ -34,9 +43,10 @@ clear error listing the candidates.
     │     Import a pygeodata .tar.gz export archive into the current project.
     │
     ├── versions
-    │     Cross-cutting view: version groups with classes + dep-tree snapshots,
-    │     newest-first.  With --class, show that class's full snapshot history
-    │     (mirrors the browser Versions card).
+    │     Show the full version timeline: every group with its changed classes
+    │     and associated dep-tree snapshots, newest-first.
+    │     With --class, show that class's full snapshot history instead
+    │     (mirrors the browser's per-class Versions card).
     │     --registry TEXT         Path to .source/ (defaults to project config)
     │     --full-hash             Print full hashes instead of 12-char prefixes
     │     --class TEXT            Show one class's full snapshot history
@@ -66,8 +76,10 @@ clear error listing the candidates.
     │   │     --no-color          Disable ANSI diff colours
     │   │
     │   └── versions
-    │         Show version groups containing a given class or hash.
-    │         --class TEXT        Filter to groups that include this class
+    │         Look up which version group contains a given class or source hash.
+    │         Unlike the top-level ``versions`` command, this is a scoped lookup
+    │         tool — it does not print the full timeline.
+    │         --class TEXT        List groups that include this class
     │         --hash TEXT         Show which group owns this source hash (prefix ok)
     │
     ├── snapshot
