@@ -2,7 +2,6 @@ from pygeodata.catalog.types import ClassInfo, EntryInfo
 from pygeodata.hash import calculate_cls_source_hash
 from pygeodata.paths import CodeRegistryPathConstructor, TreeRegistryPathConstructor
 from pygeodata.registries.registry import EntryRegistry, SourceRegistry, TreeRegistry
-from pygeodata.catalog.io_utils import existing_path_str
 from pygeodata.tracked_object import TrackedObject
 from pygeodata.registries.versioning import VersionRegistry
 
@@ -83,10 +82,10 @@ def discover_loaded_classes() -> dict[str, ClassInfo]:
             loaded=True,
             call_dependency_names=call_dependency_names,
             inheritance_dependency_names=inheritance_dependency_names,
-            class_source_path=existing_path_str(code_resolver.source_path),
-            class_graph_path=existing_path_str(tree_resolver.graph_path),
-            class_registry_path=existing_path_str(code_resolver.meta_path),
-            class_tree_path=existing_path_str(tree_resolver.tree_path),
+            class_source_path=str(code_resolver.source_path) if code_resolver.source_path.exists() else None,
+            class_graph_path=str(tree_resolver.graph_path) if tree_resolver.graph_path.exists() else None,
+            class_registry_path=str(code_resolver.meta_path) if code_resolver.meta_path.exists() else None,
+            class_tree_path=str(tree_resolver.tree_path) if tree_resolver.tree_path.exists() else None,
             source_stale=source_stale,
             deps_stale=deps_stale,
         )

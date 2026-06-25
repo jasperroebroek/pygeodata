@@ -11,7 +11,6 @@ from difflib import SequenceMatcher, unified_diff
 from pygeodata.hash import calculate_cls_source_hash
 from pygeodata.paths import CodeRegistryPathConstructor
 from pygeodata.catalog.types import CodeClassState
-from pygeodata.registry_browser.popups import render_source_html
 from pygeodata.tracked_object import TrackedObject
 from pygeodata.registries.versioning import VersionRegistry
 
@@ -157,7 +156,7 @@ def version_classes(version_id: str, vreg: VersionRegistry) -> list[CodeClassSta
 
 
 def snapshot_html(source_hash: str, vreg: VersionRegistry) -> dict | None:
-    """Return {'class_name': ..., 'html': ...} for the given source hash.
+    """Return {'class_name': ..., 'lines': [...]} for the given source hash.
 
     Returns None if the snapshot is not found (caller should abort(404)).
     """
@@ -168,8 +167,11 @@ def snapshot_html(source_hash: str, vreg: VersionRegistry) -> dict | None:
 
     class_name = src.get_class_name_from_hash(source_hash)
     known_classes = frozenset(TrackedObject._registry.keys()) | frozenset(src.class_names)
-    html_body = render_source_html(source_text, known_classes, class_name)
-    return {'class_name': class_name, 'html': html_body}
+    lines = [
+        {'text': line, 'cls_link': line.strip() if line.strip() in known_classes else None}
+        for line in source_text.splitlines()
+    ]
+    return {'class_name': class_name, 'lines': lines}
 
 
 def diff_hashes(hash_old: str, hash_new: str, full: bool, vreg: VersionRegistry) -> dict | None:

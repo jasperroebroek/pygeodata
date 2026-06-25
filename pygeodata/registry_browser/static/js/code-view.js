@@ -419,6 +419,23 @@ async function selectCodeVersionForClass(version_id, className) {
 }
 
 // ---------------------------------------------------------------------------
+// Snapshot renderer — builds a source table from data.lines
+// ---------------------------------------------------------------------------
+
+function _renderSnapshotLines(lines) {
+  const rows = lines.map((line, i) => {
+    let cell;
+    if (line.cls_link) {
+      cell = `<a class="src-cls-link" data-cls="${esc(line.cls_link)}">${esc(line.text)}</a>`;
+    } else {
+      cell = esc(line.text);
+    }
+    return `<tr class="diff-ctx"><td class="diff-ln">${i + 1}</td><td class="diff-code">${cell}</td></tr>`;
+  });
+  return `<table class="diff-table diff-table--inline source-table">${rows.join('')}</table>`;
+}
+
+// ---------------------------------------------------------------------------
 // Diff renderer — inline / side-by-side / expand
 // ---------------------------------------------------------------------------
 
@@ -786,8 +803,12 @@ function _renderChangeSummary(panel, changes, { scrollToClass = null, append = f
           const data = await fetch(
             `/api/code/snapshot?source_hash=${encodeURIComponent(sourceHash)}`
           ).then((r) => r.json());
-          body.innerHTML = data.html ?? '<div class="diff-no-snapshot">Source unavailable</div>';
-          bindCodeSourceLinks();
+          if (data.lines) {
+            body.innerHTML = _renderSnapshotLines(data.lines);
+            bindCodeSourceLinks();
+          } else {
+            body.innerHTML = '<div class="diff-no-snapshot">Source unavailable</div>';
+          }
         }
       } catch { body.innerHTML = '<div class="diff-no-snapshot">Unavailable</div>'; }
     };
@@ -836,10 +857,10 @@ export async function selectCodeClass(className, sourceHash, { silent = false } 
 
   _diffAvailable = diffOpts.length > 0;
 
-  if (data) {
+  if (data?.lines) {
     const panel = $('#code-source-panel');
     if (panel) {
-      panel.innerHTML = data.html;
+      panel.innerHTML = _renderSnapshotLines(data.lines);
       bindCodeSourceLinks();
     }
   } else {

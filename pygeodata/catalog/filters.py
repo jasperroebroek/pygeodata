@@ -104,6 +104,51 @@ def entry_matches_filters(
     return all(matches)
 
 
+def prescan_text(
+    class_name: str,
+    params_blob: str,
+    parsed_exprs: list[tuple[list['Filter'], str]],
+) -> bool:
+    """Cheap pre-filter against raw text before paying for full enrichment.
+
+    Returns False only when the entry can be definitively ruled out.
+    Returns True when uncertain (false positives allowed — enrichment confirms).
+    ``params_blob`` should already be lowercased by the caller.
+    """
+    for filters, logic_mode in parsed_exprs:
+        term_results = []
+        for flt in filters:
+            val = flt.value.lower()
+            if flt.target is FilterTarget.CLASS:
+                text = class_name.lower()
+            elif flt.target is FilterTarget.CRS:
+                term_results.append(True)
+                continue
+            else:
+                text = params_blob
+
+            if flt.operator is FilterOperator.CONTAINS:
+                hit = val in text
+            elif flt.operator is FilterOperator.NOT_CONTAINS:
+                hit = val not in text
+            elif flt.operator is FilterOperator.EQUALS:
+                hit = val in text  # conservative: may over-include
+            elif flt.operator is FilterOperator.STARTS:
+                hit = val in text  # conservative
+            else:
+                hit = True
+            term_results.append(hit)
+
+        if logic_mode == 'AND' and not all(term_results):
+            return False
+        if logic_mode == 'NOT' and any(term_results):
+            return False
+        if logic_mode == 'OR' and not any(term_results):
+            return False
+
+    return True
+
+
 def matching_rows(
     entry: EntryInfo,
     filters: list[Filter],

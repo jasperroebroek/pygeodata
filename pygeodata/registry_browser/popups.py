@@ -9,7 +9,6 @@ from pygeodata.ast import get_source_code
 from pygeodata.graphs import plot_class_dependency_graph
 
 from pygeodata.registries.registry import SourceRegistry
-from pygeodata.catalog.io_utils import read_text
 from pygeodata.tracked_object import TrackedObject
 
 logger = logging.getLogger(__name__)
@@ -113,7 +112,7 @@ def build_graph_popup(class_name: str, graph_path: str | None = None) -> dict[st
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / f'{class_name}.svg'
             plot_class_dependency_graph(class_name, graph_data, path=path, view=False)
-            svg = read_text(path)
+            svg = path.read_text(encoding='utf-8') if path.exists() else None
 
         if svg is None:
             logger.error('Dependency graph SVG was not created for class %s', class_name)

@@ -13,8 +13,9 @@ import click
 
 from pygeodata.cache import clean_cache, clean_source_registry
 from pygeodata.catalog.class_catalog import discover_loaded_classes, merge_unloaded_classes
-from pygeodata.catalog.entry_catalog import _enrich_params_path, _find_primary_file
-from pygeodata.catalog.filters import Filter, FilterOperator, FilterTarget
+from pygeodata.catalog.entry_catalog import _enrich_params_path
+from pygeodata.catalog.filters import Filter, FilterOperator, FilterTarget, prescan_text
+from pygeodata.catalog.types import SpecInfo
 from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config
 from pygeodata.data import Data
 from pygeodata.figure import Figure
@@ -22,7 +23,7 @@ from pygeodata.paths import CachePathConstructor
 from pygeodata.registries.registry import EntryRegistry, SourceRegistry, TreeRegistry
 from pygeodata.registries.registry_types import Version
 from pygeodata.registries.versioning import VersionRegistry
-from pygeodata.spec import SpatialSpec, format_resolution
+from pygeodata.spec import SpatialSpec
 from pygeodata.tracked_object import TrackedObject
 
 
@@ -845,19 +846,6 @@ def _fmt_bounds(bounds_latlon) -> str:
         return str(bounds_latlon)
 
 
-def _spec_info_from_raw(spec: dict):
-    """Build a SpatialSpec from raw spec JSON, silently returning None on failure."""
-    try:
-        return SpatialSpec.from_dict(spec)
-    except Exception:
-        return None
-
-
-def _read_json(path) -> dict:
-    try:
-        return json.loads(Path(path).read_text(encoding='utf-8')) if path and Path(path).exists() else {}
-    except (OSError, json.JSONDecodeError):
-        return {}
 
 
 def _resolve_record(reg, hash_prefix: str):
@@ -932,54 +920,6 @@ def _entry_matches_all_exprs(
     return all(
         entry_matches_filters(class_name, entry_info, filters, logic_mode) for filters, logic_mode in parsed_exprs
     )
-
-
-def _fast_prefilter(
-    class_name: str,
-    params_blob: str,
-    parsed_exprs: list[tuple[list, str]],
-) -> bool:
-    """Cheap pre-filter against raw text before paying for full enrichment.
-
-    Returns False only when we can definitively rule the entry out.
-    Returns True when uncertain (false positives allowed — enrichment will confirm).
-    Uses class_name for class: targets, raw params JSON blob for everything else.
-    """
-    from pygeodata.catalog.filters import FilterOperator, FilterTarget
-
-    for filters, logic_mode in parsed_exprs:
-        term_results = []
-        for flt in filters:
-            val = flt.value.lower()
-            if flt.target is FilterTarget.CLASS:
-                text = class_name.lower()
-            elif flt.target is FilterTarget.CRS:
-                # CRS not in params blob — can't fast-check, assume pass
-                term_results.append(True)
-                continue
-            else:
-                text = params_blob
-
-            if flt.operator is FilterOperator.CONTAINS:
-                hit = val in text
-            elif flt.operator is FilterOperator.NOT_CONTAINS:
-                hit = val not in text
-            elif flt.operator is FilterOperator.EQUALS:
-                hit = val in text  # conservative: may over-include
-            elif flt.operator is FilterOperator.STARTS:
-                hit = val in text  # conservative
-            else:
-                hit = True
-            term_results.append(hit)
-
-        if logic_mode == 'AND' and not all(term_results):
-            return False
-        if logic_mode == 'NOT' and any(term_results):
-            return False
-        if logic_mode == 'OR' and not any(term_results):
-            return False
-
-    return True
 
 
 def _format_param_rows(param_rows) -> list[str]:
@@ -1069,7 +1009,7 @@ def entry_list(
                 params_blob = params_path.read_text(encoding='utf-8').lower() if params_path.exists() else ''
             except OSError:
                 params_blob = ''
-            if not _fast_prefilter(rec.class_name or '', params_blob, parsed_exprs):
+            if not prescan_text(rec.class_name or '', params_blob, parsed_exprs):
                 continue
 
         entry_info = None
@@ -1085,15 +1025,18 @@ def entry_list(
             if not _entry_matches_all_exprs(rec.class_name or '', entry_info, parsed_exprs):
                 continue
 
-        spec_raw = _read_json(CachePathConstructor.from_path(Path(rec.hash_path)).spec_path if rec.hash_path else None)
-        spatial = _spec_info_from_raw(spec_raw)
-        crs_str = spec_raw.get('crs') or ''
-        res_str = (
-            format_resolution(list(spatial.resolution), spatial.crs)
-            if spatial and spatial.transform is not None
-            else ''
-        )
-        bounds_str = _fmt_bounds(spatial.bounds_latlon) if spatial else ''
+        if entry_info is not None:
+            spec_info = entry_info.spec
+        else:
+            spec_path = CachePathConstructor.from_path(Path(rec.hash_path)).spec_path if rec.hash_path else None
+            spec_dict = json.loads(spec_path.read_text(encoding='utf-8')) if spec_path and spec_path.exists() else {}
+            try:
+                spec_info = SpecInfo.from_spec(SpatialSpec.from_dict(spec_dict)) if spec_dict else SpecInfo()
+            except Exception:  # noqa: BLE001
+                spec_info = SpecInfo()
+        crs_str = spec_info.crs or ''
+        res_str = spec_info.resolution or ''
+        bounds_str = _fmt_bounds(spec_info.bounds_latlon) if spec_info.bounds_latlon else ''
         output_rows.append(
             (
                 stale,
@@ -1163,7 +1106,13 @@ def entry_show(
     state_hash, rec = _resolve_record(reg, hash_prefix)
 
     resolver = CachePathConstructor.from_path(Path(rec.hash_path)) if rec.hash_path else None
-    spec = _read_json(resolver.spec_path if resolver else None)
+
+    entry_info = None
+    if resolver:
+        try:
+            entry_info = _enrich_params_path(resolver.params_path, known_object_type=rec.object_type)
+        except Exception:  # noqa: BLE001
+            pass
 
     stale = _stale_indicator(rec)
     stale_label = {'S': 'dep stale', 'F': 'format stale', '?': 'unknown (class not loaded)'}.get(stale, 'ok')
@@ -1177,38 +1126,33 @@ def entry_show(
         click.echo(f'Dep hash     {_fmt_hash(rec.dependency_tree_hash, full_hash)}')
     click.echo(f'Staleness    {stale_label}')
 
-    spatial = _spec_info_from_raw(spec)
-    if spatial or spec:
-        click.echo()
-        crs_str = spec.get('crs') or ''
-        if crs_str:
-            click.echo(f'CRS          {crs_str}')
-        if spatial and spatial.transform is not None:
-            click.echo(f'Resolution   {format_resolution(list(spatial.resolution), spatial.crs)}')
-            click.echo(f'Shape        {list(spatial.shape)}')
-            bounds_latlon = spatial.bounds_latlon
-            if bounds_latlon:
-                click.echo(f'Bounds       {_fmt_bounds(bounds_latlon)}')
-        elif spec.get('shape'):
-            click.echo(f'Shape        {spec["shape"]}')
+    if entry_info:
+        spec = entry_info.spec
+        if spec.crs or spec.resolution or spec.shape:
+            click.echo()
+            if spec.crs:
+                click.echo(f'CRS          {spec.crs}')
+            if spec.resolution:
+                click.echo(f'Resolution   {spec.resolution}')
+            if spec.shape:
+                click.echo(f'Shape        {spec.shape}')
+            if spec.bounds_latlon:
+                click.echo(f'Bounds       {_fmt_bounds(spec.bounds_latlon)}')
 
     if rec.co_output_hashes:
         click.echo()
         click.echo(f'Co-outputs   {", ".join(_fmt_hash(h, full_hash) for h in rec.co_output_hashes)}')
 
     if resolver:
-        primary = _find_primary_file(resolver)
         click.echo()
-        if primary:
-            click.echo(f'Output       {primary.path}')
+        if entry_info and entry_info.primary_file:
+            click.echo(f'Output       {entry_info.primary_file.path}')
         click.echo(f'Params path  {resolver.params_path}')
         click.echo(f'Hash path    {rec.hash_path}')
         if resolver.spec_path.exists():
             click.echo(f'Spec path    {resolver.spec_path}')
 
-    if show_params:
-        params = _read_json(resolver.params_path if resolver else None)
-        if params:
-            click.echo()
-            click.echo('Params')
-            click.echo(json.dumps(params, indent=2))
+    if show_params and entry_info and entry_info.params:
+        click.echo()
+        click.echo('Params')
+        click.echo(json.dumps(entry_info.params, indent=2))

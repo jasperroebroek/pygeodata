@@ -355,8 +355,9 @@ def test_api_code_snapshot_returns_html(tmp_path: Path) -> None:
             resp = flask_app.test_client().get('/api/code/snapshot?source_hash=abc123')
     data = resp.get_json()
     assert data['class_name'] == 'MyLoader'
-    assert 'diff-table' in data['html']
-    assert 'MyLoader' in data['html']
+    assert 'html' not in data
+    assert isinstance(data['lines'], list)
+    assert any('MyLoader' in line['text'] for line in data['lines'])
 
 
 def test_api_code_snapshot_not_found(tmp_path: Path) -> None:

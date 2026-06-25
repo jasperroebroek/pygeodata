@@ -13,7 +13,6 @@ from pygeodata.catalog.types import (
 from pygeodata.config import FORMAT_VERSION, get_config
 from pygeodata.paths import CACHE_DIR_SUFFIXES, CACHE_META_FILES, CachePathConstructor, classify_file
 from pygeodata.registries.registry import EntryRegistry, SourceRegistry, TreeRegistry
-from pygeodata.catalog.io_utils import existing_path_str, read_json_dict
 from pygeodata.catalog.params_index import flatten_params
 from pygeodata.registries.registry_types import EntryRecord
 from pygeodata.spec import SpatialSpec
@@ -94,8 +93,8 @@ def _enrich_params_path(
     params_path_str = str(params_path.resolve())
     resolver = CachePathConstructor.from_path(params_path)
 
-    params = read_json_dict(params_path)
-    spec = read_json_dict(resolver.spec_path)
+    params = json.loads(params_path.read_text(encoding='utf-8')) if params_path.exists() else {}
+    spec = json.loads(resolver.spec_path.read_text(encoding='utf-8')) if resolver.spec_path.exists() else {}
 
     primary_file = _find_primary_file(resolver)
 
@@ -132,9 +131,9 @@ def _enrich_params_path(
         class_name=class_name,
         object_type=object_type,
         params_path=params_path_str,
-        spec_path=existing_path_str(getattr(resolver, 'spec_path', None)),
-        state_hash_path=existing_path_str(getattr(resolver, 'state_hash_path', None)),
-        execution_graph_path=existing_path_str(getattr(resolver, 'execution_graph_path', None)),
+        spec_path=str(resolver.spec_path) if resolver.spec_path.exists() else None,
+        state_hash_path=str(resolver.state_hash_path) if resolver.state_hash_path.exists() else None,
+        execution_graph_path=str(resolver.execution_graph_path) if resolver.execution_graph_path.exists() else None,
         state_hash=state_hash,
         instance_hash=instance_hash,
         params=params,
