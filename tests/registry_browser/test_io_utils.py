@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from pygeodata.registry_browser.io_utils import existing_path_str, read_json_dict, read_text
+from pygeodata.catalog.io_utils import existing_path_str, read_json_dict, read_text
 
 
 def test_existing_path_str_none() -> None:

@@ -13,8 +13,8 @@ from pygeodata.catalog.types import (
 from pygeodata.config import FORMAT_VERSION, get_config
 from pygeodata.paths import CACHE_DIR_SUFFIXES, CACHE_META_FILES, CachePathConstructor, classify_file
 from pygeodata.registries.registry import EntryRegistry, SourceRegistry, TreeRegistry
-from pygeodata.registry_browser.io_utils import existing_path_str, read_json_dict
-from pygeodata.registry_browser.params_index import flatten_params
+from pygeodata.catalog.io_utils import existing_path_str, read_json_dict
+from pygeodata.catalog.params_index import flatten_params
 from pygeodata.registries.registry_types import EntryRecord
 from pygeodata.spec import SpatialSpec
 from pygeodata.tracked_object import TrackedObject
@@ -83,6 +83,7 @@ def _enrich_params_path(
     params_path: Path,
     src: SourceRegistry | None = None,
     trees: TreeRegistry | None = None,
+    known_object_type: str | None = None,
 ) -> EntryInfo:
     """Read the display-layer files for one entry. Never raises.
 
@@ -109,15 +110,19 @@ def _enrich_params_path(
     co_output_hashes = record.co_output_hashes if record else []
     format_version = record.format_version if record else FORMAT_VERSION
 
-    object_type = None
-    live_cls = TrackedObject.find_object_class(class_name)
-    if live_cls is not None:
-        ot = getattr(live_cls, 'object_type', None)
-        if ot is not None:
-            getter = getattr(ot, 'get_class_name', None)
-            object_type = str(getter()) if callable(getter) else str(ot)
+    if known_object_type is not None:
+        object_type = known_object_type
     else:
-        object_type = source_info_from_disk(class_name, src=src, trees=trees).object_type
+        live_cls = TrackedObject.find_object_class(class_name)
+        if live_cls is not None:
+            ot = getattr(live_cls, 'object_type', None)
+            if ot is not None:
+                getter = getattr(ot, 'get_class_name', None)
+                object_type = str(getter()) if callable(getter) else str(ot)
+            else:
+                object_type = None
+        else:
+            object_type = source_info_from_disk(class_name, src=src, trees=trees).object_type
 
     warnings: list[str] = []
     if not state_hash:

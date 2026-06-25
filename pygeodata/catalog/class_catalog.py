@@ -2,7 +2,7 @@ from pygeodata.catalog.types import ClassInfo, EntryInfo, RegistryClassInfo
 from pygeodata.hash import calculate_cls_source_hash
 from pygeodata.paths import CodeRegistryPathConstructor, TreeRegistryPathConstructor
 from pygeodata.registries.registry import EntryRegistry, SourceRegistry, TreeRegistry
-from pygeodata.registry_browser.io_utils import existing_path_str
+from pygeodata.catalog.io_utils import existing_path_str
 from pygeodata.tracked_object import TrackedObject
 from pygeodata.registries.versioning import VersionRegistry
 

@@ -272,3 +272,162 @@ def test_import_path_traversal_blocked(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert not escape_target.exists(), 'traversal path was written outside project root'
     assert (get_config().path_registry / 'code' / src_hash / 'source.py').exists()
+
+
+# ---------------------------------------------------------------------------
+# classes command
+# ---------------------------------------------------------------------------
+
+
+def test_classes_no_classes_found(monkeypatch) -> None:
+    """With an empty registry and no loaded classes, prints 'No classes found.'"""
+    monkeypatch.setattr('pygeodata.tracked_object.TrackedObject._registry', {})
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ['classes'])
+
+    assert result.exit_code == 0, result.output
+    assert 'No classes found.' in result.output
+
+
+def test_classes_loaded_class_appears(monkeypatch) -> None:
+    """A loaded, current class is printed with a space indicator and 'loaded' label."""
+    from unittest.mock import MagicMock
+
+    from pygeodata.catalog.types import ClassInfo
+
+    mock_info = ClassInfo(
+        class_name='MyLoader',
+        object_type='Data',
+        loaded=True,
+        call_dependency_names=[],
+        inheritance_dependency_names=[],
+        source_stale=False,
+        deps_stale=False,
+    )
+    monkeypatch.setattr(
+        'pygeodata.catalog.class_catalog.TrackedObject._registry',
+        {},
+    )
+
+    def _fake_discover():
+        return {'MyLoader': mock_info}
+
+    def _fake_merge(classes, ereg, version_registry=None, src=None, trees=None, entries=None):
+        return classes
+
+    monkeypatch.setattr('pygeodata.cli.EntryRegistry', MagicMock(return_value=MagicMock(class_names=[])))
+    monkeypatch.setattr('pygeodata.cli.VersionRegistry', MagicMock(return_value=MagicMock()))
+    monkeypatch.setattr('pygeodata.cli.SourceRegistry', MagicMock(return_value=MagicMock(
+        get_latest_state_for_class=MagicMock(return_value=None),
+    )))
+
+    monkeypatch.setattr('pygeodata.cli.discover_loaded_classes', _fake_discover)
+    monkeypatch.setattr('pygeodata.cli.merge_unloaded_classes', _fake_merge)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ['classes'])
+
+    assert result.exit_code == 0, result.output
+    assert 'MyLoader' in result.output
+    assert 'loaded' in result.output
+    assert 'Data' in result.output
+
+
+def test_classes_stale_exits_nonzero(monkeypatch) -> None:
+    """A source-stale class causes exit code 1."""
+    from unittest.mock import MagicMock
+
+    from pygeodata.catalog.types import ClassInfo
+
+    mock_info = ClassInfo(
+        class_name='StaleClass',
+        object_type='Figure',
+        loaded=True,
+        source_stale=True,
+        deps_stale=False,
+    )
+
+    def _fake_discover():
+        return {'StaleClass': mock_info}
+
+    def _fake_merge(classes, ereg, version_registry=None, src=None, trees=None, entries=None):
+        return classes
+
+    monkeypatch.setattr('pygeodata.cli.EntryRegistry', MagicMock(return_value=MagicMock(class_names=[])))
+    monkeypatch.setattr('pygeodata.cli.VersionRegistry', MagicMock(return_value=MagicMock()))
+    monkeypatch.setattr('pygeodata.cli.SourceRegistry', MagicMock(return_value=MagicMock(
+        get_latest_state_for_class=MagicMock(return_value=None),
+    )))
+
+    monkeypatch.setattr('pygeodata.cli.discover_loaded_classes', _fake_discover)
+    monkeypatch.setattr('pygeodata.cli.merge_unloaded_classes', _fake_merge)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ['classes'])
+
+    assert result.exit_code == 1
+    assert 'StaleClass' in result.output
+
+
+def test_classes_hide_current_omits_fresh(monkeypatch) -> None:
+    """--hide-current omits classes with no staleness."""
+    from unittest.mock import MagicMock
+
+    from pygeodata.catalog.types import ClassInfo
+
+    fresh = ClassInfo(class_name='FreshOne', object_type='Data', loaded=True)
+    stale = ClassInfo(class_name='StaleOne', object_type='Data', loaded=True, source_stale=True)
+
+    def _fake_discover():
+        return {'FreshOne': fresh, 'StaleOne': stale}
+
+    def _fake_merge(classes, ereg, version_registry=None, src=None, trees=None, entries=None):
+        return classes
+
+    monkeypatch.setattr('pygeodata.cli.EntryRegistry', MagicMock(return_value=MagicMock(class_names=[])))
+    monkeypatch.setattr('pygeodata.cli.VersionRegistry', MagicMock(return_value=MagicMock()))
+    monkeypatch.setattr('pygeodata.cli.SourceRegistry', MagicMock(return_value=MagicMock(
+        get_latest_state_for_class=MagicMock(return_value=None),
+    )))
+
+    monkeypatch.setattr('pygeodata.cli.discover_loaded_classes', _fake_discover)
+    monkeypatch.setattr('pygeodata.cli.merge_unloaded_classes', _fake_merge)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ['classes', '--hide-current'])
+
+    assert 'FreshOne' not in result.output
+    assert 'StaleOne' in result.output
+
+
+def test_classes_type_filter(monkeypatch) -> None:
+    """--type DATA filters to Data classes only."""
+    from unittest.mock import MagicMock
+
+    from pygeodata.catalog.types import ClassInfo
+
+    data_cls = ClassInfo(class_name='DataClass', object_type='Data', loaded=True)
+    fig_cls = ClassInfo(class_name='FigureClass', object_type='Figure', loaded=True)
+
+    def _fake_discover():
+        return {'DataClass': data_cls, 'FigureClass': fig_cls}
+
+    def _fake_merge(classes, ereg, version_registry=None, src=None, trees=None, entries=None):
+        return classes
+
+    monkeypatch.setattr('pygeodata.cli.EntryRegistry', MagicMock(return_value=MagicMock(class_names=[])))
+    monkeypatch.setattr('pygeodata.cli.VersionRegistry', MagicMock(return_value=MagicMock()))
+    monkeypatch.setattr('pygeodata.cli.SourceRegistry', MagicMock(return_value=MagicMock(
+        get_latest_state_for_class=MagicMock(return_value=None),
+    )))
+
+    monkeypatch.setattr('pygeodata.cli.discover_loaded_classes', _fake_discover)
+    monkeypatch.setattr('pygeodata.cli.merge_unloaded_classes', _fake_merge)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ['classes', '--type', 'DATA'])
+
+    assert result.exit_code == 0, result.output
+    assert 'DataClass' in result.output
+    assert 'FigureClass' not in result.output

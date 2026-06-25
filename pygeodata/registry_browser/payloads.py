@@ -1,7 +1,7 @@
 from pygeodata.config import JSONKeys
 from pygeodata.formatting.json import format_json
 from pygeodata.registries.registry import SourceRegistry
-from pygeodata.registry_browser.filters import Filter, entry_matches_filters, matching_rows, parse_filters
+from pygeodata.catalog.filters import Filter, entry_matches_filters, matching_rows, parse_filters
 from pygeodata.catalog.types import ClassInfo, EntryInfo, FileRef, LinkedEntry
 from pygeodata.registry_browser.state import AppState
 from pygeodata.spec import SpecKeys

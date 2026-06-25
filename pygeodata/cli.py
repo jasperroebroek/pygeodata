@@ -1,4 +1,5 @@
 import dataclasses
+import functools
 import importlib.util
 import json
 import shutil
@@ -11,14 +12,18 @@ from pathlib import Path
 import click
 
 from pygeodata.cache import clean_cache, clean_source_registry
+from pygeodata.catalog.class_catalog import discover_loaded_classes, merge_unloaded_classes
+from pygeodata.catalog.entry_catalog import _enrich_params_path, _find_primary_file
+from pygeodata.catalog.filters import Filter, FilterOperator, FilterTarget
 from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config
 from pygeodata.data import Data
 from pygeodata.figure import Figure
 from pygeodata.paths import CachePathConstructor
 from pygeodata.registries.registry import EntryRegistry, SourceRegistry, TreeRegistry
-from pygeodata.tracked_object import TrackedObject
-from pygeodata.registries.versioning import VersionRegistry
 from pygeodata.registries.registry_types import Version
+from pygeodata.registries.versioning import VersionRegistry
+from pygeodata.spec import SpatialSpec, format_resolution
+from pygeodata.tracked_object import TrackedObject
 
 
 def _fmt_mtime(mtime: str) -> str:
@@ -26,6 +31,22 @@ def _fmt_mtime(mtime: str) -> str:
         return datetime.fromisoformat(mtime).strftime('%Y-%m-%d %H:%M')
     except (ValueError, AttributeError):
         return mtime
+
+
+def _import_options(f):
+    @click.option(
+        '--import-all',
+        'do_import',
+        is_flag=True,
+        default=False,
+        help='Import all .py files from the current directory to populate the class registry.',
+    )
+    @click.option('--verbose-import', is_flag=True, default=False, help='Print each module imported.')
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        return f(*args, **kwargs)
+
+    return wrapper
 
 
 @click.group()
@@ -121,19 +142,7 @@ def _import_project_modules(root: Path, verbose: bool = False) -> int:
 
 @cli.command('browse')
 @click.option('--port', default=0, show_default=True, help='Port to listen on (0 = random free port).')
-@click.option(
-    '--import-all',
-    'do_import',
-    is_flag=True,
-    default=False,
-    help='Import all .py files from the current directory to populate the class registry.',
-)
-@click.option(
-    '--verbose-import',
-    is_flag=True,
-    default=False,
-    help='Print each module imported (and failures) when used with --import-all.',
-)
+@_import_options
 def browse(port: int, do_import: bool, verbose_import: bool) -> None:
     """Launch the registry browser."""
     from pygeodata.registry_browser.serve import open_registry_browser
@@ -147,6 +156,7 @@ def browse(port: int, do_import: bool, verbose_import: bool) -> None:
 
 
 @cli.command('clean-cache')
+@_import_options
 @click.option(
     '--no-dry-run',
     'dry_run',
@@ -163,12 +173,16 @@ def browse(port: int, do_import: bool, verbose_import: bool) -> None:
     default=True,
     help='Skip entries whose class is not in the registry.',
 )
-def clean_cache_cmd(dry_run: bool, delete_unregistered: bool) -> None:
+def clean_cache_cmd(do_import: bool, verbose_import: bool, dry_run: bool, delete_unregistered: bool) -> None:
     """Remove stale or invalid cache entries."""
+    if do_import:
+        n = _import_project_modules(Path.cwd(), verbose=verbose_import)
+        click.echo(f'Imported {n} module(s)')
     clean_cache(dry_run=dry_run, delete_unregistered=delete_unregistered)
 
 
 @cli.command('clean-source')
+@_import_options
 @click.option(
     '--no-dry-run',
     'dry_run',
@@ -177,12 +191,15 @@ def clean_cache_cmd(dry_run: bool, delete_unregistered: bool) -> None:
     default=True,
     help='Actually delete files (default is dry run).',
 )
-def clean_source_cmd(dry_run: bool) -> None:
+def clean_source_cmd(do_import: bool, verbose_import: bool, dry_run: bool) -> None:
     """Remove orphaned code snapshots and dependency trees from .source/.
 
     Keeps the latest snapshot per class and anything referenced by a live
     cache entry.  Everything else is prunable.  Runs as dry run by default.
     """
+    if do_import:
+        n = _import_project_modules(Path.cwd(), verbose=verbose_import)
+        click.echo(f'Imported {n} module(s)')
     clean_source_registry(dry_run=dry_run)
 
 
@@ -532,9 +549,9 @@ def _echo_source_by_class(
     )
 
 
-# ---------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # versions  (cross-cutting: code groups + dep-tree snapshots per version group)
-# ---------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 
 
 def _echo_version_group(vi: Version, vreg: VersionRegistry, full_hash: bool = False) -> None:
@@ -687,42 +704,128 @@ def snapshot_version(registry_path: str | None, dep_hash: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# classes
+# ---------------------------------------------------------------------------
+
+
+@cli.command('classes')
+@_import_options
+@click.option(
+    '--type',
+    'type_filter',
+    default=None,
+    help='Filter to one object type, e.g. DATA or FIGURE.',
+)
+@click.option('--hide-current', is_flag=True, default=False, help='Omit classes with no staleness.')
+@_full_hash_option
+@_registry_option
+def classes_cmd(
+    do_import: bool,
+    verbose_import: bool,
+    type_filter: str | None,
+    hide_current: bool,
+    full_hash: bool,
+    registry_path: str | None,
+) -> None:
+    """Show staleness for all loaded and known classes."""
+    _apply_registry_path(registry_path)
+
+    if do_import:
+        n = _import_project_modules(Path.cwd(), verbose=verbose_import)
+        click.echo(f'Imported {n} module(s)')
+
+    vreg = VersionRegistry()
+    ereg = EntryRegistry()
+    src = SourceRegistry()
+    classes = discover_loaded_classes()
+    classes = merge_unloaded_classes(classes, ereg, version_registry=vreg, src=src)
+
+    # Apply type filter (case-insensitive prefix match against object_type)
+    if type_filter:
+        tf = type_filter.upper()
+        classes = {k: v for k, v in classes.items() if (v.object_type or '').upper() == tf}
+
+    # Apply hide-current filter
+    if hide_current:
+        classes = {k: v for k, v in classes.items() if v.source_stale or v.deps_stale}
+
+    if not classes:
+        click.echo('No classes found.')
+        return
+
+    # Build source-hash lookup: class_name -> stored source hash
+    stored_hashes: dict[str, str] = {}
+    for class_name in classes:
+        state = src.get_latest_state_for_class(class_name)
+        if state:
+            stored_hashes[class_name] = state.source_hash
+
+    # Group by object type — Data first, then Figure, then others alphabetically
+    by_type: dict[str, list[str]] = {}
+    for class_name, info in classes.items():
+        by_type.setdefault(info.object_type or 'Unknown', []).append(class_name)
+
+    type_order = ['Data', 'Figure']
+    other_types = sorted(t for t in by_type if t not in type_order)
+    ordered_types = [t for t in type_order if t in by_type] + other_types
+
+    any_stale = False
+    for object_type in ordered_types:
+        class_names = sorted(by_type[object_type])
+        click.echo(f'── {object_type} ({len(class_names)}) ──')
+        col = max(len(cn) for cn in class_names)
+        for class_name in class_names:
+            info = classes[class_name]
+            if info.source_stale:
+                any_stale = True
+                indicator = click.style('C', fg='red')
+            elif info.deps_stale:
+                any_stale = True
+                indicator = click.style('D', fg='yellow')
+            elif not info.loaded:
+                indicator = click.style('N', fg='bright_black')
+            else:
+                indicator = ' '
+            loaded_label = 'loaded' if info.loaded else 'unloaded'
+            src_hash = stored_hashes.get(class_name)
+            src_str = f'src:{_fmt_hash(src_hash, full_hash)}' if src_hash else 'src:—'
+            all_deps = info.call_dependency_names + info.inheritance_dependency_names
+            deps_str = f'deps:[{", ".join(all_deps)}]' if all_deps else 'deps:—'
+            click.echo(f'  {indicator} {class_name:<{col}}  {loaded_label}  {src_str}  {deps_str}')
+        click.echo()
+
+    if any_stale:
+        raise SystemExit(1)
+
+
+# ---------------------------------------------------------------------------
 # entry
 # ---------------------------------------------------------------------------
 
 
 @cli.group()
-@click.option(
-    '--import-all',
-    'do_import',
-    is_flag=True,
-    default=False,
-    help='Import all .py files from the current directory to resolve staleness.',
-)
-@click.option('--verbose-import', is_flag=True, default=False, help='Print each module imported.')
 @click.option('--full-hash', 'full_hash', is_flag=True, default=False, help='Print full hashes.')
 @click.pass_context
-def entry(ctx: click.Context, do_import: bool, verbose_import: bool, full_hash: bool) -> None:
+def entry(ctx: click.Context, full_hash: bool) -> None:
     """Inspect cache entries."""
     ctx.ensure_object(dict)
-    if do_import:
-        n = _import_project_modules(Path.cwd(), verbose=verbose_import)
-        click.echo(f'Imported {n} module(s)')
     ctx.obj['full_hash'] = full_hash
 
 
 def _stale_indicator(rec, vreg: VersionRegistry | None = None) -> str:
-    """Single-char staleness marker: S=dep stale, F=format stale, blank=ok."""
+    """Single-char staleness marker: F=format stale, S=dep stale, N=not loaded, blank=ok."""
     if rec.format_version != FORMAT_VERSION:
         return 'F'
+    obj_cls = TrackedObject.find_object_class(rec.class_name)
     if rec.dependency_tree_hash:
-        obj_cls = TrackedObject.find_object_class(rec.class_name)
         if obj_cls is not None:
             dep_stale = obj_cls.get_dependency_tree_hash() != rec.dependency_tree_hash
         else:
             dep_stale = (vreg or VersionRegistry()).is_dependency_hash_stale(rec.dependency_tree_hash)
         if dep_stale:
             return 'S'
+    if obj_cls is None:
+        return 'N'
     return ' '
 
 
@@ -744,8 +847,6 @@ def _fmt_bounds(bounds_latlon) -> str:
 
 def _spec_info_from_raw(spec: dict):
     """Build a SpatialSpec from raw spec JSON, silently returning None on failure."""
-    from pygeodata.spec import SpatialSpec
-
     try:
         return SpatialSpec.from_dict(spec)
     except Exception:
@@ -771,16 +872,180 @@ def _resolve_record(reg, hash_prefix: str):
     return matches[0]
 
 
+def _parse_filter_expr(expr: str) -> list[tuple[list, str]]:
+    """Parse a single --filter expression into (filters, logic_mode) pairs.
+
+    Syntax:
+      [!] [target:]value  (| [!] [target:]value)*
+
+    Examples
+    --------
+      "RF"                       → ALL contains RF, AND
+      "value:RF|value:KMEANS"    → value contains RF OR value contains KMEANS
+      "!ElevationLoader"         → ALL not-contains ElevationLoader
+      "!RF|KMEANS"               → NOT(RF OR KMEANS)  [! applies to whole OR group]
+
+    Returns a list of (filters, logic_mode) to be ANDed together by the caller.
+    """
+    _target_map = {
+        'class': FilterTarget.CLASS,
+        'crs': FilterTarget.CRS,
+        'key': FilterTarget.KEY,
+        'value': FilterTarget.VALUE,
+        'path': FilterTarget.PATH,
+        'key_group': FilterTarget.KEY_GROUP,
+    }
+
+    expr = expr.strip()
+    negate = False
+    if expr.startswith('!'):
+        negate = True
+        expr = expr[1:].strip()
+
+    parts = [p.strip() for p in expr.split('|') if p.strip()]
+    if not parts:
+        return []
+
+    filters = []
+    for part in parts:
+        if ':' in part:
+            raw_target, _, value = part.partition(':')
+            target = _target_map.get(raw_target.strip().lower(), FilterTarget.ALL)
+            value = value.strip()
+        else:
+            target = FilterTarget.ALL
+            value = part.strip()
+        filters.append(Filter(target=target, operator=FilterOperator.CONTAINS, value=value))
+
+    logic_mode = 'NOT' if negate else ('OR' if len(filters) > 1 else 'AND')
+    return [(filters, logic_mode)]
+
+
+def _entry_matches_all_exprs(
+    class_name: str,
+    entry_info,
+    parsed_exprs: list[tuple[list, str]],
+) -> bool:
+    """Return True if entry satisfies all parsed filter expressions (AND between exprs)."""
+    from pygeodata.catalog.filters import entry_matches_filters
+
+    return all(
+        entry_matches_filters(class_name, entry_info, filters, logic_mode) for filters, logic_mode in parsed_exprs
+    )
+
+
+def _fast_prefilter(
+    class_name: str,
+    params_blob: str,
+    parsed_exprs: list[tuple[list, str]],
+) -> bool:
+    """Cheap pre-filter against raw text before paying for full enrichment.
+
+    Returns False only when we can definitively rule the entry out.
+    Returns True when uncertain (false positives allowed — enrichment will confirm).
+    Uses class_name for class: targets, raw params JSON blob for everything else.
+    """
+    from pygeodata.catalog.filters import FilterOperator, FilterTarget
+
+    for filters, logic_mode in parsed_exprs:
+        term_results = []
+        for flt in filters:
+            val = flt.value.lower()
+            if flt.target is FilterTarget.CLASS:
+                text = class_name.lower()
+            elif flt.target is FilterTarget.CRS:
+                # CRS not in params blob — can't fast-check, assume pass
+                term_results.append(True)
+                continue
+            else:
+                text = params_blob
+
+            if flt.operator is FilterOperator.CONTAINS:
+                hit = val in text
+            elif flt.operator is FilterOperator.NOT_CONTAINS:
+                hit = val not in text
+            elif flt.operator is FilterOperator.EQUALS:
+                hit = val in text  # conservative: may over-include
+            elif flt.operator is FilterOperator.STARTS:
+                hit = val in text  # conservative
+            else:
+                hit = True
+            term_results.append(hit)
+
+        if logic_mode == 'AND' and not all(term_results):
+            return False
+        if logic_mode == 'NOT' and any(term_results):
+            return False
+        if logic_mode == 'OR' and not any(term_results):
+            return False
+
+    return True
+
+
+def _format_param_rows(param_rows) -> list[str]:
+    """Format ParamRow list into lines (for buffered or paged output)."""
+    if not param_rows:
+        return []
+    col = max((len(r.final_key) for r in param_rows if r.depth == 0), default=8)
+    col = max(col, 8)
+    lines = []
+    for row in param_rows:
+        pad = '  ' * row.depth
+        w = max(col - row.depth * 2, 4)
+        if row.value_type == 'data_ref':
+            key_str = click.style(f'→ {row.final_key}', fg='cyan')
+            lines.append(f'    {pad}{key_str:<{w + 2}}  {row.value_text}')
+        else:
+            key_str = click.style(f'{row.final_key}', fg='bright_black')
+            lines.append(f'    {pad}{key_str:<{w}}  {row.value_text}')
+    return lines
+
+
+def _echo_param_rows(param_rows) -> None:
+    for line in _format_param_rows(param_rows):
+        click.echo(line)
+
+
 @entry.command('list')
+@_import_options
 @click.option('--class', 'class_name', default=None, help='Filter by class name.')
 @click.option('--hide-stale', is_flag=True, default=False, help='Omit stale entries.')
+@click.option('--params', 'show_params', is_flag=True, default=False, help='Show parsed parameters under each entry.')
+@click.option(
+    '--filter',
+    'filters',
+    multiple=True,
+    metavar='EXPR',
+    help=(
+        'Filter entries. Syntax: [target:]value, optionally prefixed with ! (NOT) '
+        'or using | between terms (OR). Multiple --filter flags are ANDed. '
+        'Targets: class, crs, key, value, path, key_group (default: all). '
+        'Examples: --filter RF  --filter "value:RF|value:KMEANS"  --filter "!ElevationLoader"'
+    ),
+)
 @click.option('--full-hash', 'full_hash_sub', is_flag=True, default=False, help='Print full hashes.')
+@click.option('--no-pager', is_flag=True, default=False, help='Disable pager (print directly to stdout).')
 @click.pass_context
-def entry_list(ctx: click.Context, class_name: str | None, hide_stale: bool, full_hash_sub: bool) -> None:
+def entry_list(
+    ctx: click.Context,
+    do_import: bool,
+    verbose_import: bool,
+    class_name: str | None,
+    hide_stale: bool,
+    show_params: bool,
+    filters: tuple[str, ...],
+    full_hash_sub: bool,
+    no_pager: bool,
+) -> None:
     """List cache entries."""
-    from pygeodata.spec import format_resolution
-
+    if do_import:
+        n = _import_project_modules(Path.cwd(), verbose=verbose_import)
+        click.echo(f'Imported {n} module(s)')
     full_hash: bool = ctx.obj.get('full_hash', False) or full_hash_sub
+
+    parsed_exprs = [pair for f in filters for pair in _parse_filter_expr(f)]
+    needs_enrich = bool(parsed_exprs) or show_params
+
     reg = EntryRegistry()
     records = reg.records
 
@@ -789,13 +1054,37 @@ def entry_list(ctx: click.Context, class_name: str | None, hide_stale: bool, ful
         return
 
     vreg = VersionRegistry()
-    rows = []
+    output_rows = []
     for state_hash, rec in sorted(records.items(), key=lambda kv: (kv[1].class_name or '', kv[0])):
         if class_name and rec.class_name != class_name:
             continue
         stale = _stale_indicator(rec, vreg)
         if hide_stale and stale.strip():
             continue
+
+        # Fast pre-filter: cheap text scan before paying for full enrichment.
+        params_path = CachePathConstructor.from_path(Path(rec.hash_path)).params_path if rec.hash_path else None
+        if parsed_exprs and params_path:
+            try:
+                params_blob = params_path.read_text(encoding='utf-8').lower() if params_path.exists() else ''
+            except OSError:
+                params_blob = ''
+            if not _fast_prefilter(rec.class_name or '', params_blob, parsed_exprs):
+                continue
+
+        entry_info = None
+        if needs_enrich and params_path:
+            try:
+                entry_info = _enrich_params_path(params_path, known_object_type=rec.object_type)
+            except Exception:  # noqa: BLE001
+                pass
+
+        if parsed_exprs:
+            if entry_info is None:
+                continue
+            if not _entry_matches_all_exprs(rec.class_name or '', entry_info, parsed_exprs):
+                continue
+
         spec_raw = _read_json(CachePathConstructor.from_path(Path(rec.hash_path)).spec_path if rec.hash_path else None)
         spatial = _spec_info_from_raw(spec_raw)
         crs_str = spec_raw.get('crs') or ''
@@ -805,7 +1094,7 @@ def entry_list(ctx: click.Context, class_name: str | None, hide_stale: bool, ful
             else ''
         )
         bounds_str = _fmt_bounds(spatial.bounds_latlon) if spatial else ''
-        rows.append(
+        output_rows.append(
             (
                 stale,
                 rec.class_name or '?',
@@ -814,35 +1103,61 @@ def entry_list(ctx: click.Context, class_name: str | None, hide_stale: bool, ful
                 res_str,
                 bounds_str,
                 _fmt_hash(state_hash, full_hash),
+                entry_info,
             ),
         )
 
-    if not rows:
+    if not output_rows:
         click.echo('No entries match.')
         return
 
-    col_class = max(len(r[1]) for r in rows)
-    col_type = max(len(r[2]) for r in rows)
-    col_crs = max((len(r[3]) for r in rows), default=0)
-    col_res = max((len(r[4]) for r in rows), default=0)
-    col_bounds = max((len(r[5]) for r in rows), default=0)
+    col_class = max(len(r[1]) for r in output_rows)
+    col_type = max(len(r[2]) for r in output_rows)
+    col_crs = max((len(r[3]) for r in output_rows), default=0)
+    col_res = max((len(r[4]) for r in output_rows), default=0)
+    col_bounds = max((len(r[5]) for r in output_rows), default=0)
 
-    for stale, cls, obj_type, crs, res, bounds, h in rows:
-        indicator = click.style(stale, fg='yellow') if stale.strip() else ' '
-        click.echo(
+    lines = []
+    for stale, cls, obj_type, crs, res, bounds, h, entry_info in output_rows:
+        if stale == 'F':
+            indicator = click.style('F', fg='red')
+        elif stale == 'S':
+            indicator = click.style('S', fg='yellow')
+        elif stale == 'N':
+            indicator = click.style('N', fg='bright_black')
+        else:
+            indicator = ' '
+        lines.append(
             f'{indicator} {cls:<{col_class}}  {obj_type:<{col_type}}  {crs:<{col_crs}}  {res:<{col_res}}  {bounds:<{col_bounds}}  {h}',
         )
+        if (show_params or parsed_exprs) and entry_info is not None and entry_info.rows:
+            lines.extend(_format_param_rows(entry_info.rows))
+
+    output = '\n'.join(lines)
+    if no_pager or not sys.stdout.isatty():
+        click.echo(output)
+    else:
+        click.echo_via_pager(output + '\n')
 
 
 @entry.command('show')
 @click.argument('hash_prefix')
+@_import_options
 @click.option('--no-params', 'show_params', is_flag=True, flag_value=False, default=True, help='Omit params JSON.')
 @click.option('--full-hash', 'full_hash_sub', is_flag=True, default=False, help='Print full hashes.')
 @click.pass_context
-def entry_show(ctx: click.Context, hash_prefix: str, show_params: bool, full_hash_sub: bool) -> None:
+def entry_show(
+    ctx: click.Context,
+    hash_prefix: str,
+    do_import: bool,
+    verbose_import: bool,
+    show_params: bool,
+    full_hash_sub: bool,
+) -> None:
     """Show detail for one entry (partial hash ok)."""
-    from pygeodata.spec import format_resolution
-
+    if do_import:
+        n = _import_project_modules(Path.cwd(), verbose=verbose_import)
+        click.echo(f'Imported {n} module(s)')
     full_hash: bool = ctx.obj.get('full_hash', False) or full_hash_sub
     reg = EntryRegistry()
     state_hash, rec = _resolve_record(reg, hash_prefix)
@@ -882,7 +1197,10 @@ def entry_show(ctx: click.Context, hash_prefix: str, show_params: bool, full_has
         click.echo(f'Co-outputs   {", ".join(_fmt_hash(h, full_hash) for h in rec.co_output_hashes)}')
 
     if resolver:
+        primary = _find_primary_file(resolver)
         click.echo()
+        if primary:
+            click.echo(f'Output       {primary.path}')
         click.echo(f'Params path  {resolver.params_path}')
         click.echo(f'Hash path    {rec.hash_path}')
         if resolver.spec_path.exists():

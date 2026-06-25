@@ -58,3 +58,4 @@ def read_text(path: Path | str | None) -> str | None:
         return p.read_text(encoding='utf-8')
     except OSError as exc:
         logger.warning('Failed to read text file %s: %s', p, exc)
+        return None

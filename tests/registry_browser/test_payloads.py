@@ -27,7 +27,7 @@ from pygeodata.registry_browser.payloads import (
 )
 from pygeodata.registry_browser.state import AppState
 from pygeodata.spec import SpecKeys
-
+from pygeodata.catalog.filters import Filter, FilterTarget
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -424,7 +424,7 @@ def test_build_table_rows_row_display_all():
 
 
 def test_build_table_rows_row_display_selected():
-    from pygeodata.registry_browser.filters import Filter, FilterTarget
+    
 
     entry = make_entry(rows=[make_row('year', '2020'), make_row('region', 'eu')])
     groups = [('MyLoader', [entry])]

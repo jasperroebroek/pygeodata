@@ -1,6 +1,6 @@
 import pytest
 
-from pygeodata.registry_browser.filters import (
+from pygeodata.catalog.filters import (
     Filter,
     FilterOperator,
     FilterTarget,

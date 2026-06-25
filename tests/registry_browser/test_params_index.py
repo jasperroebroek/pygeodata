@@ -1,6 +1,6 @@
 from pygeodata.config import JSONKeys
 from pygeodata.catalog.types import LinkedEntry, ParamRow
-from pygeodata.registry_browser.params_index import flatten_params
+from pygeodata.catalog.params_index import flatten_params
 
 
 def rows(params: dict, linked: list | None = None) -> list[ParamRow]:
