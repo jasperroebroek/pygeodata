@@ -1,3 +1,4 @@
+import dataclasses
 import io
 import json
 import logging
@@ -10,10 +11,9 @@ import uuid
 from contextlib import redirect_stdout
 from pathlib import Path
 
-import dataclasses
-
 from flask import Flask, abort, jsonify, render_template, request, send_file
 
+from pygeodata.tracked_object import TrackedObject
 from pygeodata.artifact import Artifact
 from pygeodata.cache import clean_cache, clean_source_registry
 from pygeodata.config import get_config
@@ -135,6 +135,7 @@ def api_status():
             'ready': _ctx.ready.is_set(),
             'progress': _ctx.progress,
             'load_error': _ctx.load_error,
+            'has_live_classes': bool(TrackedObject._registry),
         },
     )
 
@@ -215,11 +216,14 @@ def api_code_versions():
     if _ctx.is_loading() or _ctx.state is None:
         return _loading
     from pygeodata.tracked_object import TrackedObject
+
     entry_dep_hashes = {e.dep_hash for e in _ctx.state.entries.values() if e.dep_hash}
-    return jsonify({
-        'versions': payloads.version_groups_payload(_ctx.state.version_registry, entry_dep_hashes),
-        'has_live_classes': bool(TrackedObject._registry),
-    })
+    return jsonify(
+        {
+            'versions': payloads.version_groups_payload(_ctx.state.version_registry, entry_dep_hashes),
+            'has_live_classes': bool(TrackedObject._registry),
+        },
+    )
 
 
 @app.get('/api/code/resolve-dep-hash')
@@ -273,7 +277,7 @@ def api_code_version_classes():
         return _loading
     version_id = request.args.get('version_id', '')
     return jsonify(
-        [dataclasses.asdict(c) for c in code_service.version_classes(version_id, _ctx.state.version_registry)]
+        [dataclasses.asdict(c) for c in code_service.version_classes(version_id, _ctx.state.version_registry)],
     )
 
 
@@ -318,7 +322,11 @@ def api_code_diff():
         abort(400)
     full = request.args.get('full') == '1'
     result = code_service.unified_diff_payload(
-        hash_old, hash_new, full, _assert_allowed_path, _ctx.state.version_registry
+        hash_old,
+        hash_new,
+        full,
+        _assert_allowed_path,
+        _ctx.state.version_registry,
     )
     if result is None:
         abort(404)
@@ -339,7 +347,7 @@ def api_code_version_diff():
     if _ctx.is_loading() or _ctx.state is None:
         return _loading
 
-    record_id       = request.args.get('record_id') or None
+    record_id = request.args.get('record_id') or None
     base_version_id = request.args.get('base_version_id') or None
     target_version_id = request.args.get('target_version_id') or 'live'
 

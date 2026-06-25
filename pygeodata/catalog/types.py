@@ -80,6 +80,7 @@ class EntryInfo:
     execution_graph_path: str | None
     state_hash: str | None
     instance_hash: str | None
+    params_hash: str | None
     params: dict[str, Any]
     spec: SpecInfo
     rows: list[ParamRow]

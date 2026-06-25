@@ -51,15 +51,78 @@ tr.row-entry {
   color: var(--faint);
 }
 
-/* Topbar icon buttons (ⓘ, ↺) */
+/* Extra breathing room before the icon buttons */
+#btn-diag { margin-left: 24px; }
+
+/* Topbar icon buttons (ⓘ, ⋮) */
 .topbar-icon-btn {
-  font-size: 15px;
-  padding: 0 4px;
+  font-size: 20px !important;
+  font-weight: 900;
+  padding: 4px;
   line-height: 1;
+  border: none !important;
+  border-radius: 6px;
   color: var(--muted);
 }
-.topbar-icon-btn:hover { color: var(--accent); }
-.topbar-icon-btn:disabled { opacity: 0.4; }
+.topbar-icon-btn:hover {
+  background: var(--border);
+  color: var(--fg);
+  border-color: transparent;
+}
+
+/* Three-dot dropdown menu */
+.topbar-menu-wrap {
+  position: relative;
+}
+
+.topbar-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.10);
+  min-width: 180px;
+  padding: 4px 0;
+  z-index: 200;
+}
+
+.topbar-menu.hidden { display: none; }
+
+.topbar-menu-item {
+  display: block;
+  width: 100%;
+  padding: 7px 14px;
+  border: none;
+  background: none;
+  text-align: left;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.topbar-menu-item:hover {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.topbar-menu-item:disabled {
+  color: var(--faint);
+  cursor: default;
+}
+
+.topbar-menu-item:disabled:hover {
+  background: var(--s2);
+  color: var(--faint);
+}
+
+.topbar-menu-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
 
 /* View tabs (Entries / Code) — plain text with underline active state */
 .view-tabs { display: flex; gap: 2px; }
@@ -232,7 +295,7 @@ tr.row-entry {
 
 .detail-scroll {
   flex: 1 1 0;
-  overflow-y: auto;
+  overflow-y: scroll;
   overflow-x: hidden;
   padding: 14px 16px;
   display: flex;

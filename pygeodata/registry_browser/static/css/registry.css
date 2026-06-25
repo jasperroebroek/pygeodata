@@ -85,6 +85,9 @@
 /* Show icons only when select mode is active */
 body.select-mode .select-icon { display: inline-flex; align-items: center; justify-content: center; }
 
+/* In the export view the button is always visible (acts as remove/minus) */
+.view-export .select-icon { display: inline-flex; align-items: center; justify-content: center; }
+
 /* Highlight selected entries */
 .row-entry.selected-for-export { background: var(--accent-bg2); }
 .entry-pill.selected-for-export { outline: 1.5px solid var(--accent-mid); outline-offset: -1px; }

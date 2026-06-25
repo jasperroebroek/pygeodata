@@ -543,13 +543,26 @@ a.link-entry-name {
 
 .ver-row {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 14px;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 14px;
   font-size: 12px;
   border-bottom: 1px solid var(--border-s);
 }
 .ver-row:last-child { border-bottom: none; }
+
+.ver-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ver-row-spec {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-left: 2px;
+}
 
 .ver-row--active {
   background: var(--accent-bg2);
@@ -578,6 +591,30 @@ a.link-entry-name {
   color: var(--faint);
   flex-shrink: 0;
 }
+
+.ver-label {
+  color: var(--muted);
+  font-weight: 400;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.ver-row--self .ver-label {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.ver-spacer { flex: 1; }
+
+.ver-row-right {
+  min-width: 44px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
 
 .ver-chip {
   font-size: 10px;

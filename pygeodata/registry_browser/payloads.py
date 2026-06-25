@@ -1,11 +1,11 @@
+from pygeodata.catalog.filters import Filter, entry_matches_filters, matching_rows, parse_filters
+from pygeodata.catalog.types import ClassInfo, EntryInfo, FileRef, LinkedEntry
 from pygeodata.config import JSONKeys
 from pygeodata.formatting.json import format_json
 from pygeodata.registries.registry import SourceRegistry
-from pygeodata.catalog.filters import Filter, entry_matches_filters, matching_rows, parse_filters
-from pygeodata.catalog.types import ClassInfo, EntryInfo, FileRef, LinkedEntry
+from pygeodata.registries.versioning import VersionRegistry
 from pygeodata.registry_browser.state import AppState
 from pygeodata.spec import SpecKeys
-from pygeodata.registries.versioning import VersionRegistry
 
 # ---------------------------------------------------------------------------
 # Small serialisers — one responsibility each
@@ -371,6 +371,29 @@ def _build_instance_hash_index(entries: dict[str, 'EntryInfo']) -> dict[str, lis
     return index
 
 
+def _build_params_hash_index(entries: dict[str, 'EntryInfo']) -> dict[tuple[str, str], list['EntryInfo']]:
+    """Index by (class_name, params_hash) — groups entries with same params across dep versions."""
+    index: dict[tuple[str, str], list[EntryInfo]] = {}
+    for entry in entries.values():
+        if entry.params_hash:
+            key = (entry.class_name, entry.params_hash)
+            index.setdefault(key, []).append(entry)
+    return index
+
+
+def _dep_version_sibling_payload(entry: EntryInfo, vreg: VersionRegistry, *, is_self: bool = False) -> dict:
+    version = vreg.version_for_dep_hash(entry.dep_hash) if entry.dep_hash else None
+    return {
+        'record_id': entry.record_id,
+        'dep_hash': entry.dep_hash,
+        'dep_hash_stale': entry.dep_hash_stale,
+        'version_id': version.version_id if version else None,
+        'version_label': vreg.label(version) if version else None,
+        'is_self': is_self,
+        SpecKeys.SPEC: _spec_payload(entry.spec),
+    }
+
+
 def version_groups_payload(vreg: VersionRegistry, entry_dep_hashes: set[str] | None = None) -> list[dict]:
     """Serialize VersionRegistry.versions for the browser API.
 
@@ -432,6 +455,14 @@ def _build_detail_payload(
                 for e in index.get(selected_entry_info.instance_hash, [])
                 if e.record_id != selected_entry_info.record_id
             ]
+        dep_version_entries: list[EntryInfo] = []
+        if selected_entry_info.params_hash:
+            ph_index = _build_params_hash_index(state.entries)
+            dep_version_entries = list(ph_index.get((selected_entry_info.class_name, selected_entry_info.params_hash), []))
+            dep_version_entries.sort(
+                key=lambda e: (vreg.version_for_dep_hash(e.dep_hash).mtime if e.dep_hash and vreg.version_for_dep_hash(e.dep_hash) else ''),
+                reverse=True,
+            )
         entry_version = (
             vreg.version_for_dep_hash(selected_entry_info.dep_hash) if selected_entry_info.dep_hash else None
         )
@@ -439,6 +470,11 @@ def _build_detail_payload(
             **_class_detail_payload(class_info),
             'code_versions': _class_version_history(selected_entry_info.class_name, src),
             'entry_version_id': entry_version.version_id if entry_version else None,
+            'entry_version_label': vreg.label(entry_version) if entry_version else None,
+            'dep_version_siblings': [
+                _dep_version_sibling_payload(e, vreg, is_self=e.record_id == selected_entry_info.record_id)
+                for e in dep_version_entries
+            ],
             'selected_entry': _entry_detail_payload(selected_entry_info, same_instance_runs=siblings),
         }
 

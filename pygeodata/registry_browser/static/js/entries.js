@@ -82,10 +82,15 @@ export function renderSpecPills(selector, options, selectedSet, labelFn = null) 
 // ---------------------------------------------------------------------------
 
 let _loadingOverlayActive = false;
+export let hasLiveClasses = false;
 
-export function showLoadingOverlay() {
+// phase: 'reload' (default) | 'reimport'
+export function showLoadingOverlay(phase = 'reload') {
   if (_loadingOverlayActive) return;
   _loadingOverlayActive = true;
+  $("#loading-bar-fill").style.width = "0%";
+  $("#loading-label").textContent = phase === 'reimport' ? "Reimporting…" : "Loading entries…";
+  $("#loading-sub").textContent = "";
   $("#loading-overlay").classList.remove("hidden");
   _pollUntilReady();
 }
@@ -100,17 +105,33 @@ async function _pollUntilReady() {
     try {
       const status = await (await fetch("/api/status")).json();
       const p = status.progress ?? {};
-      const done  = p.done  ?? 0;
-      const total = p.total ?? 0;
-      if (total > 0) {
-        const pct = Math.round((done / total) * 100);
+
+      const reimportTotal = p.reimport_total ?? 0;
+      const reimportDone  = p.reimport_done  ?? 0;
+      const scanTotal = p.total ?? 0;
+      const scanDone  = p.done  ?? 0;
+
+      if (reimportTotal > 0 && reimportDone < reimportTotal) {
+        // Phase 1: reimporting Python files
+        const pct = Math.round((reimportDone / reimportTotal) * 100);
         $("#loading-bar-fill").style.width = `${pct}%`;
-        $("#loading-label").textContent = "Loading…";
-        $("#loading-sub").textContent = `${done} / ${total} entries`;
-      } else {
-        $("#loading-label").textContent = "Loading…";
-        $("#loading-sub").textContent = "";
+        $("#loading-label").textContent = "Reimporting…";
+        $("#loading-sub").textContent = `${reimportDone} / ${reimportTotal} files`;
+      } else if (scanTotal > 0) {
+        // Phase 2: scanning entries
+        const pct = Math.round((scanDone / scanTotal) * 100);
+        $("#loading-bar-fill").style.width = `${pct}%`;
+        $("#loading-label").textContent = "Loading entries…";
+        $("#loading-sub").textContent = `${scanDone} / ${scanTotal}`;
+      } else if (reimportTotal > 0) {
+        // Reimport finished, scan not yet started
+        $("#loading-bar-fill").style.width = "100%";
+        $("#loading-label").textContent = "Reimporting…";
+        $("#loading-sub").textContent = "Done — scanning entries…";
       }
+
+      if (status.has_live_classes != null) hasLiveClasses = status.has_live_classes;
+
       if (status.ready) {
         hideLoadingOverlay();
         loadEntriesOnly();
@@ -250,12 +271,10 @@ export function showDiagnostics() {
   const counts = lastDashboard.counts     ?? {};
   const diag   = lastDashboard.diagnostics ?? {};
 
-  const scanned        = diag.scanned_params_paths ?? 0;
-  const created        = diag.created_entries      ?? 0;
-  const resolverFails  = (diag.resolver_failures   ?? []).length;
-  const missingHash    = (diag.missing_state_hash  ?? []).length;
-  const hashCollisions = (diag.hash_collisions     ?? []).length;
-  const staleHidden    = diag.stale_hidden          ?? 0;
+  const scanned     = diag.scanned_hash_paths ?? 0;
+  const created     = diag.created_entries   ?? 0;
+  const missingHash = diag.missing_state_hash ?? 0;
+  const staleHidden = diag.stale_hidden       ?? 0;
 
   const totalClasses   = counts.classes        ?? 0;
   const loadedClasses  = counts.classes_loaded ?? 0;
@@ -279,30 +298,16 @@ export function showDiagnostics() {
          ${row("Cache-only",                    unloadedClasses, true)}
 
          <tr class="diag-section-row"><td colspan="2">Scan</td></tr>
-         ${row("Params files found",            scanned)}
-         ${row("Entries created",               created)}
-         ${row("Dropped (resolver error)",      resolverFails,  true)}
+         ${row("Params files scanned", scanned)}
+         ${row("Entries created",      created)}
 
          <tr class="diag-section-row"><td colspan="2">Entry quality</td></tr>
-         ${row("Missing state hash",   missingHash,    true)}
-         ${row("Hash collisions",      hashCollisions, true)}
+         ${row("Missing state hash",      missingHash, true)}
          ${staleHidden > 0 ? row("Stale entries hidden", staleHidden, false) : ""}
        </tbody>
-     </table>
-     <div class="diag-footer">
-       <button class="act-btn diag-clean-btn" id="btn-open-clean-cache">Clean cache…</button>
-       <button class="act-btn diag-clean-btn" id="btn-open-clean-source">Clean source…</button>
-     </div>`,
+     </table>`,
     "sm"
   );
-
-  document.getElementById("btn-open-clean-cache")?.addEventListener("click", () => {
-    _openModal("Clean Cache", _buildCleanCacheModal(), "md");
-  });
-  document.getElementById("btn-open-clean-source")?.addEventListener("click", () => {
-    _openModal("Clean Source Registry", _buildCleanSourceModal(), "md");
-    document.getElementById("btn-clean-source-run")?.addEventListener("click", runCleanSource);
-  });
 }
 
 
@@ -369,11 +374,18 @@ export function toggleCartEntry(id) {
     btn.title = inCart ? "Remove from export" : "Add to export";
   });
   _updateCartTab();
+  if (document.querySelector('.view-export')?.style.display !== 'none') {
+    _rerenderExportView();
+  }
 }
 
 // Lazy reference to cart tab badge updater — injected from export-view.js at boot time
 let _updateCartTab = () => {};
 export function setUpdateCartTab(fn) { _updateCartTab = fn; }
+
+// Lazy reference to export view re-renderer — injected from export-view.js at boot time
+let _rerenderExportView = () => {};
+export function setRerenderExportView(fn) { _rerenderExportView = fn; }
 
 export function toggleSelectMode() {
   state.select_mode = !state.select_mode;
@@ -476,6 +488,7 @@ export async function runCleanSource() {
 
 export function initEntries(navigateToCodeClass, getCodeState, showWhatChanged, navigateToCodeClassBySourceHash) {
   _getCodeState = getCodeState;
+  fetch('/api/status').then(r => r.json()).then(s => { if (s.has_live_classes != null) hasLiveClasses = s.has_live_classes; }).catch(() => {});
 
   // Wire filters
   setFilterLoaders(loadEntries, loadEntriesOnly);

@@ -14,7 +14,7 @@ import { renderClassList, _multiSelectEnabled, setMultiSelectEnabled, _showEmpty
 import { applyTableSelection, _visibleEntryIds, _tableRows, _tableEntryCount, _appendTableRows, PAGE_ENTRIES } from './table.js';
 import { lastDashboard } from './utils.js';
 import { postRebuild } from './api.js';
-import { runCleanCache } from './entries.js';
+import { runCleanCache, runCleanSource, _buildCleanCacheModal, _buildCleanSourceModal, showLoadingOverlay, hasLiveClasses } from './entries.js';
 import { openModal as _openModal, closeModal as _closeModal } from './detail.js';
 
 // ---------------------------------------------------------------------------
@@ -105,32 +105,58 @@ document.getElementById("add-filter").onclick = () => {
 document.getElementById("btn-diag").onclick = showDiagnostics;
 
 // ---------------------------------------------------------------------------
-// Reload from disk
+// Three-dot topbar menu
 // ---------------------------------------------------------------------------
 
-document.getElementById("btn-reload").onclick = () => {
-  const html = `
-    <div class="rebuild-modal">
-      <label class="rebuild-opt">
-        <input type="checkbox" id="rebuild-reimport">
-        Re-import modules from disk
-        <span class="rebuild-opt-hint">(picks up new or edited classes)</span>
-      </label>
-      <div class="rebuild-footer">
-        <button class="act-btn" id="btn-rebuild-run">Rebuild</button>
-      </div>
-    </div>`;
-  _openModal("Rebuild", html, "sm");
-  document.getElementById("btn-rebuild-run").onclick = async () => {
-    const reimport = document.getElementById("rebuild-reimport").checked;
-    _closeModal();
-    try {
-      await postRebuild(reimport);
-      loadEntries();
-    } catch (e) {
-      toast(`Rebuild failed: ${e}`);
-    }
-  };
+const _menuWrap = document.getElementById("topbar-menu-wrap");
+const _menu     = document.getElementById("topbar-menu");
+
+document.getElementById("btn-menu").onclick = (e) => {
+  e.stopPropagation();
+  const willOpen = _menu.classList.contains("hidden");
+  if (willOpen) {
+    const noLive = !hasLiveClasses;
+    document.getElementById("menu-clean-cache").disabled    = noLive;
+    document.getElementById("menu-clean-registry").disabled = noLive;
+  }
+  _menu.classList.toggle("hidden");
+};
+
+document.addEventListener("click", (e) => {
+  if (!_menuWrap.contains(e.target)) _menu.classList.add("hidden");
+});
+
+function _closeMenu() { _menu.classList.add("hidden"); }
+
+document.getElementById("menu-reload").onclick = async () => {
+  _closeMenu();
+  try {
+    await postRebuild(false);
+    showLoadingOverlay();
+  } catch (e) {
+    toast(`Reload failed: ${e}`);
+  }
+};
+
+document.getElementById("menu-reimport").onclick = async () => {
+  _closeMenu();
+  try {
+    await postRebuild(true);
+    showLoadingOverlay('reimport');
+  } catch (e) {
+    toast(`Reimport failed: ${e}`);
+  }
+};
+
+document.getElementById("menu-clean-cache").onclick = () => {
+  _closeMenu();
+  _openModal("Clean Cache", _buildCleanCacheModal(), "md");
+};
+
+document.getElementById("menu-clean-registry").onclick = () => {
+  _closeMenu();
+  _openModal("Clean Source Registry", _buildCleanSourceModal(), "md");
+  document.getElementById("btn-clean-source-run")?.addEventListener("click", runCleanSource);
 };
 
 // ---------------------------------------------------------------------------

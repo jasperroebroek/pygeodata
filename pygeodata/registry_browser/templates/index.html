@@ -51,7 +51,16 @@
       <div class="kind-group"><button class="kind-tab" id="btn-hide-empty-versions">Hide empty</button></div>
     </div>
     <button class="ghost-btn topbar-icon-btn" id="btn-diag" title="Diagnostics">ⓘ</button>
-    <button class="ghost-btn topbar-icon-btn" id="btn-reload" title="Reimport from disk">↺</button>
+    <div class="topbar-menu-wrap" id="topbar-menu-wrap">
+      <button class="ghost-btn topbar-icon-btn" id="btn-menu" title="Menu">⋮</button>
+      <div class="topbar-menu hidden" id="topbar-menu">
+        <button class="topbar-menu-item" id="menu-reload">Reload from disk</button>
+        <button class="topbar-menu-item" id="menu-reimport">Reimport Python files</button>
+        <div class="topbar-menu-sep"></div>
+        <button class="topbar-menu-item" id="menu-clean-cache">Clean cache…</button>
+        <button class="topbar-menu-item" id="menu-clean-registry">Clean registry…</button>
+      </div>
+    </div>
   </div>
 </nav>
 

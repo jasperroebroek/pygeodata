@@ -11,6 +11,7 @@ from pygeodata.catalog.types import (
     SpecInfo,
 )
 from pygeodata.config import FORMAT_VERSION, get_config
+from pygeodata.hash import calculate_dict_hash
 from pygeodata.paths import CACHE_DIR_SUFFIXES, CACHE_META_FILES, CachePathConstructor, classify_file
 from pygeodata.registries.registry import EntryRegistry, SourceRegistry, TreeRegistry
 from pygeodata.catalog.params_index import flatten_params
@@ -105,7 +106,11 @@ def _enrich_params_path(
     class_name = (record.class_name if record else None) or resolver.directory.name
     state_hash = record.state_hash if record else None
     instance_hash = record.instance_hash if record else None
+    params_hash = record.params_hash if record else None
     stored_dep_hash = record.dependency_tree_hash if record else None
+
+    if params_hash is None:
+        params_hash = calculate_dict_hash(params)
     co_output_hashes = record.co_output_hashes if record else []
     format_version = record.format_version if record else FORMAT_VERSION
 
@@ -136,6 +141,7 @@ def _enrich_params_path(
         execution_graph_path=str(resolver.execution_graph_path) if resolver.execution_graph_path.exists() else None,
         state_hash=state_hash,
         instance_hash=instance_hash,
+        params_hash=params_hash,
         params=params,
         spec=SpecInfo.from_spec(SpatialSpec.from_dict(spec)) if spec else SpecInfo(),
         rows=rows,

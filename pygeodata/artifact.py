@@ -190,6 +190,13 @@ class Artifact(TrackedObject, ABC):
         with path.open('w', encoding='utf-8') as f:
             json.dump(spec.to_dict(), f, indent=4)
 
+    def get_params_hash(self) -> str:
+        """Hash of params only — no dep_tree_hash. Groups entries with same params across dep versions."""
+        from pygeodata.formatting.json import format_json
+
+        state: dict = {JSONKeys.PARAMS: {k: format_json(v) for k, v in self.get_params().items()}}
+        return calculate_dict_hash(state)
+
     def get_instance_hash(self) -> str:
         """Hash of class code and params — spec-independent. Stable identifier for this artifact instance."""
         from pygeodata.formatting.json import format_json
@@ -231,6 +238,7 @@ class Artifact(TrackedObject, ABC):
             source_hash=calculate_cls_source_hash(self.__class__),
             dependency_tree_hash=self.get_dependency_tree_hash(),
             instance_hash=self.get_instance_hash(),
+            params_hash=self.get_params_hash(),
             state_hash=self.get_state_hash(spec),
             object_type=self.object_type.get_class_name(),
             hash_path=str(hash_path),

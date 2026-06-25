@@ -1,7 +1,7 @@
 import { $, toast } from './utils.js';
 import { state } from './state.js';
 import { startExportJob, pollExportStatus, downloadExport, fetchExportTable, downloadSingleEntry } from './api.js';
-import { setUpdateCartTab, toggleCartEntry as _toggleCartEntry } from './entries.js';
+import { setUpdateCartTab, setRerenderExportView, toggleCartEntry as _toggleCartEntry } from './entries.js';
 import { _buildRowsHtml } from './table.js';
 
 
@@ -72,12 +72,9 @@ export async function renderExportView() {
         tbody.innerHTML = `<tr><td colspan="4" class="detail-empty" style="padding:14px">No entries selected.</td></tr>`;
       } else {
         const savedEntry = state.selected_entry;
-        const savedCart  = state.selected_entries;
-        state.selected_entry   = null;
-        state.selected_entries = new Set();
+        state.selected_entry = null;
         const { html } = _buildRowsHtml(rows, 0, rows.length);
-        state.selected_entry   = savedEntry;
-        state.selected_entries = savedCart;
+        state.selected_entry = savedEntry;
         tbody.innerHTML = html.join("");
       }
     }
@@ -155,6 +152,7 @@ export async function startExport() {
 
 export function initExportView() {
   setUpdateCartTab(updateCartTab);
+  setRerenderExportView(renderExportView);
 
   const btn = $("#btn-export-download");
   if (btn) btn.onclick = startExport;

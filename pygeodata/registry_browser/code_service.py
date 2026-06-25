@@ -8,11 +8,11 @@ from __future__ import annotations
 
 from difflib import SequenceMatcher, unified_diff
 
+from pygeodata.catalog.types import CodeClassState
 from pygeodata.hash import calculate_cls_source_hash
 from pygeodata.paths import CodeRegistryPathConstructor
-from pygeodata.catalog.types import CodeClassState
-from pygeodata.tracked_object import TrackedObject
 from pygeodata.registries.versioning import VersionRegistry
+from pygeodata.tracked_object import TrackedObject
 
 
 def _word_segments(text_old: str, text_new: str) -> tuple[list[dict], list[dict]]:
@@ -229,6 +229,7 @@ def version_diff(
     Returns {changes, base_version_id, has_live_stale} or an error dict.
     Never raises — errors are encoded as {'error': ..., 'message': ...}.
     """
+
     def _resolve(version_id: str) -> dict[str, str] | None:
         if version_id == 'live':
             return vreg.live_snapshot()

@@ -7,15 +7,16 @@ import traceback
 from dataclasses import dataclass
 from pathlib import Path
 
-from pygeodata.registries.registry import EntryRegistry
 from pygeodata.catalog.class_catalog import (
     discover_loaded_classes,
     merge_unloaded_classes,
 )
 from pygeodata.catalog.entry_catalog import _cache_file, discover_entries
 from pygeodata.catalog.types import ClassInfo, EntryInfo
-from pygeodata.spec import SpecKeys
+from pygeodata.registries.registry import EntryRegistry
 from pygeodata.registries.versioning import VersionRegistry
+from pygeodata.spec import SpecKeys
+from pygeodata.tracked_object import TrackedObject
 
 _log = logging.getLogger(__name__)
 
@@ -69,7 +70,15 @@ class AppContext:
             try:
                 _purge_caches()
                 if reimport:
-                    _reimport_modules(Path.cwd())
+                    root = Path.cwd()
+                    py_files = _collect_reimport_files(root)
+                    total = len(py_files)
+                    self.progress['reimport_done'] = 0
+                    self.progress['reimport_total'] = total
+                    TrackedObject._registry.clear()
+                    for done in _reimport_modules(py_files, root):
+                        self.progress['reimport_done'] = done
+                    self.progress['reimport_done'] = total
                 self.state = build_state(progress=self.progress)
                 self.load_error = None
             except Exception:
@@ -95,33 +104,52 @@ _SKIP_DIRS = {'venv', 'env', '.venv', 'build', 'dist', 'site-packages', 'tests',
 _SKIP_PREFIXES = ('test_', 'conftest', 'setup', 'manage')
 
 
-def _reimport_modules(root: Path) -> int:
-    """Import (or re-execute) all project .py files under root.
+def _collect_reimport_files(root: Path) -> list[Path]:
+    """Return project .py files under root sorted deepest-first.
+
+    Deepest-first means leaf modules are loaded before the top-level packages
+    that import them, so cascading re-imports are mostly no-ops.
+    """
+    files = [
+        py_file
+        for py_file in root.rglob('*.py')
+        if not any(p.startswith(('.', '__pycache__')) or p in _SKIP_DIRS for p in py_file.relative_to(root).parts)
+        and not py_file.relative_to(root).parts[-1].startswith(_SKIP_PREFIXES)
+    ]
+    files.sort(key=lambda p: (-len(p.parts), p.name == '__init__.py', p))
+    return files
+
+
+def _reimport_modules(py_files: list[Path], root: Path):
+    """Import (or re-execute) a list of project .py files.
 
     Unlike the CLI helper this re-executes already-loaded modules so edits to
     existing classes are picked up.  Per-module failures are logged and skipped.
-    Returns the number of modules processed.
+
+    Yields the index of each file just before it is processed so callers can
+    track progress against len(py_files).
     """
     if root not in sys.path:
         sys.path.insert(0, str(root))
-    count = 0
-    for py_file in sorted(root.rglob('*.py')):
-        parts = py_file.relative_to(root).parts
-        if any(p.startswith(('.', '__pycache__')) or p in _SKIP_DIRS for p in parts):
-            continue
-        if parts[-1].startswith(_SKIP_PREFIXES):
-            continue
-        module_name = '.'.join(py_file.relative_to(root).with_suffix('').parts)
+
+    module_names = {
+        py_file: '.'.join(py_file.relative_to(root).with_suffix('').parts)
+        for py_file in py_files
+    }
+    for name in module_names.values():
+        sys.modules.pop(name, None)
+
+    for i, py_file in enumerate(py_files):
+        module_name = module_names[py_file]
         try:
             spec = importlib.util.spec_from_file_location(module_name, py_file)
             if spec and spec.loader:
                 mod = importlib.util.module_from_spec(spec)
                 sys.modules[module_name] = mod
                 spec.loader.exec_module(mod)
-                count += 1
         except Exception:  # noqa: BLE001
             _log.debug('reimport skip %s', module_name, exc_info=True)
-    return count
+        yield i
 
 
 def build_state(progress: dict | None = None) -> AppState:

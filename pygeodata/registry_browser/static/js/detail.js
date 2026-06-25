@@ -447,7 +447,7 @@ export function bindFileActions(root) {
     img.onclick = () => {
       const html = `<div style="display:flex;align-items:center;justify-content:center;height:100%;overflow:hidden">
            <img src="${fileURL(img.dataset.path)}"
-                style="max-width:100%;max-height:76vh;object-fit:contain;cursor:grab;user-select:none"
+                style="max-width:100%;max-height:100%;object-fit:contain;cursor:grab;user-select:none"
                 id="modal-zoom-img">
          </div>`;
       openModal("Preview", html);
@@ -519,10 +519,10 @@ export function renderDetail(detail) {
   const coOutputsCard  = buildCoOutputsCard(detail.selected_entry);
   const sameSpecCard   = buildSameSpecSiblingsCard(detail.selected_entry);
   const linkedCard     = buildLinkedEntriesCard(detail.selected_entry);
-  const versionsCard   = buildVersionsCard(detail);
-  const paramsCard     = buildParamsCard(detail.selected_entry);
+  const depVersionsCard = buildDepVersionsCard(detail);
+  const paramsCard      = buildParamsCard(detail.selected_entry);
 
-  el.innerHTML = [figureCard, classCard, entryCard, coOutputsCard, sameSpecCard, linkedCard, versionsCard, paramsCard].join("");
+  el.innerHTML = [figureCard, classCard, entryCard, coOutputsCard, sameSpecCard, linkedCard, depVersionsCard, paramsCard].join("");
 
   // Re-bind JSON explorer toggles (lost when using innerHTML/outerHTML)
   el.querySelectorAll(".jx-toggle").forEach(bindJxToggle);
@@ -536,6 +536,8 @@ export function renderDetail(detail) {
     if (cls) { e.preventDefault(); _navigateToCodeClass(cls.dataset.cls, cls.dataset.depHash || null); return; }
     const entry = e.target.closest(".jmp-entry");
     if (entry) { e.preventDefault(); _selectEntry(entry.dataset.entry, entry.dataset.cls || null); return; }
+    const depVer = e.target.closest(".js-dep-ver-select");
+    if (depVer) { e.preventDefault(); _selectEntry(depVer.dataset.entry); return; }
   };
 }
 
@@ -709,7 +711,7 @@ function buildFigureCard(entry) {
         <span class="dcard-hd-label">Preview</span>
         <span class="dcard-hd-spacer"></span>
         <div class="dcard-hd-actions">
-          <button class="act-btn act-btn--ghost js-open" data-path="${esc(previews[0])}">Open</button>
+          <button class="act-btn js-open" data-path="${esc(previews[0])}">Open</button>
         </div>
       </div>
       <div class="dcard-body dcard-body--fig">
@@ -862,41 +864,35 @@ function buildSameSpecSiblingsCard(entry) {
     </div>`;
 }
 
-function buildVersionsCard(detail) {
-  const versions = detail.code_versions ?? [];
+function buildDepVersionsCard(detail) {
+  const versions = detail.dep_version_siblings ?? [];
   if (versions.length <= 1) return "";
 
-  const entryVersionMtime = detail.entry_version_mtime ?? null;
+  const rows = versions.map((s) => {
+    const isSelf = !!s.is_self;
+    const hashShort = (s.dep_hash ?? "").slice(0, 8);
+    const staleChip = s.dep_hash_stale
+      ? `<span class="badge badge--sm badge-warn">stale</span>`
+      : `<span class="badge badge--sm badge-ok">current</span>`;
+    const label = s.version_label ? esc(s.version_label) : (hashShort ? esc(hashShort) : "—");
+    const rightEl = isSelf
+      ? ""
+      : `<button class="act-btn js-dep-ver-select" data-entry="${esc(s.record_id)}">Select</button>`;
 
-  const rows = versions.map((v, i) => {
-    const hashShort = (v.source_hash ?? "").slice(0, 8);
-    const isActive = entryVersionMtime !== null && v.mtime === entryVersionMtime;
-    const versionNum = i + 1;
-
-    let dateStr = "";
-    try {
-      const dt = new Date(v.mtime);
-      dateStr = dt.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-    } catch {
-      dateStr = v.mtime;
-    }
-
-    const activeChip = isActive
-      ? `<span class="ver-chip ver-chip--active">this entry</span>`
-      : "";
-
-    const srcBtn = v.source_hash
-      ? `<button class="act-btn js-ver-src ver-src-btn" data-cls="${esc(detail.class_name)}" data-src-hash="${esc(v.source_hash)}" title="View source at this version">Source</button>`
-      : "";
+    const spec = s.spec ?? {};
+    const specParts = [spec.crs, spec.resolution, spec.shape,
+      spec.bounds_latlon ? boundsLatLonText(spec.bounds_latlon) : null,
+    ].filter(Boolean).map((p) => `<span class="tbl-spec-pill">${esc(p)}</span>`).join("");
 
     return `
-      <div class="ver-row ${isActive ? "ver-row--active" : ""}">
-        <span class="ver-num">v${versionNum}</span>
-        <span class="ver-date">${esc(dateStr)}</span>
-        <span class="ver-hash" title="${esc(v.source_hash ?? "")}">${esc(hashShort)}</span>
-        ${activeChip}
-        <span class="ver-spacer"></span>
-        ${srcBtn}
+      <div class="ver-row${isSelf ? " ver-row--self" : ""}">
+        <div class="ver-row-main">
+          <span class="ver-label">${label}</span>
+          ${staleChip}
+          <span class="ver-spacer"></span>
+          <span class="ver-row-right">${rightEl}</span>
+        </div>
+        ${specParts ? `<div class="ver-row-spec">${specParts}</div>` : ""}
       </div>`;
   }).join("");
 

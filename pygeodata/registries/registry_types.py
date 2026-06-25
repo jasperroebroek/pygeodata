@@ -78,6 +78,7 @@ class EntryRecord:
     source_hash: str | None = None
     dependency_tree_hash: str | None = None
     instance_hash: str | None = None
+    params_hash: str | None = None
     state_hash: str | None = None
     object_type: str | None = None
     hash_path: str | None = field(default=None, compare=False)
@@ -99,6 +100,7 @@ class EntryRecord:
             object_type=data.get('object_type'),
             state_hash=data.get('state_hash'),
             instance_hash=data.get('instance_hash'),
+            params_hash=data.get('params_hash'),
             source_hash=data.get('source_hash'),
             dependency_tree_hash=data.get('dependency_tree_hash'),
             co_output_hashes=data.get('co_output_hashes', []),

@@ -254,6 +254,7 @@
 /* Colour variants */
 .badge-accent   { border-color: var(--accent-mid); color: var(--accent); background: var(--accent-bg); }
 .badge-neutral  { border-color: var(--border);     color: var(--muted);  background: var(--s2); }
+.badge-ok       { border-color: var(--border);     color: var(--faint);  background: var(--s2); }
 .badge-warn     { border-color: #e0c48a;            color: var(--warn);   background: var(--warn-bg); }
 .badge-danger   { border-color: #d9a898;            color: var(--danger); background: var(--danger-bg); }
 .badge-cache    { border-color: var(--border);      color: var(--muted);  background: var(--s2); }
@@ -524,18 +525,6 @@
   color: var(--warn);
 }
 
-.diag-footer {
-  margin-top: 10px;
-  display: flex;
-  justify-content: flex-end;
-}
-
-.diag-clean-btn {
-  font-size: 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 4px 10px;
-}
 
 
 /* ------------------------------------------------------------

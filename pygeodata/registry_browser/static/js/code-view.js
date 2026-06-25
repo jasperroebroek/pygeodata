@@ -736,9 +736,10 @@ export async function showWhatChanged(recordId, entryClassName = null) {
     const baseVersionId = data.base_version_id ?? null;
     _hasLiveStale = data.has_live_stale ?? false;
 
-    // Select Live in the sidebar when classes are loaded; otherwise fall back to newest version.
-    const targetId = _hasLiveClasses ? 'live' : (_codeVersions[0]?.version_id ?? 'live');
-    _codeSelectedVersion = targetId;
+    // Always diff against live so the stale entry shows what actually changed.
+    // Sidebar selection falls back to newest version when classes aren't loaded.
+    const sidebarTarget = _hasLiveClasses ? 'live' : (_codeVersions[0]?.version_id ?? 'live');
+    _codeSelectedVersion = sidebarTarget;
 
     const baseVersionMeta = _codeVersions.find((v) => v.version_id === baseVersionId) ?? _codeVersions[0];
     if (baseVersionMeta) {
@@ -746,7 +747,7 @@ export async function showWhatChanged(recordId, entryClassName = null) {
     }
     renderCodeVersionList();
 
-    await _showVersionDiff({ base: baseVersionId, target: targetId, scrollToClass: entryClassName });
+    await _showVersionDiff({ base: baseVersionId, target: 'live', scrollToClass: entryClassName });
   } catch { toast('Could not load diff'); }
 }
 
