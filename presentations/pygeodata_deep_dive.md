@@ -365,19 +365,16 @@ Processors can also implement `resolve_spec()` to fill in a partial spec from th
 
 ## Slide 12 — Parallel Processing
 
-The `parallel` module provides a thin wrapper for running multiple artifacts concurrently:
+The `parallel` module builds a Dask delayed computation graph so artifacts and their dependencies can be scheduled concurrently:
 
 ```python
-from pygeodata.parallel import process_parallel
+from pygeodata.parallel import build_dask_graph
 
-process_parallel(
-    [LAILoader('min'), LAILoader('mean'), LAILoader('max')],
-    spec=SPEC,
-    num_threads=12,
-)
+graph = build_dask_graph(LAILoader('mean'), spec=SPEC)
+graph.compute()   # execute with dask.distributed or the default scheduler
 ```
 
-Each worker acquires its own file lock on the output directory. The file-lock-then-recheck pattern ensures idempotency: if two workers race, the second finds the cache valid after acquiring the lock and exits without re-running.
+Each artifact call acquires its own file lock on the output directory. The file-lock-then-recheck pattern ensures idempotency: if two workers race, the second finds the cache valid after acquiring the lock and exits without re-running.
 
 ---
 

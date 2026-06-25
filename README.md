@@ -205,7 +205,7 @@ clean_source_registry(dry_run=False)   # delete them
 `clean_source_registry` removes orphaned code snapshots and dependency trees from `.source/`. It keeps the latest snapshot per class and anything referenced by a live cache entry — everything else is prunable.
 
 ```python
-from pygeodata import rebuild_registry
+from pygeodata.cache import rebuild_registry
 
 rebuild_registry()   # wipe and rewrite all .source/ entries from current classes
 ```

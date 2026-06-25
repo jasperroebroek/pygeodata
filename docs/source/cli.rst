@@ -132,13 +132,13 @@ Shown in the first column of ``entry list`` and in the ``Staleness`` line of
 +------------+----------------------------------------------------+
 | ``F``      | Cache format version mismatch                      |
 +------------+----------------------------------------------------+
-| ``?``      | Class not loaded in this process — unknown         |
-+------------+----------------------------------------------------+
-| *(blank)*  | Up to date                                         |
-+------------+----------------------------------------------------+
+| ``N``      | Class not loaded in this process — staleness unknown |
++------------+------------------------------------------------------+
+| *(blank)*  | Up to date                                           |
++------------+------------------------------------------------------+
 
 Pass ``--import-all`` to the ``entry`` group to import project modules and
-resolve ``?`` into ``S`` or blank.
+resolve ``N`` into ``S`` or blank.
 
 
 Example output

@@ -42,7 +42,7 @@ Subclass :class:`~pygeodata.data.Data` and attach a ``processor``:
 Process and load
 ----------------
 
-:func:`~pygeodata.base.load` processes the data (if not already cached) and
+:func:`~pygeodata.api.load` processes the data (if not already cached) and
 returns it via the loader's driver (default: ``xarray.DataArray``):
 
 .. code-block:: python
@@ -50,7 +50,7 @@ returns it via the loader's driver (default: ``xarray.DataArray``):
    spec = pgd.SpatialSpec.from_raster_file('reference.tif')
    da = pgd.load(ElevationLoader(), spec)
 
-Call :func:`~pygeodata.base.process` explicitly if you only want to populate
+Call :func:`~pygeodata.api.process` explicitly if you only want to populate
 the cache without loading the result into memory:
 
 .. code-block:: python
@@ -79,7 +79,7 @@ Cache validity is determined by a **state hash** that combines:
   hashes.
 
 The hash is written alongside the output as a ``.hash.json`` file. On the next
-:func:`~pygeodata.base.process` call the saved hash is compared with the live
+:func:`~pygeodata.api.process` call the saved hash is compared with the live
 hash; a mismatch triggers reprocessing.
 
 SpatialSpec
@@ -182,5 +182,5 @@ files whose state hash no longer matches the live code:
    pgd.clean_cache(dry_run=True)    # preview deletions
    pgd.clean_cache(dry_run=False)   # apply
 
-:func:`~pygeodata.cache.purge_unregistered_cache` interactively offers to
-delete directories that do not belong to any currently imported loader class.
+Pass ``delete_unregistered=True`` to :func:`~pygeodata.cache.clean_cache` to
+also remove directories that do not belong to any currently imported loader class.
