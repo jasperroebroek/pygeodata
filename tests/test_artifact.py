@@ -39,21 +39,25 @@ def test_name_conversion_mixed() -> None:
     assert USGSElevationLoader.get_file_stem() == 'usgs_elevation_loader'
 
 
-def test_get_params_excludes_private(simple_data_loader: SampleLoader) -> None:
-    setattr(simple_data_loader, '_private_attr', 'should_not_appear')  # noqa: B010
-    assert '_private_attr' not in simple_data_loader.get_params()
-
-
-def test_get_params_insertion(simple_data_loader: SampleLoader) -> None:
-    setattr(simple_data_loader, 'public_attr', 'should_appear')  # noqa: B010
-    assert 'public_attr' in simple_data_loader.get_params()
-
-
-def test_get_params_multiple(simple_data_loader: SampleLoader) -> None:
+@pytest.mark.parametrize(
+    'setup,expected_present,expected_absent',
+    [
+        (lambda l: setattr(l, '_private_attr', 'x'), [], ['_private_attr']),  # noqa: B010
+        (lambda l: setattr(l, 'public_attr', 'x'), ['public_attr'], []),  # noqa: B010
+        (lambda l: None, ['path', 'scale'], []),
+    ],
+)
+def test_get_params(simple_data_loader: SampleLoader, setup, expected_present, expected_absent) -> None:
+    setup(simple_data_loader)
     params = simple_data_loader.get_params()
-    assert params['path'] == simple_data_loader.path
-    assert params['scale'] == 2.0
-    assert len(params) == 2
+    for key in expected_present:
+        assert key in params
+    for key in expected_absent:
+        assert key not in params
+    if not expected_absent and expected_present == ['path', 'scale']:
+        assert params['path'] == simple_data_loader.path
+        assert params['scale'] == 2.0
+        assert len(params) == 2
 
 
 def test_artifact_repr() -> None:
@@ -82,53 +86,54 @@ def test_different_specs_different_paths(sample_spatial_spec: SpatialSpec) -> No
     assert p1 != p2
 
 
-def test_is_processed_false_no_file(sample_spatial_spec: SpatialSpec) -> None:
-    assert not SimpleLoader().is_processed(sample_spatial_spec)
-
-
-def test_is_processed_false_no_hash_file(sample_spatial_spec: SpatialSpec) -> None:
-    loader = SimpleLoader()
-    path = loader.get_processed_path(sample_spatial_spec)
+def _setup_output_file(loader, spec):
+    path = loader.get_processed_path(spec)
     path.mkdir(parents=True, exist_ok=True)
     path.touch()
-    assert not loader.is_processed(sample_spatial_spec)
+    return path
 
 
-def test_is_processed_false_hash_mismatch(sample_spatial_spec: SpatialSpec) -> None:
+@pytest.mark.parametrize(
+    'setup_fn,expected',
+    [
+        (lambda loader, spec: None, False),
+        (_setup_output_file, False),
+        (
+            lambda loader, spec: (
+                _setup_output_file(loader, spec),
+                loader.resolve_cache_paths(spec).state_hash_path.write_text(
+                    json.dumps({JSONKeys.STATE_HASH: 'stale'})
+                ),
+            ),
+            False,
+        ),
+        (
+            lambda loader, spec: (
+                _setup_output_file(loader, spec),
+                loader.write_cache_metadata(spec),
+            ),
+            True,
+        ),
+    ],
+)
+def test_is_processed(sample_spatial_spec: SpatialSpec, setup_fn, expected) -> None:
     loader = SimpleLoader()
-    path = loader.get_processed_path(sample_spatial_spec)
-    path.mkdir(parents=True, exist_ok=True)
-    path.touch()
-    loader.resolve_cache_paths(sample_spatial_spec).state_hash_path.write_text(
-        json.dumps({JSONKeys.STATE_HASH: 'stale'}),
-    )
-    assert not loader.is_processed(sample_spatial_spec)
+    setup_fn(loader, sample_spatial_spec)
+    assert loader.is_processed(sample_spatial_spec) is expected
 
 
-def test_is_processed_true_after_write_hash(sample_spatial_spec: SpatialSpec) -> None:
-    loader = SimpleLoader()
-    path = loader.get_processed_path(sample_spatial_spec)
-    path.mkdir(parents=True, exist_ok=True)
-    path.touch()
-    loader.write_cache_metadata(sample_spatial_spec)
-    assert loader.is_processed(sample_spatial_spec)
-
-
-def test_is_processed_symlink_valid(sample_spatial_spec: SpatialSpec, tmp_path: Path) -> None:
+def test_is_processed_symlinks(sample_spatial_spec: SpatialSpec, tmp_path: Path) -> None:
     loader = SimpleLoader()
     path = loader.get_processed_path(sample_spatial_spec)
     path.parent.mkdir(parents=True, exist_ok=True)
+
     target = tmp_path / 'target.tif'
     target.touch()
     path.symlink_to(target)
     loader.write_cache_metadata(sample_spatial_spec)
     assert loader.is_processed(sample_spatial_spec)
 
-
-def test_is_processed_symlink_broken(sample_spatial_spec: SpatialSpec, tmp_path: Path) -> None:
-    loader = SimpleLoader()
-    path = loader.get_processed_path(sample_spatial_spec)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.unlink()
     path.symlink_to(tmp_path / 'nonexistent.tif')
     assert not loader.is_processed(sample_spatial_spec)
 

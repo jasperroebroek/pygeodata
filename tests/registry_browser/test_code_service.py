@@ -64,39 +64,29 @@ def _noop(_path: str):
 # ---------------------------------------------------------------------------
 
 
-def test_version_diff_no_dep_hash(tmp_path: Path):
-    """Entry with dep_hash=None → no_snapshot."""
-    entry = _make_entry('rec1', None)
-    with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=tmp_path / '.source'):
-        vreg = VersionRegistry()
-        result = code_service.version_diff(vreg, record_id='rec1', entries={'rec1': entry})
-    assert result == {'error': 'no_snapshot', 'message': 'Snapshot not available for this entry'}
-
-
-def test_version_diff_missing_entry(tmp_path: Path):
-    """Unknown record_id → __not_found__ sentinel."""
-    with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=tmp_path / '.source'):
-        vreg = VersionRegistry()
-        result = code_service.version_diff(vreg, record_id='missing', entries={})
-    assert result.get('__not_found__') is True
-
-
-def test_version_diff_no_snapshot_file(tmp_path: Path):
-    """dep_hash present but not in any version group → base=None → no_snapshot."""
+def test_version_diff_error_paths(tmp_path: Path):
     registry = tmp_path / '.source'
-    entry = _make_entry('rec1', 'nonexistent_dep_hash')
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
+        vreg_empty = VersionRegistry()
+
+        # dep_hash=None → no_snapshot
+        entry_no_dep = _make_entry('rec1', None)
+        result = code_service.version_diff(vreg_empty, record_id='rec1', entries={'rec1': entry_no_dep})
+        assert result == {'error': 'no_snapshot', 'message': 'Snapshot not available for this entry'}
+
+        # unknown record_id → __not_found__ sentinel
+        result = code_service.version_diff(vreg_empty, record_id='missing', entries={})
+        assert result.get('__not_found__') is True
+
+        # dep_hash present but unknown to any version group → no_snapshot
         vreg = VersionRegistry(registry)
-        result = code_service.version_diff(vreg, record_id='rec1', entries={'rec1': entry})
-    assert result['error'] == 'no_snapshot'
+        entry_bad_dep = _make_entry('rec1', 'nonexistent_dep_hash')
+        result = code_service.version_diff(vreg, record_id='rec1', entries={'rec1': entry_bad_dep})
+        assert result['error'] == 'no_snapshot'
 
-
-def test_version_diff_bad_request(tmp_path: Path):
-    """Neither record_id nor base_version_id → bad_request."""
-    with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=tmp_path / '.source'):
-        vreg = VersionRegistry()
-        result = code_service.version_diff(vreg)
-    assert result['error'] == 'bad_request'
+        # neither record_id nor base_version_id → bad_request
+        result = code_service.version_diff(vreg_empty)
+        assert result['error'] == 'bad_request'
 
 
 def test_version_diff_explicit_base_version_changed(tmp_path: Path):

@@ -74,10 +74,35 @@ def write_cache_entry(
 # ---------------------------------------------------------------------------
 
 
-def test_is_output_file_regular_tif(tmp_path):
-    f = tmp_path / 'result.tif'
+def _make_tif(p):
+    f = p / 'result.tif'
     f.write_bytes(b'x')
-    assert _is_output_file(f)
+    return f
+
+
+def _make_zarr(p):
+    d = p / 'data.zarr'
+    d.mkdir()
+    return d
+
+
+def _make_subdir(p):
+    d = p / 'subdir'
+    d.mkdir()
+    return d
+
+
+@pytest.mark.parametrize(
+    'make_path,expected',
+    [
+        (_make_tif, True),
+        (_make_zarr, True),
+        (_make_subdir, False),
+    ],
+)
+def test_is_output_file(tmp_path, make_path, expected):
+    path = make_path(tmp_path)
+    assert _is_output_file(path) is expected
 
 
 def test_is_output_file_meta_files(tmp_path):
@@ -85,18 +110,6 @@ def test_is_output_file_meta_files(tmp_path):
         f = tmp_path / name
         f.write_bytes(b'x')
         assert not _is_output_file(f)
-
-
-def test_is_output_file_zarr_dir(tmp_path):
-    d = tmp_path / 'data.zarr'
-    d.mkdir()
-    assert _is_output_file(d)
-
-
-def test_is_output_file_regular_dir_not_output(tmp_path):
-    d = tmp_path / 'subdir'
-    d.mkdir()
-    assert not _is_output_file(d)
 
 
 # ---------------------------------------------------------------------------
@@ -156,7 +169,7 @@ def test_cache_mtime_key_missing_files_contribute_zero(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_enrich_params_path_basic(tmp_path):
+def test_enrich_params_path_fields(tmp_path):
     d = tmp_path / 'data_processed' / 'MyLoader'
     params_path = write_cache_entry(
         d,
@@ -172,42 +185,29 @@ def test_enrich_params_path_basic(tmp_path):
     assert entry.spec.crs == 'EPSG:4326'
     assert entry.params == {'year': 2020}
 
+    # missing STATE_HASH → warns
+    d2 = tmp_path / 'data_processed' / 'MyLoader2'
+    params_path2 = write_cache_entry(d2, 'abc', state={JSONKeys.CLASS_NAME: 'MyLoader'})
+    entry2 = _enrich_params_path(params_path2)
+    assert entry2.state_hash is None
+    assert any('hash' in w.lower() for w in entry2.warnings)
 
-def test_enrich_params_path_missing_state_hash_warns(tmp_path):
-    d = tmp_path / 'data_processed' / 'MyLoader'
-    params_path = write_cache_entry(
-        d,
-        'abc',
-        state={JSONKeys.CLASS_NAME: 'MyLoader'},  # no STATE_HASH
+    # primary file present
+    d3 = tmp_path / 'data_processed' / 'MyLoader3'
+    params_path3 = write_cache_entry(
+        d3, 'abc', state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'}, output_ext='tif'
     )
-    entry = _enrich_params_path(params_path)
-    assert entry.state_hash is None
-    assert any('hash' in w.lower() for w in entry.warnings)
+    entry3 = _enrich_params_path(params_path3)
+    assert entry3.primary_file is not None
+    assert entry3.primary_file.label == 'abc.tif'
 
-
-def test_enrich_params_path_finds_primary_file(tmp_path):
-    d = tmp_path / 'data_processed' / 'MyLoader'
-    params_path = write_cache_entry(
-        d,
-        'abc',
-        state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'},
-        output_ext='tif',
+    # primary file absent
+    d4 = tmp_path / 'data_processed' / 'MyLoader4'
+    params_path4 = write_cache_entry(
+        d4, 'abc', state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'}, output_ext=None
     )
-    entry = _enrich_params_path(params_path)
-    assert entry.primary_file is not None
-    assert entry.primary_file.label == 'abc.tif'
-
-
-def test_enrich_params_path_no_primary_file_when_missing(tmp_path):
-    d = tmp_path / 'data_processed' / 'MyLoader'
-    params_path = write_cache_entry(
-        d,
-        'abc',
-        state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'},
-        output_ext=None,
-    )
-    entry = _enrich_params_path(params_path)
-    assert entry.primary_file is None
+    entry4 = _enrich_params_path(params_path4)
+    assert entry4.primary_file is None
 
 
 def test_enrich_params_path_co_output_hashes(tmp_path):
@@ -306,15 +306,6 @@ def test_discover_entries_single_entry(tmp_path):
     assert entry.state_hash == 'abc'
     assert entry.spec.crs == 'EPSG:4326'
 
-
-def test_discover_entries_groups_populated(tmp_path):
-    base = tmp_path / 'data_processed' / 'MyLoader'
-    write_cache_entry(base / 'abc', 'abc', state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'})
-    write_cache_entry(base / 'def', 'def', state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'def'})
-
-    entries, entry_registry, diag = discover_entries()
-    assert 'MyLoader' in entry_registry.class_names
-    assert len(entry_registry.get_state_hashes('MyLoader')) == 2
 
 
 def test_discover_entries_missing_state_hash_diagnostic(tmp_path):

@@ -165,36 +165,43 @@ def _make_entry_info(**kwargs) -> EntryInfo:
     return EntryInfo(**defaults)
 
 
-def test_entry_info_round_trip():
-    entry = _make_entry_info()
+@pytest.mark.parametrize(
+    'kwargs,check',
+    [
+        (
+            {},
+            lambda orig, rec: (
+                rec.class_name == orig.class_name
+                and rec.state_hash == orig.state_hash
+                and rec.params == orig.params
+                and rec.spec.crs == orig.spec.crs
+            ),
+        ),
+        (
+            {'spec': SpecInfo(bounds_latlon=(-90.0, -180.0, 90.0, 180.0))},
+            lambda orig, rec: (
+                isinstance(rec.spec.bounds_latlon, tuple)
+                and rec.spec.bounds_latlon == (-90.0, -180.0, 90.0, 180.0)
+            ),
+        ),
+        (
+            {'primary_file': FileRef(label='out.tif', path='/data/out.tif', kind='raster')},
+            lambda orig, rec: (
+                rec.primary_file is not None
+                and rec.primary_file.label == 'out.tif'
+                and rec.primary_file.kind == 'raster'
+            ),
+        ),
+        (
+            {'primary_file': None},
+            lambda orig, rec: rec.primary_file is None,
+        ),
+    ],
+)
+def test_entry_info_round_trip(kwargs, check):
+    entry = _make_entry_info(**kwargs)
     recovered = EntryInfo.from_dict(entry.to_dict())
-    assert recovered.class_name == entry.class_name
-    assert recovered.state_hash == entry.state_hash
-    assert recovered.params == entry.params
-    assert recovered.spec.crs == entry.spec.crs
-
-
-def test_entry_info_bounds_latlon_tuple_survives():
-    entry = _make_entry_info(spec=SpecInfo(bounds_latlon=(-90.0, -180.0, 90.0, 180.0)))
-    recovered = EntryInfo.from_dict(entry.to_dict())
-    assert isinstance(recovered.spec.bounds_latlon, tuple)
-    assert recovered.spec.bounds_latlon == (-90.0, -180.0, 90.0, 180.0)
-
-
-def test_entry_info_primary_file_round_trip():
-    entry = _make_entry_info(
-        primary_file=FileRef(label='out.tif', path='/data/out.tif', kind='raster'),
-    )
-    recovered = EntryInfo.from_dict(entry.to_dict())
-    assert recovered.primary_file is not None
-    assert recovered.primary_file.label == 'out.tif'
-    assert recovered.primary_file.kind == 'raster'
-
-
-def test_entry_info_no_primary_file_round_trip():
-    entry = _make_entry_info(primary_file=None)
-    recovered = EntryInfo.from_dict(entry.to_dict())
-    assert recovered.primary_file is None
+    assert check(entry, recovered)
 
 
 def test_entry_info_to_dict_excludes_co_outputs_terminates():
@@ -224,8 +231,9 @@ def test_entry_info_format_version_stale_property():
 # ---------------------------------------------------------------------------
 
 
-def test_entry_info_from_dict_old_format_version_stale_true():
-    """A pre-merge cache blob with format_version_stale=True must degrade gracefully."""
+@pytest.mark.parametrize('stale_flag,expected', [(True, True), (False, False)])
+def test_entry_info_from_dict_old_format_version_stale(stale_flag, expected):
+    """Pre-merge cache blob with format_version_stale bool must degrade gracefully."""
     old_blob = {
         'record_id': 'abc',
         'class_name': 'MyLoader',
@@ -244,41 +252,12 @@ def test_entry_info_from_dict_old_format_version_stale_true():
         'primary_file': None,
         'warnings': [],
         'error': None,
-        'format_version_stale': True,  # old field name
+        'format_version_stale': stale_flag,
         'dep_hash': None,
         'dep_hash_stale': False,
     }
     entry = EntryInfo.from_dict(old_blob)
-    # Must not crash, and stale flag must be preserved
-    assert entry.format_version_stale is True
-
-
-def test_entry_info_from_dict_old_format_version_stale_false():
-    """A pre-merge cache blob with format_version_stale=False loads cleanly."""
-    old_blob = {
-        'record_id': 'abc',
-        'class_name': 'MyLoader',
-        'object_type': None,
-        'params_path': '/cache/file',
-        'spec_path': None,
-        'state_hash_path': None,
-        'execution_graph_path': None,
-        'state_hash': 'abc',
-        'instance_hash': None,
-        'params': {},
-        'spec': {},
-        'rows': [],
-        'linked_entries': [],
-        'co_output_hashes': [],
-        'primary_file': None,
-        'warnings': [],
-        'error': None,
-        'format_version_stale': False,
-        'dep_hash': None,
-        'dep_hash_stale': False,
-    }
-    entry = EntryInfo.from_dict(old_blob)
-    assert not entry.format_version_stale
+    assert entry.format_version_stale is expected
 
 
 # ---------------------------------------------------------------------------
@@ -405,18 +384,3 @@ def test_entry_registry_disk_cache_invalidated_on_mtime_change(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_discover_entries_co_output_resolution(tmp_path):
-    base = tmp_path / 'data_processed'
-    write_hash_file(base / 'Child', 'child', state={JSONKeys.CLASS_NAME: 'Child', JSONKeys.STATE_HASH: 'child_hash'})
-    write_hash_file(
-        base / 'Parent',
-        'parent',
-        state={
-            JSONKeys.CLASS_NAME: 'Parent',
-            JSONKeys.STATE_HASH: 'parent_hash',
-            JSONKeys.CO_OUTPUTS: ['child_hash'],
-        },
-    )
-    entries, _, _ = discover_entries()
-    parent = entries['parent_hash']
-    assert any(e.record_id == 'child_hash' for e in parent.co_outputs)

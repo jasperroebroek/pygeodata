@@ -156,56 +156,48 @@ def simple_state():
 # ---------------------------------------------------------------------------
 
 
-def test_spec_filter_empty_passes_all():
-    entry = make_entry(spec=make_spec(crs='EPSG:4326'))
-    assert _entry_matches_spec_filters(entry, {})
+@pytest.mark.parametrize(
+    'entry,spec_filter,expected',
+    [
+        (make_entry(spec=make_spec(crs='EPSG:4326')), {}, True),
+        (make_entry(spec=make_spec(crs='EPSG:4326')), {SpecKeys.CRS: 'EPSG:4326'}, True),
+        (make_entry(spec=make_spec(crs='EPSG:4326')), {SpecKeys.CRS: 'EPSG:3857'}, False),
+        (make_entry(spec=make_spec(crs='EPSG:4326')), {SpecKeys.CRS: ['EPSG:4326', 'EPSG:3857']}, True),
+        (make_entry(spec=make_spec(crs='EPSG:4326')), {SpecKeys.CRS: ['EPSG:3857']}, False),
+        (make_entry(spec=make_spec(crs='EPSG:4326')), {SpecKeys.CRS: []}, True),
+    ],
+)
+def test_spec_filter_crs(entry, spec_filter, expected):
+    assert _entry_matches_spec_filters(entry, spec_filter) is expected
 
 
-def test_spec_filter_crs_exact_match():
-    entry = make_entry(spec=make_spec(crs='EPSG:4326'))
-    assert _entry_matches_spec_filters(entry, {SpecKeys.CRS: 'EPSG:4326'})
-    assert not _entry_matches_spec_filters(entry, {SpecKeys.CRS: 'EPSG:3857'})
-
-
-def test_spec_filter_crs_list_match():
-    entry = make_entry(spec=make_spec(crs='EPSG:4326'))
-    assert _entry_matches_spec_filters(entry, {SpecKeys.CRS: ['EPSG:4326', 'EPSG:3857']})
-    assert not _entry_matches_spec_filters(entry, {SpecKeys.CRS: ['EPSG:3857']})
-
-
-def test_spec_filter_crs_empty_list_passes():
-    entry = make_entry(spec=make_spec(crs='EPSG:4326'))
-    assert _entry_matches_spec_filters(entry, {SpecKeys.CRS: []})
-
-
-def test_spec_filter_resolution():
-    entry = make_entry(spec=make_spec(resolution='0.1°'))
-    assert _entry_matches_spec_filters(entry, {SpecKeys.RESOLUTION: '0.1°'})
-    assert not _entry_matches_spec_filters(entry, {SpecKeys.RESOLUTION: '0.5°'})
-
-
-def test_spec_filter_shape():
-    entry = make_entry(spec=make_spec(shape='1800x3600'))
-    assert _entry_matches_spec_filters(entry, {SpecKeys.SHAPE: '1800x3600'})
-    assert not _entry_matches_spec_filters(entry, {SpecKeys.SHAPE: '900x1800'})
-
-
-def test_spec_filter_bounds_latlon_string_match():
-    entry = make_entry(spec=make_spec(bounds_latlon=(-90, -180, 90, 180)))
-    expected = str(list((-90, -180, 90, 180)))
-    assert _entry_matches_spec_filters(entry, {SpecKeys.BOUNDS: expected})
-
-
-def test_spec_filter_bounds_latlon_no_bounds_latlon():
-    entry = make_entry(spec=SpecInfo(bounds_latlon=None))
-    assert not _entry_matches_spec_filters(entry, {SpecKeys.BOUNDS: 'anything'})
-
-
-def test_spec_filter_bounds_latlon_list():
-    entry = make_entry(spec=make_spec(bounds_latlon=(-90, -180, 90, 180)))
-    key = str(list((-90, -180, 90, 180)))
-    assert _entry_matches_spec_filters(entry, {SpecKeys.BOUNDS: [key]})
-    assert not _entry_matches_spec_filters(entry, {SpecKeys.BOUNDS: ['other']})
+@pytest.mark.parametrize(
+    'entry,spec_filter,expected',
+    [
+        (make_entry(spec=make_spec(resolution='0.1°')), {SpecKeys.RESOLUTION: '0.1°'}, True),
+        (make_entry(spec=make_spec(resolution='0.1°')), {SpecKeys.RESOLUTION: '0.5°'}, False),
+        (make_entry(spec=make_spec(shape='1800x3600')), {SpecKeys.SHAPE: '1800x3600'}, True),
+        (make_entry(spec=make_spec(shape='1800x3600')), {SpecKeys.SHAPE: '900x1800'}, False),
+        (
+            make_entry(spec=make_spec(bounds_latlon=(-90, -180, 90, 180))),
+            {SpecKeys.BOUNDS: str(list((-90, -180, 90, 180)))},
+            True,
+        ),
+        (make_entry(spec=SpecInfo(bounds_latlon=None)), {SpecKeys.BOUNDS: 'anything'}, False),
+        (
+            make_entry(spec=make_spec(bounds_latlon=(-90, -180, 90, 180))),
+            {SpecKeys.BOUNDS: [str(list((-90, -180, 90, 180)))]},
+            True,
+        ),
+        (
+            make_entry(spec=make_spec(bounds_latlon=(-90, -180, 90, 180))),
+            {SpecKeys.BOUNDS: ['other']},
+            False,
+        ),
+    ],
+)
+def test_spec_filter_spatial(entry, spec_filter, expected):
+    assert _entry_matches_spec_filters(entry, spec_filter) is expected
 
 
 # ---------------------------------------------------------------------------

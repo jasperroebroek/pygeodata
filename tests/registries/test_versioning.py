@@ -267,30 +267,23 @@ def test_spread_v1_events_are_all_changed(spread_registry):
 # ===========================================================================
 
 
-def test_word_segments_identical_lines():
+def test_word_segments():
+    # identical lines → all eq
     segs_old, segs_new = _word_segments('hello world', 'hello world')
     assert all(s['type'] == 'eq' for s in segs_old)
     assert all(s['type'] == 'eq' for s in segs_new)
     assert ''.join(s['text'] for s in segs_old) == 'hello world'
 
-
-def test_word_segments_single_word_change():
+    # single word change → del in old, ins in new, text reconstructed
     segs_old, segs_new = _word_segments('x = 1', 'x = 2')
-    old_text = ''.join(s['text'] for s in segs_old)
-    new_text = ''.join(s['text'] for s in segs_new)
-    assert old_text == 'x = 1'
-    assert new_text == 'x = 2'
+    assert ''.join(s['text'] for s in segs_old) == 'x = 1'
+    assert ''.join(s['text'] for s in segs_new) == 'x = 2'
     assert any(s['type'] == 'del' and '1' in s['text'] for s in segs_old)
     assert any(s['type'] == 'ins' and '2' in s['text'] for s in segs_new)
 
-
-def test_word_segments_no_del_in_new(tmp_path):
-    _, segs_new = _word_segments('old value', 'new value')
+    # new side never contains del; old side never contains ins
+    segs_old, segs_new = _word_segments('old value', 'new value')
     assert all(s['type'] != 'del' for s in segs_new)
-
-
-def test_word_segments_no_ins_in_old(tmp_path):
-    segs_old, _ = _word_segments('old value', 'new value')
     assert all(s['type'] != 'ins' for s in segs_old)
 
 
@@ -299,43 +292,40 @@ def test_word_segments_no_ins_in_old(tmp_path):
 # ===========================================================================
 
 
-def test_structured_hunks_identical_files():
-    hunks = _build_structured_hunks('class A: pass\n', 'class A: pass\n')
-    assert hunks == []
+def test_structured_hunks_shape():
+    # identical files → empty
+    assert _build_structured_hunks('class A: pass\n', 'class A: pass\n') == []
 
-
-def test_structured_hunks_basic_shape():
+    # single-line change: hunk keys, line types, line numbers
     hunks = _build_structured_hunks('x = 1\n', 'x = 2\n')
     assert len(hunks) == 1
     hunk = hunks[0]
-    assert 'header' in hunk
-    assert 'start_old' in hunk
-    assert 'start_new' in hunk
-    assert 'lines' in hunk
+    assert 'header' in hunk and 'start_old' in hunk and 'start_new' in hunk and 'lines' in hunk
 
-
-def test_structured_hunks_line_types():
-    old = 'a\nb\nc\n'
-    new = 'a\nB\nc\n'
-    hunks = _build_structured_hunks(old, new)
     all_lines = [l for h in hunks for l in h['lines']]
     types = {l['type'] for l in all_lines}
-    assert 'del' in types
-    assert 'add' in types
+    assert 'del' in types and 'add' in types
+
+    # line number fields per type
+    hunks2 = _build_structured_hunks('x = 1\ny = 2\n', 'x = 1\ny = 3\n')
+    all2 = [l for h in hunks2 for l in h['lines']]
+    ctx = [l for l in all2 if l['type'] == 'ctx']
+    dels = [l for l in all2 if l['type'] == 'del']
+    adds = [l for l in all2 if l['type'] == 'add']
+    assert all(l['line_old'] is not None and l['line_new'] is not None for l in ctx)
+    assert all(l['line_old'] is not None and l['line_new'] is None for l in dels)
+    assert all(l['line_old'] is None and l['line_new'] is not None for l in adds)
+
+    # ctx lines have no segments; changed lines do
+    old3 = 'a\nb\nc\n'
+    new3 = 'a\nB\nc\n'
+    hunks3 = _build_structured_hunks(old3, new3)
+    all3 = [l for h in hunks3 for l in h['lines']]
+    assert all('segments' not in l for l in all3 if l['type'] == 'ctx')
 
 
-def test_structured_hunks_line_numbers_present():
-    hunks = _build_structured_hunks('x = 1\ny = 2\n', 'x = 1\ny = 3\n')
-    all_lines = [l for h in hunks for l in h['lines']]
-    ctx_lines = [l for l in all_lines if l['type'] == 'ctx']
-    del_lines = [l for l in all_lines if l['type'] == 'del']
-    add_lines = [l for l in all_lines if l['type'] == 'add']
-    assert all(l['line_old'] is not None and l['line_new'] is not None for l in ctx_lines)
-    assert all(l['line_old'] is not None and l['line_new'] is None for l in del_lines)
-    assert all(l['line_old'] is None and l['line_new'] is not None for l in add_lines)
-
-
-def test_structured_hunks_paired_lines_get_segments():
+def test_structured_hunks_content():
+    # paired del/add lines get segments
     hunks = _build_structured_hunks('x = 1\n', 'x = 2\n')
     all_lines = [l for h in hunks for l in h['lines']]
     del_line = next(l for l in all_lines if l['type'] == 'del')
@@ -343,25 +333,13 @@ def test_structured_hunks_paired_lines_get_segments():
     assert del_line.get('segments') is not None
     assert add_line.get('segments') is not None
 
-
-def test_structured_hunks_ctx_lines_have_no_segments():
-    old = 'a\nb\nc\n'
-    new = 'a\nB\nc\n'
-    hunks = _build_structured_hunks(old, new)
-    all_lines = [l for h in hunks for l in h['lines']]
-    ctx_lines = [l for l in all_lines if l['type'] == 'ctx']
-    assert all('segments' not in l for l in ctx_lines)
-
-
-def test_structured_hunks_full_reconstruction():
+    # text reconstruction
     old = 'line1\nline2\nline3\n'
     new = 'line1\nLINE2\nline3\n'
-    hunks = _build_structured_hunks(old, new)
-    all_lines = [l for h in hunks for l in h['lines']]
-    del_texts = [l['text'] for l in all_lines if l['type'] == 'del']
-    add_texts = [l['text'] for l in all_lines if l['type'] == 'add']
-    assert del_texts == ['line2']
-    assert add_texts == ['LINE2']
+    hunks2 = _build_structured_hunks(old, new)
+    all2 = [l for h in hunks2 for l in h['lines']]
+    assert [l['text'] for l in all2 if l['type'] == 'del'] == ['line2']
+    assert [l['text'] for l in all2 if l['type'] == 'add'] == ['LINE2']
 
 
 # ===========================================================================

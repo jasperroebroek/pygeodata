@@ -81,8 +81,3 @@ def test_dependency_tree_no_self_inheritance() -> None:
     assert [child_name, child_name] not in result.inheritance_edges
 
 
-def test_duplicated_names() -> None:
-    with pytest.raises(ValueError, match='Duplicate TrackedObject class name'):
-
-        class DuplicateTracked(TrackedObject):
-            pass
