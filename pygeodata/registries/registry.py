@@ -12,6 +12,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import json
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -23,6 +24,11 @@ from pygeodata.paths import (
     TreeRegistryPathConstructor,
 )
 from pygeodata.registries.registry_types import CodeState, EntryRecord, TreeSnapshot
+
+
+def _resolve_prefix(keys: Iterable[str], prefix: str) -> str | None:
+    matches = [k for k in keys if k.startswith(prefix)]
+    return matches[0] if len(matches) == 1 else None
 
 
 class SourceRegistry:
@@ -98,8 +104,7 @@ class SourceRegistry:
 
     def resolve_hash_prefix(self, prefix: str) -> str | None:
         """Return the full source hash matching prefix, or None if zero or multiple match."""
-        matches = [h for h in self._hash_index if h.startswith(prefix)]
-        return matches[0] if len(matches) == 1 else None
+        return _resolve_prefix(self._hash_index, prefix)
 
     def get_class_name_from_hash(self, source_hash: str) -> str:
         """Return the class name for source_hash, or empty string if not found."""
@@ -197,8 +202,7 @@ class TreeRegistry:
 
     def resolve_hash_prefix(self, prefix: str) -> str | None:
         """Return the full dep hash matching prefix, or None if zero or multiple match."""
-        matches = [h for h in self._hash_index if h.startswith(prefix)]
-        return matches[0] if len(matches) == 1 else None
+        return _resolve_prefix(self._hash_index, prefix)
 
 
 class EntryRegistry:
@@ -267,8 +271,7 @@ class EntryRegistry:
 
     def resolve_hash_prefix(self, prefix: str) -> str | None:
         """Return the full state hash matching prefix, or None if zero or multiple match."""
-        matches = [h for h in self._hash_index if h.startswith(prefix)]
-        return matches[0] if len(matches) == 1 else None
+        return _resolve_prefix(self._hash_index, prefix)
 
     def reload(self) -> None:
         cache_path = self._cache_path()
