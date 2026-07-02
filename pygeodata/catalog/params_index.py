@@ -1,8 +1,8 @@
 from typing import Any
 
+from pygeodata.catalog.types import LinkedEntry, ParamRow
 from pygeodata.config import JSONKeys
 from pygeodata.formatting.json import format_json
-from pygeodata.catalog.types import LinkedEntry, ParamRow
 
 HIDDEN_KEYS = frozenset(key.value for key in JSONKeys)
 

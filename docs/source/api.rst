@@ -83,9 +83,9 @@ SpatialSpec
 .. autosummary::
    :toctree: generated/
 
-   pygeodata.types.SpatialSpec
+   pygeodata.spec.SpatialSpec
 
-.. autoclass:: pygeodata.types.SpatialSpec
+.. autoclass:: pygeodata.spec.SpatialSpec
    :members:
    :undoc-members:
    :show-inheritance:
@@ -124,7 +124,7 @@ Cache entries written with a different ``FORMAT_VERSION`` are treated as stale.
 Processors
 ==========
 
-Processors implement the :class:`~pygeodata.types.Processor` protocol: they are
+Processors implement the :class:`~pygeodata.protocols.Processor` protocol: they are
 callables that accept ``(dst_path, spec)`` and write the output file. Built-in
 processors can be attached to any :class:`~pygeodata.data.Data` or
 :class:`~pygeodata.figure.Figure` subclass via the ``processor`` class attribute.
@@ -157,7 +157,7 @@ Rasterizer
 Drivers
 =======
 
-Drivers implement the :class:`~pygeodata.types.Driver` protocol: they are
+Drivers implement the :class:`~pygeodata.protocols.Driver` protocol: they are
 callables that accept a file path and return loaded data. A driver is attached to
 a :class:`~pygeodata.data.Data` subclass via the ``driver`` property or is
 provided as ``default_driver`` on a processor.
@@ -208,32 +208,32 @@ Cache management
    :no-index:
 
 
-Path resolvers
-==============
+Path constructors
+=================
 
-Path resolver dataclasses centralise the derivation of all on-disk paths for a
-given cache entry or registry entry.
+Path constructor dataclasses centralise the derivation of all on-disk paths for
+a given cache entry or registry entry.
 
 .. autosummary::
    :toctree: generated/
 
-   pygeodata.paths.CachePathResolver
-   pygeodata.paths.CodeRegistryResolver
-   pygeodata.paths.TreeRegistryResolver
+   pygeodata.paths.CachePathConstructor
+   pygeodata.paths.CodeRegistryPathConstructor
+   pygeodata.paths.TreeRegistryPathConstructor
 
-.. autoclass:: pygeodata.paths.CachePathResolver
+.. autoclass:: pygeodata.paths.CachePathConstructor
    :members:
    :undoc-members:
    :show-inheritance:
    :no-index:
 
-.. autoclass:: pygeodata.paths.CodeRegistryResolver
+.. autoclass:: pygeodata.paths.CodeRegistryPathConstructor
    :members:
    :undoc-members:
    :show-inheritance:
    :no-index:
 
-.. autoclass:: pygeodata.paths.TreeRegistryResolver
+.. autoclass:: pygeodata.paths.TreeRegistryPathConstructor
    :members:
    :undoc-members:
    :show-inheritance:
@@ -283,27 +283,21 @@ the required signature qualifies, without explicit subclassing.
 .. autosummary::
    :toctree: generated/
 
-   pygeodata.types.Processor
-   pygeodata.types.Driver
-   pygeodata.types.AllowsFormatting
-   pygeodata.types.HasParameters
+   pygeodata.protocols.Processor
+   pygeodata.protocols.Driver
+   pygeodata.protocols.AllowsFormatting
 
-.. autoclass:: pygeodata.types.Processor
+.. autoclass:: pygeodata.protocols.Processor
    :members:
    :undoc-members:
    :no-index:
 
-.. autoclass:: pygeodata.types.Driver
+.. autoclass:: pygeodata.protocols.Driver
    :members:
    :undoc-members:
    :no-index:
 
-.. autoclass:: pygeodata.types.AllowsFormatting
-   :members:
-   :undoc-members:
-   :no-index:
-
-.. autoclass:: pygeodata.types.HasParameters
+.. autoclass:: pygeodata.protocols.AllowsFormatting
    :members:
    :undoc-members:
    :no-index:

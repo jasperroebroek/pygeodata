@@ -1,7 +1,7 @@
-﻿pygeodata.types.SpatialSpec
-===========================
+﻿pygeodata.spec.SpatialSpec
+==========================
 
-.. currentmodule:: pygeodata.types
+.. currentmodule:: pygeodata.spec
 
 .. autoclass:: SpatialSpec
 
@@ -14,6 +14,8 @@
    .. autosummary::
    
       ~SpatialSpec.__init__
+      ~SpatialSpec.from_dict
+      ~SpatialSpec.from_file
       ~SpatialSpec.from_raster_file
       ~SpatialSpec.from_shape_file
       ~SpatialSpec.to_dict
@@ -27,6 +29,7 @@
    .. autosummary::
    
       ~SpatialSpec.bounds
+      ~SpatialSpec.bounds_latlon
       ~SpatialSpec.extent
       ~SpatialSpec.is_fully_defined
       ~SpatialSpec.resolution

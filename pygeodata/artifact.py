@@ -98,8 +98,8 @@ class Artifact(TrackedObject, ABC):
         """
         Return the instance parameters of the artifact.
 
-        Inspects ``vars(self)`` and filters out private attributes, reserved names,
-        and any names listed in :attr:`_exclude_params`.
+        Inspects ``vars(self)`` and filters out underscore-prefixed attributes and
+        reserved names (``processor``, ``driver``, ``ext``, ...).
 
         Returns
         -------

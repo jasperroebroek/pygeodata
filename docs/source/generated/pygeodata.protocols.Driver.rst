@@ -1,7 +1,7 @@
-﻿pygeodata.types.Driver
-======================
+﻿pygeodata.protocols.Driver
+==========================
 
-.. currentmodule:: pygeodata.types
+.. currentmodule:: pygeodata.protocols
 
 .. autoclass:: Driver
 

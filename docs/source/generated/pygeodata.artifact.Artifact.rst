@@ -33,7 +33,7 @@
       ~Artifact.get_instance_hash
       ~Artifact.get_params
       ~Artifact.get_params_as_json
-      ~Artifact.get_processed_dir
+      ~Artifact.get_params_hash
       ~Artifact.get_processed_path
       ~Artifact.get_registered_objects
       ~Artifact.get_runtime_dependency_graph
@@ -48,10 +48,10 @@
       ~Artifact.plot_runtime_execution_graph
       ~Artifact.process
       ~Artifact.processed_path_exists
-      ~Artifact.read_registry
       ~Artifact.read_state_hash
       ~Artifact.resolve_cache_paths
       ~Artifact.resolve_spec
+      ~Artifact.to_code_state
       ~Artifact.update_registry
       ~Artifact.write_cache_metadata
       ~Artifact.write_parameters

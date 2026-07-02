@@ -1,7 +1,7 @@
-﻿pygeodata.types.AllowsFormatting
-================================
+﻿pygeodata.protocols.AllowsFormatting
+====================================
 
-.. currentmodule:: pygeodata.types
+.. currentmodule:: pygeodata.protocols
 
 .. autoclass:: AllowsFormatting
 

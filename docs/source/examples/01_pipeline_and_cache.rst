@@ -17,7 +17,7 @@ state hash.
 .. code:: python
 
    import pygeodata as pgd
-   from pygeodata.types import SpatialSpec
+   from pygeodata.spec import SpatialSpec
    from pyproj import CRS
 
    pgd.get_config().update(
@@ -46,6 +46,7 @@ dependency is explicit, typed, and part of the hash.
 
     # loaders/dem.py — importable module
     import sys, os
+    
     sys.path.insert(0, os.path.dirname(os.path.abspath('__file__')))
     
     from loaders.dem import ElevationLoader, SlopeLoader
@@ -72,7 +73,7 @@ The loader source for reference:
    from pygeodata.data import Data
    from pygeodata.drivers.rioxarray import RioXArrayDriver
    from pygeodata.processors.reprojection import Reprojector
-   from pygeodata.types import SpatialSpec
+   from pygeodata.spec import SpatialSpec
    from rasterio.enums import Resampling
 
 
@@ -135,9 +136,9 @@ What lands on disk
    data_processed/
    └── <slope_state_hash>/            ← SHA-256 of (instance_hash, spec)
        ├── slope_loader.tif           ← the output raster
-       ├── .slope_loader.hash.json    ← written by write_cache_metadata()
-       ├── .slope_loader.params.json  ← serialised constructor parameters
-       └── .slope_loader.spec.json    ← the SpatialSpec used
+       ├── meta.json                  ← written by write_cache_metadata()
+       ├── parameters.json            ← serialised constructor parameters
+       └── spec.json                  ← the SpatialSpec used
 
    .source/
    ├── code/
@@ -149,7 +150,7 @@ What lands on disk
    │       └── source.json
    └── snapshots/
        └── <slope_dep_tree_hash>/
-           ├── tree.json              ← {nodes, tree} dependency topology
+           ├── tree.json              ← {nodes, call_edges, inheritance_edges}
            └── graph.pdf              ← rendered class dependency graph
 
 Each directory under ``data_processed/`` is named by the **state hash**
@@ -157,11 +158,10 @@ Each directory under ``data_processed/`` is named by the **state hash**
 on different specs for the same loader land in different directories and
 never interfere.
 
-The ``.hash.json`` file
------------------------
+The ``meta.json`` file
+----------------------
 
-After processing, each output directory contains a sidecar
-``.slope_loader.hash.json``:
+After processing, each output directory contains a ``meta.json``:
 
 .. code:: json
 
@@ -172,8 +172,9 @@ After processing, each output directory contains a sidecar
        "source_hash": "a3f8…",
        "dependency_tree_hash": "7c11…",
        "instance_hash": "b902…",
+       "params_hash": "5e0a…",
        "state_hash": "d45e…",
-       "co_outputs": []
+       "co_output_hashes": []
    }
 
 The fields and what changes them:
@@ -196,8 +197,8 @@ different instance hashes. Spec-independent.
 directory name under ``data_processed/``. It is unique per (loader
 instance, spec) pair.
 
-**``co_outputs``** — State hashes of sibling artifacts produced in the
-same ``_process`` call (the co-output pattern). Empty here; see the
+**``co_output_hashes``** — State hashes of sibling artifacts produced in
+the same ``_process`` call (the co-output pattern). Empty here; see the
 custom processing tutorial for an example.
 
 Second run — cache hit
@@ -207,8 +208,8 @@ Second run — cache hit
 
    pgd.process(SlopeLoader(), SPEC)   # no-op
 
-``is_processed(SPEC)`` reads ``.slope_loader.hash.json``, computes the
-live state hash, and finds them equal. ``_process`` is never called.
+``is_processed(SPEC)`` reads ``meta.json``, computes the live state
+hash, and finds them equal. ``_process`` is never called.
 
 The dependency graph
 --------------------

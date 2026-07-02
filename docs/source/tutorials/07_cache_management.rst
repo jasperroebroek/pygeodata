@@ -42,7 +42,7 @@ What clean_cache walks
 directory (a directory that contains data files but no subdirectories),
 it:
 
-1. Looks for a ``.{stem}.hash.json`` file
+1. Looks for a ``meta.json`` file
 2. If missing → deletes the directory (label: ``Hash missing``)
 3. If present → checks ``format_version`` and the
    ``dependency_tree_hash`` against the live class
@@ -141,7 +141,7 @@ subdirectories:
    │       └── source.json         ← metadata: class_name, source_hash, registered_at
    └── snapshots/
        └── {dep_tree_hash}/        ← one dir per unique dependency tree state
-           ├── tree.json           ← full {nodes, tree} topology dict
+           ├── tree.json           ← {nodes, call_edges, inheritance_edges}
            └── graph.pdf           ← rendered class dependency graph (if deps exist)
 
 code/ — per-class source snapshots
@@ -168,8 +168,10 @@ Each unique ``dep_tree_hash`` (SHA-256 of the entire class graph
 including all transitive dependencies) gets one directory under
 ``snapshots/`` with:
 
-- ``tree.json``: the ``{nodes, tree}`` dict representing the full
-  dependency topology
+- ``tree.json``: a ``{nodes, call_edges, inheritance_edges}`` dict
+  representing the full dependency topology (nodes is a flat, deduplicated
+  map of class name → source hash + object type; edges are ``[source,
+  target]`` pairs)
 - ``graph.pdf``: a rendered class dependency graph (only written when
   the class has dependencies)
 

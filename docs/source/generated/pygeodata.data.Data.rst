@@ -33,7 +33,7 @@
       ~Data.get_instance_hash
       ~Data.get_params
       ~Data.get_params_as_json
-      ~Data.get_processed_dir
+      ~Data.get_params_hash
       ~Data.get_processed_path
       ~Data.get_registered_objects
       ~Data.get_runtime_dependency_graph
@@ -49,10 +49,10 @@
       ~Data.plot_runtime_execution_graph
       ~Data.process
       ~Data.processed_path_exists
-      ~Data.read_registry
       ~Data.read_state_hash
       ~Data.resolve_cache_paths
       ~Data.resolve_spec
+      ~Data.to_code_state
       ~Data.update_registry
       ~Data.write_cache_metadata
       ~Data.write_parameters

@@ -163,26 +163,22 @@ pygeodata tracks two kinds of dependency between classes:
 
 **Inheritance dependencies** — `cls.__mro__` filtered to `TrackedObject` subclasses. If `FigureVariance` extends `MapPanelFigureBase`, that is an inheritance dependency.
 
-Both are combined into a `{nodes, tree}` JSON structure that is stored in `.source/snapshots/`:
+Both are combined into a `tree.json` snapshot stored in `.source/snapshots/{dep_tree_hash}/`. Nodes are a deduplicated flat dict; dependencies are recorded as flat edge lists:
 
 ```json
 {
+  "dependency_tree_hash": "7c11...",
+  "root_class": "SlopeLoader",
   "nodes": {
     "SlopeLoader":     {"hash": "abc...", "object_type": "Data"},
     "ElevationLoader": {"hash": "def...", "object_type": "Data"}
   },
-  "tree": {
-    "SlopeLoader": {
-      "call_dependencies": {
-        "ElevationLoader": {"call_dependencies": {}, "inheritance_dependencies": {}}
-      },
-      "inheritance_dependencies": {}
-    }
-  }
+  "call_edges": [["SlopeLoader", "ElevationLoader"]],
+  "inheritance_edges": []
 }
 ```
 
-Nodes are deduplicated (flat dict). The tree is fully expanded (shared deps appear at every occurrence). This separation makes both human inspection and hash computation straightforward.
+Nodes are deduplicated (flat dict); edges are `[source, target]` pairs. Both the node source hashes and the edge lists feed the dependency-tree hash, so any code or topology change is captured.
 
 ---
 
@@ -216,8 +212,9 @@ The `meta.json` file is the source of truth for cache validity. It stores:
   "source_hash": "abc...",
   "dependency_tree_hash": "def...",
   "instance_hash": "ghi...",
+  "params_hash": "5e0a...",
   "state_hash": "jkl...",
-  "co_outputs": []
+  "co_output_hashes": []
 }
 ```
 

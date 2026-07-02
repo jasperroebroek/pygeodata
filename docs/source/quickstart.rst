@@ -78,19 +78,20 @@ Cache validity is determined by a **state hash** that combines:
   :class:`~pygeodata.data.Data` instances, represented by their own state
   hashes.
 
-The hash is written alongside the output as a ``.hash.json`` file. On the next
+The hash is written alongside the output in the ``meta.json`` file. On the next
 :func:`~pygeodata.api.process` call the saved hash is compared with the live
 hash; a mismatch triggers reprocessing.
 
 SpatialSpec
 ~~~~~~~~~~~
 
-:class:`~pygeodata.types.SpatialSpec` is a frozen dataclass that bundles the
+:class:`~pygeodata.spec.SpatialSpec` is a frozen dataclass that bundles the
 three components of a raster grid:
 
-- ``crs`` — a :class:`pyproj.CRS` (default EPSG:4326)
+- ``crs`` — a :class:`pyproj.CRS` (required)
 - ``transform`` — an :class:`affine.Affine` mapping pixel → world coordinates
-- ``shape`` — ``(height, width)`` in pixels
+  (optional)
+- ``shape`` — ``(height, width)`` in pixels (optional)
 
 A spec is *fully defined* when both ``transform`` and ``shape`` are set. Some
 loaders can resolve an underdefined spec (CRS only) by inspecting their source
@@ -99,7 +100,7 @@ data via :meth:`~pygeodata.data.Data.resolve_spec`.
 Processors and drivers
 ~~~~~~~~~~~~~~~~~~~~~~
 
-A **processor** is any callable matching the :class:`~pygeodata.types.Processor`
+A **processor** is any callable matching the :class:`~pygeodata.protocols.Processor`
 protocol — ``(dst_path, spec) -> None``. The two built-in processors are:
 
 - :class:`~pygeodata.processors.reprojection.Reprojector` — warps a raster to a
@@ -109,7 +110,7 @@ protocol — ``(dst_path, spec) -> None``. The two built-in processors are:
 
 Override ``_process(self, spec)`` directly for arbitrary logic.
 
-A **driver** is any callable matching the :class:`~pygeodata.types.Driver`
+A **driver** is any callable matching the :class:`~pygeodata.protocols.Driver`
 protocol — ``(path) -> T``. Built-in drivers:
 
 - :class:`~pygeodata.drivers.RioXArrayDriver` — loads a GeoTIFF as an
@@ -124,36 +125,42 @@ Override ``_load(self, path)`` to return any Python object from a cached file.
 Excluding parameters
 ~~~~~~~~~~~~~~~~~~~~
 
-``_exclude_params`` is a class-level tuple of parameter names that are
-excluded from the cache key entirely — the output path, the state hash, and
-the ``.params.json`` file. Use it for purely operational parameters that do
-not affect output content (e.g. thread counts, verbosity flags):
+:meth:`~pygeodata.artifact.Artifact.get_params` discovers parameters from
+``vars(self)`` and skips any attribute whose name starts with an underscore.
+Store purely operational values (thread counts, verbosity flags) that must not
+affect output content as underscore-prefixed attributes, and they are excluded
+from the cache key entirely — the output path, the state hash, and the
+``parameters.json`` file:
 
 .. code-block:: python
 
    @dataclass
    class ElevationLoader(Data):
        src: str = 'data/elevation.tif'
-       n_jobs: int = 4
-
-       _exclude_params = ('n_jobs',)
+       _n_jobs: int = 4
 
        @property
        def processor(self):
            return Reprojector(src_path=self.src)
 
-   # ElevationLoader(n_jobs=1) and ElevationLoader(n_jobs=8)
-   # share the same cache entry.
+   # Setting a different _n_jobs does not create a new cache entry.
+
+Because dataclass fields with a leading underscore are awkward to pass
+positionally, a common alternative is to assign the operational value in
+``__post_init__`` (e.g. ``self._n_jobs = n_jobs``) or read it from
+:func:`~pygeodata.config.get_config` instead of storing it as a parameter.
 
 Path generation
 ~~~~~~~~~~~~~~~
 
 Output paths follow the structure::
 
-   <path_cache>/<ClassName>/<hash(spec + params)>/<name>.<ext>
+   <path_cache>/<state_hash>/<name>.<ext>
 
-Use the registry browser to navigate cached entries without needing
-human-readable paths — see :func:`~pygeodata.registry_browser.open_registry_browser`.
+where ``state_hash`` is the SHA-256 over ``(instance_hash, spec)`` and ``name``
+is the class name in snake_case. Use the registry browser to navigate cached
+entries without needing human-readable paths — see
+:func:`~pygeodata.registry_browser.serve.open_registry_browser`.
 
 Parallel execution
 ~~~~~~~~~~~~~~~~~~

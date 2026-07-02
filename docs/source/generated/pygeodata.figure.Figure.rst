@@ -33,7 +33,7 @@
       ~Figure.get_instance_hash
       ~Figure.get_params
       ~Figure.get_params_as_json
-      ~Figure.get_processed_dir
+      ~Figure.get_params_hash
       ~Figure.get_processed_path
       ~Figure.get_registered_objects
       ~Figure.get_runtime_dependency_graph
@@ -48,10 +48,10 @@
       ~Figure.plot_runtime_execution_graph
       ~Figure.process
       ~Figure.processed_path_exists
-      ~Figure.read_registry
       ~Figure.read_state_hash
       ~Figure.resolve_cache_paths
       ~Figure.resolve_spec
+      ~Figure.to_code_state
       ~Figure.update_registry
       ~Figure.write_cache_metadata
       ~Figure.write_parameters

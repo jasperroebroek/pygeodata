@@ -116,9 +116,9 @@ class name and parameter values.
 
    data/processed/{state_hash}/
    ├── land_water_table_depth.tif
-   ├── .land_water_table_depth.hash.json
-   ├── .land_water_table_depth.params.json
-   ├── .land_water_table_depth.spec.json
-   └── .land_water_table_depth.graph.pdf   ← rendered dependency graph
+   ├── meta.json
+   ├── parameters.json
+   ├── spec.json
+   └── graph.pdf   ← rendered dependency graph
 
 The graph is also accessible programmatically:

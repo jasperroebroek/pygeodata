@@ -73,21 +73,22 @@ Staleness indicators
 There are two independent dimensions of staleness:
 
 **Source stale** — the class's own source code has changed since an
-entry was written. The ``source_hash`` in the ``.hash.json`` file no
-longer matches the live class. This does not necessarily invalidate the
-cache: source staleness alone is not enough, because reformatting or
-adding a comment changes ``source_hash`` but does not change
-``dependency_tree_hash``.
+entry was written. The ``source_hash`` in the ``meta.json`` file no
+longer matches the live class. Because ``source_hash`` is computed from
+the class **AST**, reformatting or editing comments and docstrings does
+*not* change it — only semantically meaningful edits do. Source
+staleness alone does not necessarily invalidate the cache: what matters
+for validity is ``dependency_tree_hash``.
 
-**Deps stale** — the ``dependency_tree_hash`` stored in ``.hash.json``
+**Deps stale** — the ``dependency_tree_hash`` stored in ``meta.json``
 no longer matches the live hash. This means the class itself or one of
 its transitive dependencies has changed in a semantically meaningful
 way. Cache entries with stale ``dependency_tree_hash`` will be
 reprocessed on the next ``process()`` call.
 
 The registry browser shows both indicators independently. A class can be
-source-stale (reformatted) but deps-valid (cache still good), or
-source-valid but deps-stale (an upstream dependency changed).
+source-stale (its own code changed) but deps-valid, or source-valid but
+deps-stale (an upstream dependency changed).
 
 Entries view
 ------------
@@ -130,7 +131,7 @@ Click any row to open the **entry detail panel** on the right.
 Params card
 ~~~~~~~~~~~
 
-The full parameter dict as stored in ``.params.json``. Nested ``Data``
+The full parameter dict as stored in ``parameters.json``. Nested ``Data``
 instances appear as expandable sub-trees showing the upstream class
 name, its own parameters, and its instance hash. This gives complete
 provenance for any cached file without re-running the loader.
@@ -139,7 +140,7 @@ Spec card
 ~~~~~~~~~
 
 CRS, affine transform, shape, resolution, and bounding box for this
-specific output. Derived from ``.spec.json``.
+specific output. Derived from ``spec.json``.
 
 Co-outputs card
 ~~~~~~~~~~~~~~~
@@ -148,8 +149,9 @@ When an entry was produced by a co-output ``_process`` (see
 :doc:`04_custom_processing`), the Co-outputs card lists all siblings
 written in the same run. Each sibling is shown with its distinguishing
 parameter (e.g. ``stat=mean`` vs ``stat=std``) and links to its own
-entry detail. All siblings share the same state hash since they were
-written in one invocation.
+entry detail. Each sibling has its own state hash (they differ by
+parameters); every sibling's ``meta.json`` records the others in its
+``co_output_hashes`` list.
 
 Dependency graph
 ~~~~~~~~~~~~~~~~
@@ -185,7 +187,7 @@ Each version card shows:
 Connecting outputs to source versions
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Every ``.hash.json`` file stores the ``source_hash`` that was active
+Every ``meta.json`` file stores the ``source_hash`` that was active
 when the output was written. The Code view lets you cross-reference:
 select a cached entry in the Entries view, note its ``source_hash`` from
 the entry detail, and find the matching version card in the Code view to

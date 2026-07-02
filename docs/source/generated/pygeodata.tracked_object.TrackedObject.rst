@@ -27,7 +27,7 @@
       ~TrackedObject.get_source_ast_tree
       ~TrackedObject.has_dependencies
       ~TrackedObject.is_registry_valid
-      ~TrackedObject.read_registry
+      ~TrackedObject.to_code_state
       ~TrackedObject.update_registry
       ~TrackedObject.write_registry
    

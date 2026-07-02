@@ -14,7 +14,7 @@ Initial release.
   separately under ``path_figures``.
 - :class:`~pygeodata.artifact.Artifact` base class providing the shared hashing
   and parameter serialisation machinery.
-- :class:`~pygeodata.types.SpatialSpec` — immutable raster grid descriptor
+- :class:`~pygeodata.spec.SpatialSpec` — immutable raster grid descriptor
   (CRS, affine transform, shape).
 - :func:`~pygeodata.base.load` and :func:`~pygeodata.base.process` top-level
   functions.
@@ -22,7 +22,7 @@ Initial release.
 **Processors**
 
 - :class:`~pygeodata.processors.reprojection.Reprojector` — warp any raster to
-  a target :class:`~pygeodata.types.SpatialSpec` via ``rasterio.warp``. Supports
+  a target :class:`~pygeodata.spec.SpatialSpec` via ``rasterio.warp``. Supports
   scale/offset application, forced-read for multi-variable NetCDF, source CRS
   override, and all rasterio resampling algorithms.
 - :class:`~pygeodata.processors.rasterizer.Rasterizer` — burn vector geometries
@@ -40,9 +40,9 @@ Initial release.
 
 **Caching and paths**
 
-- Hash-based path layout: ``<path_cache>/<ClassName>/<hash(spec + params)>/<name>.<ext>``.
-- ``_exclude_params`` class attribute for omitting operational parameters from
-  the cache key entirely.
+- Hash-based path layout: ``<path_cache>/<state_hash>/<name>.<ext>``.
+- Operational parameters can be omitted from the cache key by storing them as
+  underscore-prefixed attributes (``get_params`` skips them).
 - Co-output pattern: ``_process`` can yield sibling loaders to write multiple
   outputs in a single run.
 - :func:`~pygeodata.cache.clean_cache` and

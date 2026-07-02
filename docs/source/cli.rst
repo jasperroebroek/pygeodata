@@ -169,9 +169,10 @@ Example output
     Shape        [4358, 5379]
     Bounds       29.9° N, 19.9° W → 63.8° N, 69.0° E
 
-    Params path  data_processed/cc71cf42816b.../.aspect_loader.params.json
-    Hash path    data_processed/cc71cf42816b.../.aspect_loader.hash.json
-    Spec path    data_processed/cc71cf42816b.../.aspect_loader.spec.json
+    Output       data_processed/cc71cf42816b.../aspect_loader.tif
+    Params path  data_processed/cc71cf42816b.../parameters.json
+    Hash path    data_processed/cc71cf42816b.../meta.json
+    Spec path    data_processed/cc71cf42816b.../spec.json
 
 ``entry show`` — a fresh entry with params:
 
@@ -189,9 +190,10 @@ Example output
     Shape        [4358, 5379]
     Bounds       29.9° N, 19.9° W → 63.8° N, 69.0° E
 
-    Params path  data_processed/ff862faa1d94.../.bio_climatic_variables_loader.params.json
-    Hash path    data_processed/ff862faa1d94.../.bio_climatic_variables_loader.hash.json
-    Spec path    data_processed/ff862faa1d94.../.bio_climatic_variables_loader.spec.json
+    Output       data_processed/ff862faa1d94.../bio_climatic_variables_loader.tif
+    Params path  data_processed/ff862faa1d94.../parameters.json
+    Hash path    data_processed/ff862faa1d94.../meta.json
+    Spec path    data_processed/ff862faa1d94.../spec.json
 
     Params
     {

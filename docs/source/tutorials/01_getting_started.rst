@@ -134,10 +134,10 @@ dependency tree, instance parameters, and spec. No two distinct
 
    data/processed/
    └── {state_hash}/
-       ├── elevation_loader.tif        # the output file
-       ├── .elevation_loader.hash.json # state hash + dependency_tree_hash
-       ├── .elevation_loader.params.json
-       └── .elevation_loader.spec.json
+       ├── elevation_loader.tif   # the output file
+       ├── meta.json              # state hash + dependency_tree_hash
+       ├── parameters.json
+       └── spec.json
 
 The four files in every cache directory:
 
@@ -146,18 +146,18 @@ The four files in every cache directory:
 +==========================+============================================+
 | ``{stem}.tif``           | The processed output                       |
 +--------------------------+--------------------------------------------+
-| ``.{stem}.hash.json``    | ``state_hash``, ``dependency_tree_hash``,  |
+| ``meta.json``            | ``state_hash``, ``dependency_tree_hash``,  |
 |                          | ``instance_hash``, ``class_name``,         |
 |                          | ``format_version``                         |
 +--------------------------+--------------------------------------------+
-| ``.{stem}.params.json``  | JSON-serialized parameter dict, including  |
+| ``parameters.json``      | JSON-serialized parameter dict, including  |
 |                          | nested ``Data`` params                     |
 +--------------------------+--------------------------------------------+
-| ``.{stem}.spec.json``    | Full ``SpatialSpec`` dict: CRS WKT,        |
+| ``spec.json``            | Full ``SpatialSpec`` dict: CRS WKT,        |
 |                          | transform coefficients, shape              |
 +--------------------------+--------------------------------------------+
 
-On subsequent ``process()`` calls, the framework reads ``.hash.json``,
+On subsequent ``process()`` calls, the framework reads ``meta.json``,
 computes the live hash, and compares. Match → skip. Mismatch →
 reprocess.
 
@@ -187,7 +187,7 @@ whenever ``process()`` runs.
    │       └── source.json     # class_name, source_hash, registered_at timestamp
    └── snapshots/
        └── {dep_tree_hash}/
-           ├── tree.json       # full {nodes, tree} dependency topology
+           ├── tree.json       # {nodes, call_edges, inheritance_edges}
            └── graph.pdf       # rendered dependency graph (if deps exist)
 
 This store is **append-only**: entries are never overwritten. It is the

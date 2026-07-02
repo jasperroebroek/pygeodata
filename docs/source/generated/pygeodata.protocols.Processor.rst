@@ -1,7 +1,7 @@
-﻿pygeodata.types.Processor
-=========================
+﻿pygeodata.protocols.Processor
+=============================
 
-.. currentmodule:: pygeodata.types
+.. currentmodule:: pygeodata.protocols
 
 .. autoclass:: Processor
 

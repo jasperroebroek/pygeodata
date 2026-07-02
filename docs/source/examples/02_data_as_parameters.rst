@@ -21,7 +21,7 @@ geospatial variables. The natural signature is:
    from pygeodata.api import load
    from pygeodata.data import Data
    from pygeodata.drivers.rioxarray import RioXArrayDriver
-   from pygeodata.types import SpatialSpec
+   from pygeodata.spec import SpatialSpec
 
 
    @dataclass
@@ -54,6 +54,7 @@ or any specific subclass. Any loader can be wired in.
 .. code:: ipython3
 
     import sys, os
+    
     sys.path.insert(0, os.path.dirname(os.path.abspath('__file__')))
     
     from loaders.dem import ElevationLoader, SlopeLoader
@@ -227,7 +228,7 @@ parameter is itself a ``TrackedObject``.
     from affine import Affine
     from pyproj import CRS
     from pygeodata.graphs import plot_compact_execution_graph
-    from pygeodata.types import SpatialSpec
+    from pygeodata.spec import SpatialSpec
     
     spec = SpatialSpec(
         crs=CRS.from_epsg(3035),
