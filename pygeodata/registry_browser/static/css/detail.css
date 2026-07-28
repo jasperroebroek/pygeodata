@@ -25,6 +25,10 @@
   gap: 4px 8px;
 }
 
+.dcard-hd-top {
+  display: contents;
+}
+
 .dcard-hd-row { display: contents; }
 
 /* Stale indicator on the entry card header */
@@ -64,24 +68,24 @@
   font-size: 13px;
   font-weight: 700;
   color: var(--text);
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-width: 80px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+/* Pushed to the top-right of the header when it fits alongside the label;
+   wraps to its own row (still right-aligned) when the label needs the space.
+   margin-left adds breathing room from the last label/badge. */
 .dcard-hd-actions {
   display: flex;
   gap: 4px;
   align-items: center;
   flex-shrink: 0;
-}
-
-/* Spacer pushes actions right on a single row; collapses to zero when actions wrap */
-.dcard-hd-spacer {
-  flex: 1 1 0;
-  min-width: 0;
+  flex-wrap: wrap;
+  margin-left: auto;
+  padding-left: 10px;
 }
 
 /* Thin vertical rule between action groups in the card header */
@@ -222,25 +226,30 @@
   color: var(--muted);
 }
 
-/* Entry card spec 2×2 grid */
-.spec-kv-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px 12px;
+/* Entry card spec table — one label|value row per dimension */
+.spec-kv-table {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   padding: 4px 0 8px;
 }
 
-.spec-kv-cell {
+.spec-kv-row {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 10px;
+}
+
+.spec-kv-row .spec-kv-label {
+  flex: 0 0 80px;
+}
+
+.spec-kv-row .spec-kv-val {
+  flex: 1;
   min-width: 0;
 }
 
-.spec-kv-cell--empty {
-  visibility: hidden;
-}
-
+/* Reused by the class card's dependency blocks (label + value list) */
 .spec-kv-label {
   font-size: 10px;
   font-weight: 600;
@@ -377,6 +386,14 @@ a.link-entry-name {
   font-size: 10px;
   font-family: monospace;
   margin-left: auto;
+}
+
+.link-spec-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
 }
 
 .link-param-name {

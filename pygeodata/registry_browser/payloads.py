@@ -44,9 +44,11 @@ def _spec_payload(spec) -> dict:
     return {
         SpecKeys.CRS: spec.crs,
         SpecKeys.RESOLUTION: spec.resolution,
+        SpecKeys.RESOLUTION_DISPLAY: spec.resolution_display,
         SpecKeys.SHAPE: spec.shape,
         SpecKeys.BOUNDS: spec.bounds,
         SpecKeys.BOUNDS_LATLON: spec.bounds_latlon,
+        SpecKeys.BOUNDS_DISPLAY: spec.bounds_display,
     }
 
 
@@ -56,7 +58,7 @@ def _spec_payload(spec) -> dict:
 
 
 def _entry_matches_spec_filters(entry: EntryInfo, spec_filters: dict) -> bool:
-    for dim in (SpecKeys.CRS, SpecKeys.RESOLUTION, SpecKeys.SHAPE):
+    for dim in (SpecKeys.CRS, SpecKeys.SHAPE):
         selected = spec_filters.get(dim)
         if not selected:
             continue
@@ -67,9 +69,18 @@ def _entry_matches_spec_filters(entry: EntryInfo, spec_filters: dict) -> bool:
         elif val != selected:
             return False
 
+    selected_resolution = spec_filters.get(SpecKeys.RESOLUTION)
+    if selected_resolution:
+        entry_resolution = entry.spec.resolution_display or 'None'
+        if isinstance(selected_resolution, list):
+            if selected_resolution and entry_resolution not in selected_resolution:
+                return False
+        elif entry_resolution != selected_resolution:
+            return False
+
     selected_bounds = spec_filters.get(SpecKeys.BOUNDS)
     if selected_bounds:
-        entry_bounds = str(list(entry.spec.bounds_latlon)) if entry.spec.bounds_latlon else None
+        entry_bounds = str(entry.spec.bounds)
         if isinstance(selected_bounds, list):
             if selected_bounds and entry_bounds not in selected_bounds:
                 return False
@@ -371,12 +382,16 @@ def _build_instance_hash_index(entries: dict[str, 'EntryInfo']) -> dict[str, lis
     return index
 
 
-def _build_params_hash_index(entries: dict[str, 'EntryInfo']) -> dict[tuple[str, str], list['EntryInfo']]:
-    """Index by (class_name, params_hash) — groups entries with same params across dep versions."""
-    index: dict[tuple[str, str], list[EntryInfo]] = {}
+def _build_params_hash_index(entries: dict[str, 'EntryInfo']) -> dict[tuple[str, str, str], list['EntryInfo']]:
+    """Index by (class_name, params_hash, spec_hash) — groups entries with the same params
+    and spec across dep versions.  params_hash alone under-discriminates for parameterless
+    classes (e.g. a raster loader with no dataclass fields), where every entry across every
+    spec shares one params_hash — spec_hash keeps spec-only variation out of the version list.
+    """
+    index: dict[tuple[str, str, str], list[EntryInfo]] = {}
     for entry in entries.values():
-        if entry.params_hash:
-            key = (entry.class_name, entry.params_hash)
+        if entry.params_hash and entry.spec_hash:
+            key = (entry.class_name, entry.params_hash, entry.spec_hash)
             index.setdefault(key, []).append(entry)
     return index
 
@@ -456,9 +471,10 @@ def _build_detail_payload(
                 if e.record_id != selected_entry_info.record_id
             ]
         dep_version_entries: list[EntryInfo] = []
-        if selected_entry_info.params_hash:
+        if selected_entry_info.params_hash and selected_entry_info.spec_hash:
             ph_index = _build_params_hash_index(state.entries)
-            dep_version_entries = list(ph_index.get((selected_entry_info.class_name, selected_entry_info.params_hash), []))
+            key = (selected_entry_info.class_name, selected_entry_info.params_hash, selected_entry_info.spec_hash)
+            dep_version_entries = list(ph_index.get(key, []))
             dep_version_entries.sort(
                 key=lambda e: (vreg.version_for_dep_hash(e.dep_hash).mtime if e.dep_hash and vreg.version_for_dep_hash(e.dep_hash) else ''),
                 reverse=True,

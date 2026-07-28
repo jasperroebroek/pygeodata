@@ -4,7 +4,7 @@
  * Main entries table — renderTable, incremental rendering, PAGE_ENTRIES, scroll logic.
  */
 
-import { $, esc, softBreak, badge, boundsLatLonText } from './utils.js';
+import { $, esc, softBreak, badge } from './utils.js';
 import { state } from './state.js';
 import { _viewMode } from './nav.js';
 import { downloadSingleEntry } from './api.js';
@@ -39,10 +39,9 @@ export function _buildRowsHtml(rows, start, maxEntries) {
     if (r.row_type === "header") {
       entriesSeen++;
       const spec = r.spec ?? {};
-      const bl = spec.bounds_latlon;
       const specParts = [
-        spec.crs, spec.resolution, spec.shape,
-        bl ? boundsLatLonText(bl) : null,
+        spec.crs, spec.resolution_display, spec.shape,
+        spec.bounds_display,
       ].filter(Boolean).map((s) => `<span class="tbl-spec-pill">${esc(s)}</span>`).join("");
       const warns    = r.warning_count ? `<span class="badge badge--sm badge-warn">${r.warning_count}w</span>` : "";
       const err      = r.error         ? `<span class="badge badge--sm badge-danger">!</span>` : "";

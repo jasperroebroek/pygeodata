@@ -3,7 +3,6 @@ import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from pygeodata.catalog.class_catalog import source_info_from_disk
 from pygeodata.catalog.types import (
     EntryInfo,
     FileRef,
@@ -13,7 +12,7 @@ from pygeodata.catalog.types import (
 from pygeodata.config import FORMAT_VERSION, get_config
 from pygeodata.hash import calculate_dict_hash
 from pygeodata.paths import CACHE_DIR_SUFFIXES, CACHE_META_FILES, CachePathConstructor, classify_file
-from pygeodata.registries.registry import EntryRegistry, SourceRegistry, TreeRegistry
+from pygeodata.registries.registry import EntryRegistry
 from pygeodata.catalog.params_index import flatten_params
 from pygeodata.registries.registry_types import EntryRecord
 from pygeodata.spec import SpatialSpec
@@ -79,12 +78,7 @@ def _find_primary_file(resolver: CachePathConstructor) -> FileRef | None:
     return None
 
 
-def _enrich_params_path(
-    params_path: Path,
-    src: SourceRegistry | None = None,
-    trees: TreeRegistry | None = None,
-    known_object_type: str | None = None,
-) -> EntryInfo:
+def _enrich_params_path(params_path: Path) -> EntryInfo:
     """Read the display-layer files for one entry. Never raises.
 
     Returns a partial EntryInfo with all display fields populated but
@@ -107,30 +101,28 @@ def _enrich_params_path(
     state_hash = record.state_hash if record else None
     instance_hash = record.instance_hash if record else None
     params_hash = record.params_hash if record else None
+    spec_hash = record.spec_hash if record else None
     stored_dep_hash = record.dependency_tree_hash if record else None
 
+    # Backfill for meta.json written before params_hash was persisted. Delete once no
+    # cache entries predate that change.
     if params_hash is None:
         params_hash = calculate_dict_hash(params)
     co_output_hashes = record.co_output_hashes if record else []
     format_version = record.format_version if record else FORMAT_VERSION
 
-    if known_object_type is not None:
-        object_type = known_object_type
-    else:
-        live_cls = TrackedObject.find_object_class(class_name)
-        if live_cls is not None:
-            ot = getattr(live_cls, 'object_type', None)
-            if ot is not None:
-                getter = getattr(ot, 'get_class_name', None)
-                object_type = str(getter()) if callable(getter) else str(ot)
-            else:
-                object_type = None
-        else:
-            object_type = source_info_from_disk(class_name, src=src, trees=trees).object_type
+    object_type = record.object_type if record else None
 
     warnings: list[str] = []
     if not state_hash:
         warnings.append('Missing state hash in meta.json')
+
+    spatial_spec = SpatialSpec.from_dict(spec) if spec else None
+
+    # Backfill for meta.json written before spec_hash was persisted. Delete once no
+    # cache entries predate that change.
+    if spec_hash is None and spatial_spec is not None:
+        spec_hash = spatial_spec.get_hash()
 
     return EntryInfo(
         class_name=class_name,
@@ -142,8 +134,9 @@ def _enrich_params_path(
         state_hash=state_hash,
         instance_hash=instance_hash,
         params_hash=params_hash,
+        spec_hash=spec_hash,
         params=params,
-        spec=SpecInfo.from_spec(SpatialSpec.from_dict(spec)) if spec else SpecInfo(),
+        spec=SpecInfo.from_spec(spatial_spec) if spatial_spec else SpecInfo(),
         rows=rows,
         linked_entries=linked_entries,
         co_output_hashes=co_output_hashes,
@@ -158,18 +151,21 @@ def _enrich_with_cache(
     params_path: Path,
     cached_results: dict[str, dict],
     cached_mtimes: dict[str, float],
-    src: SourceRegistry | None = None,
-    trees: TreeRegistry | None = None,
 ) -> tuple[EntryInfo, bool]:
     """Return (entry, from_cache). Uses display cache if mtimes match."""
     key = str(params_path.resolve())
     current_mtime = _cache_mtime_key(params_path)
     if key in cached_results and cached_mtimes.get(key) == current_mtime:
         try:
-            return EntryInfo.from_dict(dict(cached_results[key])), True
+            entry = EntryInfo.from_dict(dict(cached_results[key]))
+            if entry.object_type is not None:
+                return entry, True
+            # object_type was missing when this entry was cached (e.g. meta.json
+            # predates that field). Re-read it from disk rather than serving a
+            # stale None forever — it's not part of the cache key.
         except (KeyError, TypeError):
             pass
-    entry = _enrich_params_path(params_path, src=src, trees=trees)
+    entry = _enrich_params_path(params_path)
     return entry, False
 
 
@@ -190,8 +186,6 @@ def discover_entries(
     """
     if version_registry is None:
         version_registry = VersionRegistry()
-    src = version_registry.source_registry
-    trees = version_registry.tree_registry
 
     entry_registry = EntryRegistry()
     # params_path → EntryRecord, for co_output_hashes
@@ -211,7 +205,7 @@ def discover_entries(
     new_mtimes: dict[str, float] = {}
 
     def _process(i: int, p: Path) -> tuple[int, EntryInfo]:
-        entry, from_cache = _enrich_with_cache(p, cached_results, cached_mtimes, src=src, trees=trees)
+        entry, from_cache = _enrich_with_cache(p, cached_results, cached_mtimes)
         key = str(p.resolve())
         if not from_cache and entry.error is None:
             new_results[key] = entry.to_dict()

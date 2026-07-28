@@ -31,9 +31,9 @@ in your default browser. The URL is printed before the browser opens:
 
    http://127.0.0.1:52341
 
-Before starting the server, ``pygeodata browse`` auto-imports all
-``.py`` files in the current directory (recursively, skipping ``venv``,
-``tests``, and build directories). This populates
+With ``--import-all``, ``pygeodata browse`` imports all ``.py`` files in
+the current directory (recursively, skipping ``venv``, ``tests``, and
+build directories) before starting the server. This populates
 ``TrackedObject._registry`` so the browser can resolve class names from
 hash files.
 
@@ -41,8 +41,9 @@ Options:
 
 .. code-block:: bash
 
-   pygeodata browse --port 8080    # use a specific port
-   pygeodata browse --no-import    # skip auto-importing .py files
+   pygeodata browse --port 8080        # use a specific port
+   pygeodata browse --import-all       # auto-import .py files first
+   pygeodata browse --import-all --verbose-import  # print each module imported
 
 From Python:
 

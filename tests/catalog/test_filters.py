@@ -48,6 +48,8 @@ def make_entry(
         execution_graph_path=None,
         state_hash=None,
         instance_hash=None,
+        params_hash=None,
+        spec_hash=None,
         params={},
         spec=SpecInfo(crs=crs),
         rows=rows or [],

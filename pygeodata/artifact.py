@@ -239,6 +239,7 @@ class Artifact(TrackedObject, ABC):
             dependency_tree_hash=self.get_dependency_tree_hash(),
             instance_hash=self.get_instance_hash(),
             params_hash=self.get_params_hash(),
+            spec_hash=spec.get_hash(),
             state_hash=self.get_state_hash(spec),
             object_type=self.object_type.get_class_name(),
             hash_path=str(hash_path),

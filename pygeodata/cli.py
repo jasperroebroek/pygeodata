@@ -830,22 +830,6 @@ def _stale_indicator(rec, vreg: VersionRegistry | None = None) -> str:
     return ' '
 
 
-def _fmt_coord(v: float, pos: str, neg: str) -> str:
-    return f'{abs(v)}° {pos if v >= 0 else neg}'
-
-
-def _fmt_bounds(bounds_latlon) -> str:
-    if not bounds_latlon:
-        return ''
-    try:
-        lat_min, lon_min, lat_max, lon_max = [float(v) for v in bounds_latlon]
-        sw = f'{_fmt_coord(lat_min, "N", "S")}, {_fmt_coord(lon_min, "E", "W")}'
-        ne = f'{_fmt_coord(lat_max, "N", "S")}, {_fmt_coord(lon_max, "E", "W")}'
-        return f'{sw} → {ne}'
-    except (TypeError, ValueError):
-        return str(bounds_latlon)
-
-
 
 
 def _resolve_record(reg, hash_prefix: str):
@@ -1015,7 +999,7 @@ def entry_list(
         entry_info = None
         if needs_enrich and params_path:
             try:
-                entry_info = _enrich_params_path(params_path, known_object_type=rec.object_type)
+                entry_info = _enrich_params_path(params_path)
             except Exception:  # noqa: BLE001
                 pass
 
@@ -1036,7 +1020,7 @@ def entry_list(
                 spec_info = SpecInfo()
         crs_str = spec_info.crs or ''
         res_str = spec_info.resolution or ''
-        bounds_str = _fmt_bounds(spec_info.bounds_latlon) if spec_info.bounds_latlon else ''
+        bounds_str = spec_info.bounds_display or 'None'
         output_rows.append(
             (
                 stale,
@@ -1110,7 +1094,7 @@ def entry_show(
     entry_info = None
     if resolver:
         try:
-            entry_info = _enrich_params_path(resolver.params_path, known_object_type=rec.object_type)
+            entry_info = _enrich_params_path(resolver.params_path)
         except Exception:  # noqa: BLE001
             pass
 
@@ -1132,12 +1116,10 @@ def entry_show(
             click.echo()
             if spec.crs:
                 click.echo(f'CRS          {spec.crs}')
-            if spec.resolution:
-                click.echo(f'Resolution   {spec.resolution}')
+            click.echo(f'Resolution   {spec.resolution_display or "None"}')
             if spec.shape:
                 click.echo(f'Shape        {spec.shape}')
-            if spec.bounds_latlon:
-                click.echo(f'Bounds       {_fmt_bounds(spec.bounds_latlon)}')
+            click.echo(f'Bounds       {spec.bounds_display or "None"}')
 
     if rec.co_output_hashes:
         click.echo()

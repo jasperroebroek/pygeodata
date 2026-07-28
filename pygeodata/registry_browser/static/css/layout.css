@@ -184,15 +184,13 @@ tr.row-entry {
   min-width: var(--sidebar-w);
 }
 
-/* Compact mode: main pane matches sidebar width */
-.app-layout.mode-compact .main-pane {
-  flex: 0 0 var(--sidebar-w);
+/* Main pane (pill list or table) takes remaining space in both modes */
+.app-layout .main-pane {
+  flex: 1 1 0;
   min-width: 160px;
 }
 
-/* Detailed mode: main pane takes remaining space */
 .app-layout.mode-detailed .main-pane {
-  flex: 1 1 0;
   min-width: 340px;
 }
 
@@ -202,21 +200,12 @@ tr.row-entry {
   max-width: 80vw;
 }
 
-/* In compact mode the detail pane fills remaining space instead */
-.app-layout.mode-compact .detail-pane {
-  flex: 1 1 0;
-}
-
 .resize-handle {
   flex: 0 0 5px;
   cursor: col-resize;
   background: var(--border);
   transition: background 0.15s;
   z-index: 10;
-}
-
-.app-layout.mode-compact .resize-handle {
-  display: none;
 }
 
 .resize-handle:hover,
@@ -236,6 +225,47 @@ tr.row-entry {
 .sidebar {
   border-right: 1px solid var(--border);
   background: var(--surface);
+  position: relative;
+}
+
+/* ------------------------------------------------------------
+   Sidebar collapse
+   ------------------------------------------------------------ */
+
+.sidebar-collapse-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 5;
+}
+
+.sidebar-collapse-btn:hover {
+  background: var(--border);
+  color: var(--fg);
+}
+
+.app-layout .sidebar.collapsed {
+  flex: 0 0 32px;
+  min-width: 32px;
+}
+
+.sidebar.collapsed > *:not(.sidebar-collapse-btn) {
+  display: none;
+}
+
+.sidebar.collapsed .sidebar-collapse-btn {
+  position: static;
+  margin: 6px auto 0;
 }
 
 .detail-pane {
@@ -303,10 +333,10 @@ tr.row-entry {
   gap: 12px;
 }
 
-/* Cards must not shrink and are capped at a readable width */
+/* Cards must not shrink and size with the pane's own (resizable) width. */
 .detail-scroll > .dcard {
   flex-shrink: 0;
-  max-width: 680px;
+  width: 100%;
 }
 
 

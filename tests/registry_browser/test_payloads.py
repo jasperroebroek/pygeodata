@@ -35,7 +35,14 @@ from pygeodata.catalog.filters import Filter, FilterTarget
 
 
 def make_spec(crs='EPSG:4326', resolution='0.1°', shape='180x360', bounds_latlon=(-90, -180, 90, 180)):
-    return SpecInfo(crs=crs, resolution=resolution, shape=shape, bounds=str(bounds_latlon), bounds_latlon=bounds_latlon)
+    return SpecInfo(
+        crs=crs,
+        resolution=resolution,
+        resolution_display=resolution,
+        shape=shape,
+        bounds=str(bounds_latlon),
+        bounds_latlon=bounds_latlon,
+    )
 
 
 def make_row(key='year', value='2020', group='', path='year'):
@@ -63,6 +70,8 @@ def make_entry(
     co_outputs=None,
     linked_entries=None,
     dep_hash_stale=False,
+    params_hash='params_hash',
+    spec_hash='spec_hash',
 ):
     return EntryInfo(
         record_id=record_id,
@@ -74,6 +83,8 @@ def make_entry(
         execution_graph_path=None,
         state_hash=state_hash,
         instance_hash=None,
+        params_hash=params_hash,
+        spec_hash=spec_hash,
         params={},
         spec=spec or make_spec(),
         rows=rows or [],
@@ -180,13 +191,13 @@ def test_spec_filter_crs(entry, spec_filter, expected):
         (make_entry(spec=make_spec(shape='1800x3600')), {SpecKeys.SHAPE: '900x1800'}, False),
         (
             make_entry(spec=make_spec(bounds_latlon=(-90, -180, 90, 180))),
-            {SpecKeys.BOUNDS: str(list((-90, -180, 90, 180)))},
+            {SpecKeys.BOUNDS: str((-90, -180, 90, 180))},
             True,
         ),
         (make_entry(spec=SpecInfo(bounds_latlon=None)), {SpecKeys.BOUNDS: 'anything'}, False),
         (
             make_entry(spec=make_spec(bounds_latlon=(-90, -180, 90, 180))),
-            {SpecKeys.BOUNDS: [str(list((-90, -180, 90, 180)))]},
+            {SpecKeys.BOUNDS: [str((-90, -180, 90, 180))]},
             True,
         ),
         (

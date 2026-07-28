@@ -155,6 +155,8 @@ def _make_entry_info(**kwargs) -> EntryInfo:
         execution_graph_path=None,
         state_hash='abc',
         instance_hash=None,
+        params_hash='params_hash',
+        spec_hash='spec_hash',
         params={'year': 2020},
         spec=SpecInfo(crs='EPSG:4326', resolution='0.1°'),
         rows=[],

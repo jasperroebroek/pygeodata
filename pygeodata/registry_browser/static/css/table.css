@@ -246,8 +246,8 @@ tr.row-param.active td.col-indent::after {
 
 /* ---- Column text styles ---- */
 
-.col-scope { color: var(--faint);  font-size: 11px; min-width: 80px;  max-width: 180px; }
-.col-param { color: var(--muted);  font-size: 11px; min-width: 100px; max-width: 220px; }
+.col-scope { color: var(--faint);  font-size: 11px; min-width: 160px; }
+.col-param { color: var(--muted);  font-size: 11px; min-width: 160px; max-width: 320px; }
 .col-value { color: var(--text);   font-size: 11px; }
 
 .col-value--ref {

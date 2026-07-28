@@ -47,20 +47,6 @@ export function badge(text, cls = "badge-accent") {
     : `<span class="kv-nil">unknown</span>`;
 }
 
-/** Format a coordinate with N/S or E/W suffix. */
-export function fmtCoord(v, pos, neg) {
-  return `${Math.abs(v)}° ${v >= 0 ? pos : neg}`;
-}
-
-/** Format bounds_latlon [lat_min, lon_min, lat_max, lon_max] as two corner points. */
-export function boundsLatLonText(bl) {
-  if (!bl || bl.length !== 4) return null;
-  const [latMin, lonMin, latMax, lonMax] = bl;
-  const sw = `${fmtCoord(latMin, "N", "S")}, ${fmtCoord(lonMin, "E", "W")}`;
-  const ne = `${fmtCoord(latMax, "N", "S")}, ${fmtCoord(lonMax, "E", "W")}`;
-  return `${sw} → ${ne}`;
-}
-
 export const _RASTER_EXTS = new Set([".tif", ".tiff", ".nc", ".vrt", ".npy", ".zarr"]);
 export const _fileExt = (p) => p.slice(p.lastIndexOf(".")).toLowerCase();
 
@@ -81,5 +67,5 @@ export function toast(message) {
   el.textContent = String(message);
   el.classList.add("on");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove("on"), 1800);
+  toastTimer = setTimeout(() => el.classList.remove("on"), 8000);
 }

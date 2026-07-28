@@ -62,26 +62,11 @@ def test_spec_info_bounds_latlon_epsg4326() -> None:
 
 
 def test_spec_info_bounds_latlon_none_when_no_transform_no_area() -> None:
-    # A CRS with no area_of_use and no transform → bounds raises ValueError → bounds_latlon is None
+    # No transform → bounds is None → bounds_latlon is None
     from pyproj import CRS
     from pygeodata.spec import SpatialSpec
 
-    # Build a custom CRS with no area_of_use (e.g. a local engineering CRS)
-    # Fall back: just test the ValueError path in from_spec directly
-    class _BadSpec:
-        crs = CRS.from_epsg(4326)
-
-        @property
-        def bounds(self):
-            raise ValueError('no bounds')
-
-        @property
-        def resolution(self):
-            raise ValueError('no resolution')
-
-        shape = None
-
-    info = SpecInfo.from_spec(_BadSpec())  # type: ignore[arg-type]
+    info = SpecInfo.from_spec(SpatialSpec(crs=CRS.from_epsg(4326)))
     assert info.bounds_latlon is None
 
 

@@ -17,6 +17,7 @@ classifiers = [
     "Programming Language :: Python :: 3"
 ]
 dependencies = [
+    "numpy",
     "rioxarray",
     "geopandas",
     "zarr",
@@ -30,6 +31,13 @@ pygeodata = "pygeodata.cli:cli"
 
 [tool.setuptools.packages.find]
 include = ["pygeodata*"]
+
+[tool.setuptools.package-data]
+pygeodata = [
+    "registry_browser/static/css/*.css",
+    "registry_browser/static/js/*.js",
+    "registry_browser/templates/*.html",
+]
 
 [project.optional-dependencies]
 viz = [
@@ -48,8 +56,6 @@ test = [
     "pytest-mock",
 ]
 
-[tool.pytest.ini_options]
-pythonpath = ["."]
 documentation = [
     "sphinx",
     "sphinx_rtd_theme",
@@ -64,3 +70,6 @@ all = [
     "pygeodata[test]",
     "pygeodata[documentation]",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

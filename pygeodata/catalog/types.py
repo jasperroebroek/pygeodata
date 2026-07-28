@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pygeodata.config import FORMAT_VERSION
-from pygeodata.spec import SpatialSpec, SpecKeys, compute_bounds_latlon, format_resolution
+from pygeodata.spec import SpatialSpec, SpecKeys, format_resolution
 
 
 
@@ -20,31 +20,26 @@ class FileRef:
 class SpecInfo:
     crs: str | None = None
     resolution: str | None = None
+    resolution_display: str | None = None
     shape: str | None = None
     bounds: str | None = None
     bounds_latlon: tuple | None = None
+    bounds_display: str | None = None
 
     @classmethod
     def from_spec(cls, spec: SpatialSpec) -> SpecInfo:
         """Build a SpecInfo from a SpatialSpec."""
-        try:
-            bounds = spec.bounds
-            bounds_list = [bounds.left, bounds.bottom, bounds.right, bounds.top]
-            bounds_str = str(bounds_list)
-        except ValueError:
-            bounds_list = None
-            bounds_str = None
-        try:
-            resolution = list(spec.resolution)
-        except ValueError:
-            resolution = None
+        bounds = spec.bounds
+        bounds_str = str([bounds.left, bounds.bottom, bounds.right, bounds.top]) if bounds else None
         crs_str = spec.crs.to_string()
         return cls(
             crs=crs_str,
-            resolution=format_resolution(resolution, spec.crs),
+            resolution=format_resolution(spec.resolution, spec.crs),
+            resolution_display=spec.resolution_display,
             shape=None if spec.shape in ('', None) else str(spec.shape),
             bounds=bounds_str,
-            bounds_latlon=compute_bounds_latlon(bounds_list, spec.crs),
+            bounds_latlon=spec.bounds_latlon,
+            bounds_display=spec.bounds_display,
         )
 
 
@@ -81,6 +76,7 @@ class EntryInfo:
     state_hash: str | None
     instance_hash: str | None
     params_hash: str | None
+    spec_hash: str | None
     params: dict[str, Any]
     spec: SpecInfo
     rows: list[ParamRow]
@@ -114,6 +110,8 @@ class EntryInfo:
             'execution_graph_path': self.execution_graph_path,
             'state_hash': self.state_hash,
             'instance_hash': self.instance_hash,
+            'params_hash': self.params_hash,
+            'spec_hash': self.spec_hash,
             'params': self.params,
             SpecKeys.SPEC: dataclasses.asdict(self.spec),
             'rows': [dataclasses.asdict(r) for r in self.rows],
@@ -141,6 +139,10 @@ class EntryInfo:
             execution_graph_path=data.get('execution_graph_path'),
             state_hash=data.get('state_hash'),
             instance_hash=data.get('instance_hash'),
+            params_hash=data.get('params_hash'),
+            # Backfill for dashboard cache entries written before spec_hash was persisted.
+            # Delete once no cached blobs predate that change.
+            spec_hash=data.get('spec_hash') or (SpatialSpec.from_dict(spec_d).get_hash() if spec_d else None),
             params=data.get('params', {}),
             spec=SpecInfo(**spec_d) if spec_d else SpecInfo(),
             rows=[ParamRow(**r) for r in data.get('rows', [])],

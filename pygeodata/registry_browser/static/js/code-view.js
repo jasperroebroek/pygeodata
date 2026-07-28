@@ -185,6 +185,15 @@ async function _showVersionDiff({ base, target = 'live', scrollToClass = null } 
     : (_codeVersions[targetIdx + 1]?.version_id ?? 'none'); // vN → compare with predecessor (or empty)
   const baseId = base ?? defaultBase;
 
+  const titleEl = $('#code-source-title');
+  if (titleEl) {
+    titleEl.textContent = targetId === 'live'
+      ? 'Live'
+      : (_codeVersions.find((v) => v.version_id === targetId)?.label ?? '');
+  }
+  const findBtn = $('#btn-find-in-entries');
+  if (findBtn) findBtn.style.display = 'none';
+
   let params = `target_version_id=${encodeURIComponent(targetId)}`;
   params += `&base_version_id=${encodeURIComponent(baseId)}`;
 

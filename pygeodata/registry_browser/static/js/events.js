@@ -41,6 +41,30 @@ $$(".sb-section-hd[data-target]").forEach((hd) => {
 });
 
 // ---------------------------------------------------------------------------
+// Sidebar collapse — hide the whole filter column
+// ---------------------------------------------------------------------------
+
+(function () {
+  const btn = document.getElementById("btn-sidebar-collapse");
+  const sidebar = document.getElementById("entries-sidebar");
+  const STORE_KEY = "registry.sidebar-collapsed";
+
+  const setCollapsed = (collapsed) => {
+    sidebar.classList.toggle("collapsed", collapsed);
+    btn.textContent = collapsed ? "»" : "«";
+    btn.title = collapsed ? "Expand filters" : "Collapse filters";
+  };
+
+  setCollapsed(localStorage.getItem(STORE_KEY) === "1");
+
+  btn.onclick = () => {
+    const collapsed = !sidebar.classList.contains("collapsed");
+    setCollapsed(collapsed);
+    localStorage.setItem(STORE_KEY, collapsed ? "1" : "0");
+  };
+})();
+
+// ---------------------------------------------------------------------------
 // Kind tabs
 // ---------------------------------------------------------------------------
 

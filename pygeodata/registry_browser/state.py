@@ -4,6 +4,7 @@ import logging
 import sys
 import threading
 import traceback
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -163,13 +164,16 @@ def build_state(progress: dict | None = None) -> AppState:
         src=version_registry.source_registry,
         trees=version_registry.tree_registry,
     )
+    def _none_first(keys: Iterable[str]) -> list[str]:
+        return sorted(keys, key=lambda k: (k != 'None', k))
+
+    bounds_by_key = {str(entry.spec.bounds): (entry.spec.bounds_display or 'None') for entry in entries.values()}
+    resolution_keys = _none_first({entry.spec.resolution_display or 'None' for entry in entries.values()})
     spec_options = {
         SpecKeys.CRS: sorted({entry.spec.crs for entry in entries.values() if entry.spec.crs}),
-        SpecKeys.RESOLUTION: sorted({entry.spec.resolution for entry in entries.values() if entry.spec.resolution}),
+        SpecKeys.RESOLUTION: [{'value': k, 'label': k} for k in resolution_keys],
         SpecKeys.SHAPE: sorted({entry.spec.shape for entry in entries.values() if entry.spec.shape}),
-        SpecKeys.BOUNDS: sorted(
-            {str(list(entry.spec.bounds_latlon)) for entry in entries.values() if entry.spec.bounds_latlon},
-        ),
+        SpecKeys.BOUNDS: [{'value': k, 'label': bounds_by_key[k]} for k in _none_first(bounds_by_key)],
     }
     return AppState(
         classes=classes,

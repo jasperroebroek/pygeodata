@@ -53,7 +53,9 @@ setEventsCodeView({
 // ---------------------------------------------------------------------------
 
 // Apply initial layout classes without triggering a load (loadEntries does the first fetch)
-applyViewMode("compact", false);
+// Default to detailed mode on normal/wide screens, compact on narrow ones.
+const DEFAULT_MODE_BREAKPOINT = 1000;
+applyViewMode(window.innerWidth >= DEFAULT_MODE_BREAKPOINT ? "detailed" : "compact", false);
 updateNavBtns();
 
 // Restore browse mode button state

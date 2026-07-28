@@ -247,7 +247,7 @@ def test_enrich_with_cache_hit(tmp_path):
     params_path = write_cache_entry(
         d,
         'abc',
-        state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'},
+        state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc', JSONKeys.OBJECT_TYPE: 'Data'},
     )
     key = str(params_path.resolve())
     mtime = _cache_mtime_key(params_path)

@@ -28,15 +28,17 @@ Install additional optional dependencies by specifying extras:
 
 .. code-block:: bash
 
-   pip install pygeodata[viz]        # dependency graph plots
-   pip install pygeodata[parallel]   # Dask integration
-   pip install pygeodata[dashboard]  # registry browser
+   pip install pygeodata[viz]           # dependency graph plots
+   pip install pygeodata[parallel]      # Dask integration
+   pip install pygeodata[dashboard]     # registry browser
+   pip install pygeodata[test]          # test suite
+   pip install pygeodata[documentation] # docs build
 
 Or all at once:
 
 .. code-block:: bash
 
-   pip install pygeodata[viz,parallel,dashboard]
+   pip install pygeodata[all]
 
 The extras provide:
 
@@ -50,6 +52,11 @@ The extras provide:
 - **dashboard** — ``flask`` for the local registry browser launched by
   :func:`~pygeodata.registry_browser.open_registry_browser`.
 
+- **test** — ``pytest`` and ``pytest-mock`` for running the test suite.
+
+- **documentation** — ``sphinx``, ``sphinx_rtd_theme``, ``numpydoc``,
+  ``jupyter``, and ``matplotlib`` for building these docs.
+
 Development install
 -------------------
 
@@ -59,4 +66,4 @@ To install from source with all extras:
 
    git clone https://github.com/jasper-roebroek/pygeodata
    cd pygeodata
-   pip install -e ".[viz,parallel,dashboard]"
+   pip install -e ".[all]"

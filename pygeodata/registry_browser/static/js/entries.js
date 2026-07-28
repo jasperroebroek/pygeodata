@@ -5,7 +5,7 @@
  * version select, selectEntry, loadDetail, applyViewMode.
  */
 
-import { $, esc, toast, boundsLatLonText, setLastDashboard, lastDashboard, setLastVersionOptions } from './utils.js';
+import { $, esc, toast, setLastDashboard, lastDashboard, setLastVersionOptions } from './utils.js';
 import { state, buildPayload } from './state.js';
 import { _viewMode, _topView, setViewMode, pushHistory } from './nav.js';
 import { renderFilterRows, setFilterLoaders } from './filters.js';
@@ -51,17 +51,19 @@ $("#version-select")?.addEventListener("change", (e) => {
 // Spec pill helpers
 // ---------------------------------------------------------------------------
 
-export function renderSpecPills(selector, options, selectedSet, labelFn = null) {
+// options may be plain strings (value == label) or {value, label} objects.
+export function renderSpecPills(selector, options, selectedSet) {
   const el = $(selector);
   if (!options?.length) {
     el.innerHTML = `<span style="color:var(--faint);font-size:11px">—</span>`;
     return;
   }
   el.innerHTML = options
-    .map((v) => {
-      const active = selectedSet.includes(v);
-      const label = labelFn ? labelFn(v) : v;
-      return `<button class="spec-pill ${active ? "active" : ""}" data-v="${esc(v)}" title="${esc(label)}">${esc(label)}</button>`;
+    .map((opt) => {
+      const value = typeof opt === "object" ? opt.value : opt;
+      const label = typeof opt === "object" ? opt.label : opt;
+      const active = selectedSet.includes(value);
+      return `<button class="spec-pill ${active ? "active" : ""}" data-v="${esc(value)}" title="${esc(label)}">${esc(label)}</button>`;
     })
     .join("");
   el.querySelectorAll(".spec-pill").forEach((btn) => {
@@ -229,9 +231,7 @@ export async function loadEntriesOnly() {
   const opts = data.spec_options ?? {};
   renderSpecPills("#spec-crs",        opts.crs        ?? [], state.spec_filters.crs);
   renderSpecPills("#spec-resolution", opts.resolution ?? [], state.spec_filters.resolution);
-  renderSpecPills("#spec-bounds",     opts.bounds     ?? [], state.spec_filters.bounds, (v) => {
-    try { return boundsLatLonText(JSON.parse(v)) ?? v; } catch { return v; }
-  });
+  renderSpecPills("#spec-bounds",     opts.bounds     ?? [], state.spec_filters.bounds);
 
   const versionOptions = data.version_options ?? [];
   setLastVersionOptions(versionOptions);
@@ -322,13 +322,9 @@ export function applyViewMode(mode, reload = true) {
   layout.classList.toggle("mode-compact",  mode === "compact");
   layout.classList.toggle("mode-detailed", mode === "detailed");
 
-  // Restore saved detail pane width when entering detailed mode
-  if (mode === "detailed") {
-    const saved = localStorage.getItem("registry.detail-w");
-    if (saved) $("#detail-pane").style.flex = `0 0 ${saved}px`;
-  } else {
-    $("#detail-pane").style.flex = "";
-  }
+  // Restore saved detail pane width (resizable in both modes)
+  const saved = localStorage.getItem("registry.detail-w");
+  if (saved) $("#detail-pane").style.flex = `0 0 ${saved}px`;
 
   document.querySelectorAll("#entries-screen-tabs .kind-tab").forEach((tab) =>
     tab.classList.toggle("active", tab.dataset.mode === mode)

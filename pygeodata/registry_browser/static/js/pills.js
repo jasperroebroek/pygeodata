@@ -4,7 +4,7 @@
  * Active-class pills (shown above the table) — renderPills, clearAllFilters, hasActiveFilters.
  */
 
-import { $$, esc, _lastVersionOptions } from './utils.js';
+import { $$, esc, _lastVersionOptions, lastDashboard } from './utils.js';
 import { state, BOOLEAN_TARGETS } from './state.js';
 import { _viewMode, _topView, updateNavBtns, pushHistory } from './nav.js';
 import { FILTER_TARGETS, FILTER_OPERATORS, renderFilterRows } from './filters.js';
@@ -33,7 +33,7 @@ export function renderPills() {
   state.selected_classes.forEach((cn) => {
     const pill = document.createElement("span");
     pill.className = "pill";
-    pill.innerHTML = `${esc(cn)}<button class="pill-rm">✕</button>`;
+    pill.innerHTML = `<span class="pill-label">${esc(cn)}</span><button class="pill-rm">✕</button>`;
     pill.querySelector("button").onclick = () => {
       pushHistory(_viewMode, _topView === 'code' ? _getCodeState() : null);
       state.selected_classes.splice(state.selected_classes.indexOf(cn), 1);
@@ -49,10 +49,10 @@ export function renderPills() {
     const pill = document.createElement("span");
     pill.className = "pill pill-filter";
     if (isBoolean) {
-      pill.innerHTML = `${esc(targetLabel)}<button class="pill-rm">✕</button>`;
+      pill.innerHTML = `<span class="pill-label">${esc(targetLabel)}</span><button class="pill-rm">✕</button>`;
     } else {
       const opLabel = FILTER_OPERATORS.find(([v]) => v === f.operator)?.[2] ?? f.operator;
-      pill.innerHTML = `<span class="pill-meta">${esc(targetLabel)} ${esc(opLabel)}</span> ${esc(f.value)}<button class="pill-rm">✕</button>`;
+      pill.innerHTML = `<span class="pill-label"><span class="pill-meta">${esc(targetLabel)} ${esc(opLabel)}</span> ${esc(f.value)}</span><button class="pill-rm">✕</button>`;
     }
     pill.querySelector("button").onclick = () => {
       pushHistory(_viewMode, _topView === 'code' ? _getCodeState() : null);
@@ -67,11 +67,16 @@ export function renderPills() {
     el.appendChild(pill);
   });
 
+  const boundsLabelByValue = new Map(
+    (lastDashboard?.spec_options?.bounds ?? []).map((o) => [o.value, o.label]),
+  );
+
   [["crs", "CRS"], ["resolution", "Res"], ["bounds", "Bounds"]].forEach(([dim, label]) => {
     (state.spec_filters[dim] ?? []).forEach((v) => {
+      const displayVal = dim === "bounds" ? (boundsLabelByValue.get(v) ?? v) : v;
       const pill = document.createElement("span");
-      pill.className = "pill pill-filter";
-      pill.innerHTML = `<span class="pill-meta">${esc(label)}</span> ${esc(v)}<button class="pill-rm">✕</button>`;
+      pill.className = `pill pill-filter${dim === "bounds" ? " pill-filter--wide" : ""}`;
+      pill.innerHTML = `<span class="pill-label"><span class="pill-meta">${esc(label)}</span> ${esc(displayVal)}</span><button class="pill-rm">✕</button>`;
       pill.querySelector("button").onclick = () => {
         const arr = state.spec_filters[dim];
         arr.splice(arr.indexOf(v), 1);
@@ -86,7 +91,7 @@ export function renderPills() {
     const label = opt?.label ?? state.version_filter;
     const pill = document.createElement("span");
     pill.className = "pill pill-filter";
-    pill.innerHTML = `<span class="pill-meta">Snapshot</span> ${esc(label)}<button class="pill-rm">✕</button>`;
+    pill.innerHTML = `<span class="pill-label"><span class="pill-meta">Snapshot</span> ${esc(label)}</span><button class="pill-rm">✕</button>`;
     pill.querySelector("button").onclick = () => {
       state.version_filter = null;
       document.querySelector("#version-select").value = "all";

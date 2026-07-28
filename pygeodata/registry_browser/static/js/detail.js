@@ -4,7 +4,7 @@
  * Entry detail pane + JSON explorer.
  */
 
-import { $, esc, badge, boundsLatLonText, _RASTER_EXTS, _fileExt, buildBoundsMapUrl, toast, lastDashboard } from './utils.js';
+import { $, esc, badge, _RASTER_EXTS, _fileExt, buildBoundsMapUrl, toast, lastDashboard } from './utils.js';
 import { state, BOOLEAN_TARGETS } from './state.js';
 import { fileURL, fetchJsonPopup, fetchSourcePopup, fetchGraphPopup, openPath, revealPath, downloadSingleEntry, deleteEntry } from './api.js';
 
@@ -599,9 +599,11 @@ function buildClassCard(detail) {
   return `
     <div class="dcard">
       <div class="dcard-hd">
-        <span class="dcard-hd-label">Class</span>
-        <span class="dcard-hd-title">${esc(detail.class_name)}${typeBadge ? `<span class="dcard-hd-type">${typeBadge}</span>` : ""}${statusBadges ? `${statusBadges}` : ""}</span>
-        ${actions ? `<span class="dcard-hd-spacer"></span><div class="dcard-hd-actions">${actions}</div>` : ""}
+        <div class="dcard-hd-top">
+          <span class="dcard-hd-label">Class</span>
+          <span class="dcard-hd-title">${esc(detail.class_name)}${typeBadge ? `<span class="dcard-hd-type">${typeBadge}</span>` : ""}${statusBadges ? `<span class="dcard-hd-type">${statusBadges}</span>` : ""}</span>
+        </div>
+        ${actions ? `<div class="dcard-hd-actions">${actions}</div>` : ""}
       </div>
       <div class="dcard-body">${rows}</div>
     </div>`;
@@ -615,25 +617,29 @@ function buildEntryCard(entry) {
   const spec = entry.spec ?? {};
   const bl = spec.bounds_latlon;
 
-  // CRS — link to epsg.io if EPSG code
-  const epsgUrl = spec.crs?.startsWith("EPSG:") ? `https://epsg.io/${spec.crs.slice(5)}` : null;
+  // CRS — link to epsg.io; it resolves both EPSG: and ESRI: codes by their numeric id
+  const crsCodeMatch = spec.crs?.match(/^(?:EPSG|ESRI):(\d+)$/);
+  const epsgUrl = crsCodeMatch ? `https://epsg.io/${crsCodeMatch[1]}` : null;
   const crsVal = spec.crs
     ? epsgUrl
       ? `<a class="spec-cell-link" href="${esc(epsgUrl)}" target="_blank" rel="noopener">${esc(spec.crs)}</a>`
       : `<span class="kv-val">${esc(spec.crs)}</span>`
     : null;
 
-  // Spec cells rendered in a 2×2 grid
-  const specCell = (label, content) => content
-    ? `<div class="spec-kv-cell"><span class="spec-kv-label">${label}</span><span class="spec-kv-val">${content}</span></div>`
-    : `<div class="spec-kv-cell spec-kv-cell--empty"></div>`;
+  const specRow = (label, content) => content
+    ? `<div class="spec-kv-row"><span class="spec-kv-label">${label}</span><span class="spec-kv-val">${content}</span></div>`
+    : "";
 
   const specGrid = `
-    <div class="spec-kv-grid">
-      ${specCell("CRS",        crsVal ?? "")}
-      ${specCell("Resolution", spec.resolution ? `<span class="kv-val">${esc(spec.resolution)}</span>` : "")}
-      ${specCell("Shape",      spec.shape      ? `<span class="kv-val">${esc(spec.shape)}</span>`      : "")}
-      ${specCell("Bounds",     bl ? `<button class="act-btn js-bounds-map" data-bounds="${esc(JSON.stringify(bl))}" data-crs="${esc(spec.crs ?? '')}">${esc(boundsLatLonText(bl))}</button>` : "")}
+    <div class="spec-kv-table">
+      ${specRow("CRS",        crsVal ?? "")}
+      ${specRow("Resolution", spec.resolution_display ? `<span class="kv-val">${esc(spec.resolution_display)}</span>` : "")}
+      ${specRow("Shape",      spec.shape ? `<span class="kv-val">${esc(spec.shape)}</span>` : "")}
+      ${specRow("Bounds",     spec.bounds_display
+        ? (bl
+            ? `<button class="act-btn js-bounds-map" data-bounds="${esc(JSON.stringify(bl))}" data-crs="${esc(spec.crs ?? '')}">${esc(spec.bounds_display)}</button>`
+            : `<span class="kv-val">${esc(spec.bounds_display)}</span>`)
+        : "")}
     </div>`;
 
   const fileRow = entry.primary_file
@@ -684,13 +690,15 @@ function buildEntryCard(entry) {
 
   const entryActionParts = [whatChangedBtn, internalBtns, hashChip, deleteBtn].filter(Boolean);
   const entryActions = entryActionParts.length
-    ? `<span class="dcard-hd-spacer"></span><div class="dcard-hd-actions">${entryActionParts.join('<span class="dcard-hd-sep"></span>')}</div>`
+    ? `<div class="dcard-hd-actions">${entryActionParts.join('<span class="dcard-hd-sep"></span>')}</div>`
     : "";
 
   return `
     <div class="dcard">
       <div class="dcard-hd">
-        <span class="dcard-hd-label">Entry</span>${staleIndicator}
+        <div class="dcard-hd-top">
+          <span class="dcard-hd-label">Entry</span>${staleIndicator}
+        </div>
         ${entryActions}
       </div>
       <div class="dcard-body dcard-body--entry">
@@ -708,8 +716,9 @@ function buildFigureCard(entry) {
   return `
     <div class="dcard dcard--figure">
       <div class="dcard-hd">
-        <span class="dcard-hd-label">Preview</span>
-        <span class="dcard-hd-spacer"></span>
+        <div class="dcard-hd-top">
+          <span class="dcard-hd-label">Preview</span>
+        </div>
         <div class="dcard-hd-actions">
           <button class="act-btn js-open" data-path="${esc(previews[0])}">Open</button>
         </div>
@@ -816,9 +825,10 @@ function buildCoOutputsCard(entry) {
   return `
     <div class="dcard" id="${cardId}">
       <div class="dcard-hd">
-        <span class="dcard-hd-label">Co-outputs</span>
-        <span class="dcard-hd-spacer"></span>
-        <div class="dcard-hd-actions">${toggleBtn}</div>
+        <div class="dcard-hd-top">
+          <span class="dcard-hd-label">Co-outputs</span>
+        </div>
+        ${toggleBtn ? `<div class="dcard-hd-actions">${toggleBtn}</div>` : ""}
       </div>
       <div class="dcard-body dcard-body--links">${outputRows}</div>
     </div>`;
@@ -830,9 +840,8 @@ function buildSameSpecSiblingsCard(entry) {
   if (!siblings.length) return "";
 
   const rows = siblings.map((s) => {
-    const hashShort = s.state_hash ? s.state_hash.slice(0, 6) : "—";
     const spec = s.spec ?? {};
-    const specParts = [spec.crs, spec.resolution, spec.shape]
+    const specParts = [spec.crs, spec.resolution, spec.shape, spec.bounds_display]
       .filter(Boolean)
       .map((v) => `<span class="tbl-spec-pill">${esc(v)}</span>`)
       .join("");
@@ -850,8 +859,7 @@ function buildSameSpecSiblingsCard(entry) {
       <div class="link-row">
         <div class="link-row-top">
           <a href="#" class="jmp-entry link-entry-name" data-entry="${esc(s.record_id)}" data-cls="${esc(s.class_name)}">${esc(s.class_name)}</a>
-          ${specParts}
-          <span class="link-hash" title="${esc(s.state_hash ?? "")}">${esc(hashShort)}</span>
+          <span class="link-spec-right">${specParts}</span>
         </div>
         ${fileRow}
       </div>`;
@@ -880,8 +888,8 @@ function buildDepVersionsCard(detail) {
       : `<button class="act-btn js-dep-ver-select" data-entry="${esc(s.record_id)}">Select</button>`;
 
     const spec = s.spec ?? {};
-    const specParts = [spec.crs, spec.resolution, spec.shape,
-      spec.bounds_latlon ? boundsLatLonText(spec.bounds_latlon) : null,
+    const specParts = [spec.crs, spec.resolution_display, spec.shape,
+      spec.bounds_display,
     ].filter(Boolean).map((p) => `<span class="tbl-spec-pill">${esc(p)}</span>`).join("");
 
     return `

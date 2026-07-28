@@ -18,6 +18,8 @@ def format_json(
 ) -> float | int | str | bool | None | dict[str, Any] | list[Any]:
     if isinstance(value, JSON_SAFE_TYPES):
         return value
+    if isinstance(value, type):
+        return f'{value.__module__}.{value.__qualname__}'
     if isinstance(value, AllowsFormatting):
         return value.format_as_json(spec=spec)
     return repr(value)
@@ -58,6 +60,7 @@ def _(value: Path, spec: SpatialSpec | None = None) -> str:
 
 
 format_json.register(np.ndarray, lambda x, spec=None: format_json(format_array(x), spec=spec))
+format_json.register(np.generic, lambda x, spec=None: format_json(x.item(), spec=spec))
 
 
 @format_json.register(Mapping)
