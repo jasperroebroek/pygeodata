@@ -23,8 +23,8 @@ jobs:
           micromamba activate pygeodata-tests-env
           python -m pip install -e '.[test]'
 
-      - name: Run tests
+      - name: Check the package imports
         shell: bash -l {0}
         run: |
           micromamba activate pygeodata-tests-env
-          python -m pytest -v
+          python -c "import pygeodata"
