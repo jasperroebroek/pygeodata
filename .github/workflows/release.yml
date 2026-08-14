@@ -15,22 +15,22 @@ jobs:
     name: Build wheels
     uses: ./.github/workflows/build.yml
 
-  build_sdist:
-    name: Build source distribution
+  build_dists:
+    name: Build sdist and wheel
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build sdist
-        run: pipx run build --sdist
+      - name: Build sdist and wheel
+        run: pipx run build
 
       - uses: actions/upload-artifact@v4
         with:
-          name: cibw-sdist
-          path: dist/*.tar.gz
+          name: dist-all
+          path: dist/*
 
   upload_pypi:
-    needs: [ test, build, build_sdist ]
+    needs: [ test, build, build_dists ]
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -41,8 +41,8 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          # unpacks all CIBW artifacts into dist/
-          pattern: cibw-*
+          # unpacks the sdist and every per-OS wheel into dist/
+          pattern: dist-*
           path: dist
           merge-multiple: true
 
