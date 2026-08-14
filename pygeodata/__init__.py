@@ -1,4 +1,4 @@
-__version__ = '0.1.1'
+__version__ = '0.1.2'
 
 from pygeodata.api import load, load_from_hash, process
 from pygeodata.artifact import Artifact
