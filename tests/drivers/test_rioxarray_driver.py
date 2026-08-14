@@ -6,6 +6,7 @@ from pygeodata.drivers.rioxarray import RioXArrayDriver
 from tests.fixtures.data import LUH2_NC, WTD_TIF
 
 
+@pytest.mark.requires_data
 def test_load_tiff_keep_band():
     da = RioXArrayDriver(flatten=False)(WTD_TIF)
     assert da.shape == (1, 4320, 5400)
@@ -13,6 +14,7 @@ def test_load_tiff_keep_band():
         assert dim in ('band', 'x', 'y')
 
 
+@pytest.mark.requires_data
 def test_load_tiff_flat():
     da = RioXArrayDriver()(WTD_TIF)
     assert da.shape == (4320, 5400)
@@ -21,6 +23,7 @@ def test_load_tiff_flat():
     assert da.sum() == pytest.approx(3.01499e8, rel=1e-5)
 
 
+@pytest.mark.requires_data
 def test_load_netcdf():
     with pytest.raises(TooManyDimensions):
         RioXArrayDriver()(LUH2_NC)

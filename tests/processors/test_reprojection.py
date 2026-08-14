@@ -58,6 +58,7 @@ def test_reprojection_with_compression(sample_geotiff, sample_spatial_spec, tmp_
         assert src.compression == Compression.lzw
 
 
+@pytest.mark.requires_data
 def test_reprojection_with_tiff_same_spec(tmp_path):
     output_path = tmp_path / 'output.tif'
 
@@ -76,6 +77,7 @@ def test_reprojection_with_tiff_same_spec(tmp_path):
         assert src.shape == (spec.shape[0], spec.shape[1])
 
 
+@pytest.mark.requires_data
 def test_reprojection_with_tiff_new_crs(tmp_path):
     output_path = tmp_path / 'output.tif'
 
@@ -111,6 +113,7 @@ def test_reprojection_with_tiff_new_crs(tmp_path):
         assert dst.shape == (spec.shape[0], spec.shape[1])
 
 
+@pytest.mark.requires_data
 def test_reprojection_nc_mutiple_variables(tmp_path):
     output_path = tmp_path / 'output.tif'
 
@@ -129,6 +132,7 @@ def test_reprojection_nc_mutiple_variables(tmp_path):
         processor(output_path, spec)
 
 
+@pytest.mark.requires_data
 def test_reprojection_nc_single_variable(tmp_path):
     output_path = tmp_path / 'output.tif'
 

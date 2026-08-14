@@ -10,7 +10,30 @@ from pyproj import CRS
 
 from pygeodata.config import JSONKeys, set_config
 from pygeodata.spec import SpatialSpec
-from tests.fixtures.data import MultiOutputLoader, NestedLoader, SampleLoader
+from tests.fixtures.data import TEST_DATA_DIR, MultiOutputLoader, NestedLoader, SampleLoader
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        'markers',
+        'requires_data: needs the local ``data/`` directory, which is gitignored and absent in CI',
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip data-backed tests when ``data/`` is not present.
+
+    The sample rasters and shapefiles are too large to commit, so they are
+    gitignored and unavailable on CI. Everything that does not touch them
+    still runs there.
+    """
+    if TEST_DATA_DIR.exists():
+        return
+
+    skip = pytest.mark.skip(reason=f'test data directory not available: {TEST_DATA_DIR}')
+    for item in items:
+        if 'requires_data' in item.keywords:
+            item.add_marker(skip)
 
 
 @pytest.fixture

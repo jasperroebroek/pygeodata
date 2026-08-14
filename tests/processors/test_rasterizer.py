@@ -1,9 +1,12 @@
 import numpy as np
+import pytest
 import rasterio as rio
 from numpy import dtype
 
 from pygeodata.processors.rasterizer import Rasterizer
 from tests.fixtures.data import COUNTRIES_SHP
+
+pytestmark = pytest.mark.requires_data
 
 
 def test_rasterizer_float(tmp_path, sample_spatial_spec):
