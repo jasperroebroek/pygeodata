@@ -125,7 +125,7 @@ Override ``_load(self, path)`` to return any Python object from a cached file.
 Excluding parameters
 ~~~~~~~~~~~~~~~~~~~~
 
-:meth:`~pygeodata.artifact.Artifact.get_params` discovers parameters from
+:meth:`~pygeodata.tracked_object.TrackedObject.get_params` discovers parameters from
 ``vars(self)`` and skips any attribute whose name starts with an underscore.
 Store purely operational values (thread counts, verbosity flags) that must not
 affect output content as underscore-prefixed attributes, and they are excluded

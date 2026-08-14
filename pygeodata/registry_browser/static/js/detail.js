@@ -588,10 +588,10 @@ function buildClassCard(detail) {
     </div>`).join("");
 
   const statusBadges = [
-    !detail.loaded      ? `<span class="badge badge-cache"  title="Not loaded in Python registry — Source and Graph reflect registry snapshot">cache-only</span>` : "",
-    detail.source_stale ? `<span class="badge badge-warn" title="Source code changed since last run — Source and Graph reflect current code, not the registry snapshot">stale</span>` : "",
+    !detail.loaded      ? `<span class="badge badge--sm badge-cache" title="Not loaded in Python registry — Source and Graph reflect registry snapshot">cache-only</span>` : "",
+    detail.source_stale ? `<span class="badge badge--sm badge-warn" title="Source code changed since last run — Source and Graph reflect current code, not the registry snapshot">stale</span>` : "",
     (!detail.source_stale && detail.deps_stale)
-      ? `<span class="badge badge-deps" title="An upstream dependency changed since last run — Source and Graph reflect current code, not the registry snapshot">stale</span>` : "",
+      ? `<span class="badge badge--sm badge-deps" title="An upstream dependency changed since last run — Source and Graph reflect current code, not the registry snapshot">stale</span>` : "",
   ].filter(Boolean).join(" ");
 
   const typeBadge = detail.object_type ? `${badge(detail.object_type, "badge-neutral")}` : "";
@@ -675,9 +675,9 @@ function buildEntryCard(entry) {
     : "";
 
   const staleIndicator = entry.format_version_stale
-    ? `<span class="entry-stale-indicator entry-stale-indicator--version" title="pygeodata version changed — entry must be regenerated">version mismatch</span>`
+    ? `<span class="badge badge--sm badge-danger" title="pygeodata version changed — entry must be regenerated">version</span>`
     : entry.dep_hash_stale
-    ? `<span class="entry-stale-indicator entry-stale-indicator--deps" title="Dependencies changed since this entry was last computed — results may no longer match current code">stale</span>`
+    ? `<span class="badge badge--sm badge-warn" title="Dependencies changed since this entry was last computed — results may no longer match current code">stale</span>`
     : "";
 
   const whatChangedBtn = entry.dep_hash_stale && entry.record_id
@@ -882,7 +882,7 @@ function buildDepVersionsCard(detail) {
     const staleChip = s.dep_hash_stale
       ? `<span class="badge badge--sm badge-warn">stale</span>`
       : `<span class="badge badge--sm badge-ok">current</span>`;
-    const label = s.version_label ? esc(s.version_label) : (hashShort ? esc(hashShort) : "—");
+    const label = s.version_label ? esc(s.version_label) : `v? · ${hashShort ? esc(hashShort) : "—"}`;
     const rightEl = isSelf
       ? ""
       : `<button class="act-btn js-dep-ver-select" data-entry="${esc(s.record_id)}">Select</button>`;

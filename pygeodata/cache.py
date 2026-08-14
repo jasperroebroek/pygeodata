@@ -1,5 +1,6 @@
 import functools
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -64,7 +65,8 @@ def handle_invalid(path: Path, dry_run: bool, label: str, class_name: str | None
 
 
 def prune_empty_dirs(root: Path) -> None:
-    for dirpath, dirs, files in root.walk(top_down=False):
+    for dirpath_str, dirs, files in os.walk(root, topdown=False):
+        dirpath = Path(dirpath_str)
         if dirpath == root:
             continue
         try:
@@ -132,7 +134,8 @@ def _purge_cache(dry_run: bool = True, delete_unregistered: bool = True) -> None
         if not root.exists():
             continue
 
-        for dirpath, dirs, files in root.walk(top_down=True, follow_symlinks=True):
+        for dirpath_str, dirs, files in os.walk(root, topdown=True, followlinks=True):
+            dirpath = Path(dirpath_str)
             if dirpath == root:
                 continue
 

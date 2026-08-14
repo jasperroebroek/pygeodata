@@ -20,15 +20,9 @@ from pygeodata.tracked_object import TrackedObject
 
 
 class Artifact(TrackedObject, ABC):
-    _sort_params: ClassVar[tuple[str]] = ()
     ext: ClassVar[str | None] = None
     processor: ClassVar[Processor | None] = None
     color: ClassVar[str] = '#f8f9fa'
-
-    def __repr__(self) -> str:
-        params = self.get_params()
-        parts = [f'{k}={v!r}' for k, v in sorted(params.items())]
-        return f'{self.get_class_name()}({", ".join(parts)})'
 
     def get_ext(self) -> str:
         if self.ext is not None:
@@ -54,20 +48,18 @@ class Artifact(TrackedObject, ABC):
         spec = self.resolve_spec(spec)
         return CachePathConstructor.from_state_hash(self.get_state_hash(spec), self.get_cache_root())
 
-    def format_for_display(self) -> str:
-        return self.get_class_name()
-
     def format_as_json(self, spec: SpatialSpec | None = None) -> Any:
-        from pygeodata.formatting.json import format_json
-
-        d = {
-            JSONKeys.CLASS_NAME: self.get_class_name(),
-            JSONKeys.PARAMS: format_json(self.get_params(), spec=spec),
-            JSONKeys.INSTANCE_HASH: self.get_instance_hash(),
-        }
+        d = super().format_as_json(spec=spec)
         if spec is not None:
             d[JSONKeys.STATE_HASH] = self.get_state_hash(spec)
         return d
+
+    def get_instance_state(self) -> dict[str, Any]:
+        """Extend the tracked state with the processor source hash."""
+        state = super().get_instance_state()
+        if self.processor:
+            state[JSONKeys.PROCESSOR_HASH] = calculate_cls_source_hash(self.processor.__class__)
+        return state
 
     def resolve_spec(self, spec: SpatialSpec | None) -> SpatialSpec:
         """
@@ -93,38 +85,6 @@ class Artifact(TrackedObject, ABC):
             return spec
         resolver = getattr(self.processor, 'resolve_spec', None)
         return resolver(spec) if resolver is not None else spec
-
-    def get_params(self) -> dict[str, Any]:
-        """
-        Return the instance parameters of the artifact.
-
-        Inspects ``vars(self)`` and filters out underscore-prefixed attributes and
-        reserved names (``processor``, ``driver``, ``ext``, ...).
-
-        Returns
-        -------
-        dict[str, Any]
-            A dict of parameter name-value pairs.
-        """
-        params = {}
-        for key, value in vars(self).items():
-            if key in ('name', 'class_name', 'processor', 'driver', 'process', 'load', 'ext', '_load', '_process'):
-                continue
-            if key.startswith('_'):
-                continue
-
-            if key in self._sort_params and isinstance(value, (list, tuple)):
-                parsed_value = type(value)(sorted(value, key=repr))
-            else:
-                parsed_value = value
-
-            params.update({key: parsed_value})
-        return params
-
-    def get_params_as_json(self, spec: SpatialSpec | None = None) -> dict[str, Any]:
-        from pygeodata.formatting.json import format_json
-
-        return format_json(self.get_params(), spec=spec)  # type: ignore[return-value]
 
     def get_src_path(self) -> Path:
         """
@@ -189,25 +149,6 @@ class Artifact(TrackedObject, ABC):
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open('w', encoding='utf-8') as f:
             json.dump(spec.to_dict(), f, indent=4)
-
-    def get_params_hash(self) -> str:
-        """Hash of params only — no dep_tree_hash. Groups entries with same params across dep versions."""
-        from pygeodata.formatting.json import format_json
-
-        state: dict = {JSONKeys.PARAMS: {k: format_json(v) for k, v in self.get_params().items()}}
-        return calculate_dict_hash(state)
-
-    def get_instance_hash(self) -> str:
-        """Hash of class code and params — spec-independent. Stable identifier for this artifact instance."""
-        from pygeodata.formatting.json import format_json
-
-        state = {
-            JSONKeys.DEPENDENCY_TREE_HASH: self.get_dependency_tree_hash(),
-            JSONKeys.PARAMS: {k: format_json(v) for k, v in self.get_params().items()},
-        }
-        if self.processor:
-            state[JSONKeys.PROCESSOR_HASH] = calculate_cls_source_hash(self.processor.__class__)
-        return calculate_dict_hash(state)
 
     def get_state_hash(self, spec: SpatialSpec) -> str:
         """Hash of instance identity combined with spec — unique per (artifact, spec) pair."""
@@ -449,5 +390,5 @@ class Artifact(TrackedObject, ABC):
                 artifact.write_spec(spec)
                 artifact.write_cache_metadata(spec, co_outputs=others)
 
-                if next(extract_instances(artifact.get_params(), TrackedObject), None) is not None:
+                if next(extract_instances(artifact.get_params(), Artifact), None) is not None:
                     self.plot_runtime_execution_graph(spec)

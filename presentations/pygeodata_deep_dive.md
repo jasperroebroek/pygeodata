@@ -63,14 +63,20 @@ You never write: "check if the elevation file exists, if not reproject it, then 
 
 ## Slide 2 — The Two Base Classes
 
-Everything in pygeodata is a `Data` or a `Figure`, both subclassing `Artifact → TrackedObject`.
+Most things in pygeodata are a `Data` or a `Figure`, both subclassing `Artifact → TrackedObject`.
 
 ```
-TrackedObject          ← registry, hashing, dependency tracking
+TrackedObject          ← registry, source hashing, dependency tracking,
+    │                    instance params and identity hashes
     └── Artifact       ← caching, processing, file paths
             ├── Data   ← geospatial datasets; has a .load() method
             └── Figure ← output plots; ext='png' by default
 ```
+
+`TrackedObject` carries everything that identifies an *instance* — `get_params()`,
+`get_params_hash()`, `get_instance_hash()` — so a value type that produces no cached
+file can subclass it directly and still get source tracking and registry presence.
+`Artifact` adds the layer that writes a file: cache roots, extensions, and `process()`.
 
 | Class | Cache root | Has `.load()`? | Default ext |
 |-------|-----------|----------------|-------------|

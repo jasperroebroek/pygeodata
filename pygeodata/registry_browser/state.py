@@ -127,6 +127,17 @@ def _reimport_modules(py_files: list[Path], root: Path):
     Unlike the CLI helper this re-executes already-loaded modules so edits to
     existing classes are picked up.  Per-module failures are logged and skipped.
 
+    A file already scheduled for reimport may get pulled in transitively by an
+    ordinary ``import`` statement while an *earlier* file in this same pass is
+    being executed (e.g. file 0 does ``from src.data.gideon import ...`` before
+    ``gideon.py``'s own turn at index 4). Since it was popped from ``sys.modules``
+    up front, that ordinary import re-executes it fresh right there. If this
+    function then re-executed it *again* at its scheduled turn, every class in
+    it would collide with the one just registered by the transitive import. So
+    each file's turn checks whether ``sys.modules`` already holds a module for
+    it that was populated during this pass (not a leftover from before the
+    pass) and skips the explicit re-exec in that case -- it is already current.
+
     Yields the index of each file just before it is processed so callers can
     track progress against len(py_files).
     """
@@ -140,14 +151,22 @@ def _reimport_modules(py_files: list[Path], root: Path):
     for name in module_names.values():
         sys.modules.pop(name, None)
 
+    reimported_this_pass: set[str] = set()
+
     for i, py_file in enumerate(py_files):
         module_name = module_names[py_file]
+        if module_name in sys.modules and module_name not in reimported_this_pass:
+            # Pulled in transitively by an earlier file in this pass -- already fresh.
+            reimported_this_pass.add(module_name)
+            yield i
+            continue
         try:
             spec = importlib.util.spec_from_file_location(module_name, py_file)
             if spec and spec.loader:
                 mod = importlib.util.module_from_spec(spec)
                 sys.modules[module_name] = mod
                 spec.loader.exec_module(mod)
+                reimported_this_pass.add(module_name)
         except Exception:  # noqa: BLE001
             _log.debug('reimport skip %s', module_name, exc_info=True)
         yield i

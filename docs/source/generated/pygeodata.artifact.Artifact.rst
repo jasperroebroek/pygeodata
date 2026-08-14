@@ -31,6 +31,7 @@
       ~Artifact.get_filename
       ~Artifact.get_inheritance_dependencies
       ~Artifact.get_instance_hash
+      ~Artifact.get_instance_state
       ~Artifact.get_params
       ~Artifact.get_params_as_json
       ~Artifact.get_params_hash

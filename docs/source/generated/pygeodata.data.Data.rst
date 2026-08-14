@@ -31,6 +31,7 @@
       ~Data.get_filename
       ~Data.get_inheritance_dependencies
       ~Data.get_instance_hash
+      ~Data.get_instance_state
       ~Data.get_params
       ~Data.get_params_as_json
       ~Data.get_params_hash

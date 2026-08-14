@@ -31,9 +31,13 @@ export function esc(value) {
     .replaceAll("'",  "&#39;");
 }
 
-// Insert zero-width spaces after punctuation (except _) to allow line breaks there
+// Insert zero-width spaces after punctuation (except _) to allow line breaks there.
+// Must run on the raw string before esc() -- escaping first would let this regex match
+// punctuation inside a freshly-created entity (e.g. the '#' in "&#39;"), splitting it
+// and leaving the browser unable to parse it back into the intended character.
 export function softBreak(value) {
-  return esc(value).replace(/([.\/\-:,;@#!?=+*|\\[\]{}()<>~`^%$&])/g, "$1&#8203;");
+  const withBreaks = String(value ?? "").replace(/([.\/\-:,;@#!?=+*|\\[\]{}()<>~`^%$&])/g, "$1​");
+  return esc(withBreaks).replaceAll("​", "&#8203;");
 }
 
 export function shortHash(value) {

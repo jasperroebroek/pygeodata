@@ -30,14 +30,18 @@ clear error listing the candidates.
     │
     ├── clean-cache
     │     Remove stale or invalid cache entries.
-    │     --no-dry-run            Actually delete files (default is a dry run)
-    │     --no-delete-unregistered  Keep entries whose class is no longer in the registry
+    │     --dry-run / --no-dry-run  Actually delete files with --no-dry-run
+    │                               (default is a dry run)
+    │     --delete-unregistered / --no-delete-unregistered
+    │                               Keep entries whose class is no longer in the
+    │                               registry with --no-delete-unregistered
     │
     ├── clean-source
     │     Remove orphaned code snapshots and dependency trees from .source/.
     │     Keeps the latest snapshot per class and anything referenced by a live
     │     cache entry.  Runs as a dry run by default.
-    │     --no-dry-run            Actually delete files (default is a dry run)
+    │     --dry-run / --no-dry-run  Actually delete files with --no-dry-run
+    │                               (default is a dry run)
     │
     ├── import ARCHIVE
     │     Import a pygeodata .tar.gz export archive into the current project.
@@ -125,13 +129,13 @@ Staleness indicators
 Shown in the first column of ``entry list`` and in the ``Staleness`` line of
 ``entry show``:
 
-+------------+----------------------------------------------------+
-| Indicator  | Meaning                                            |
-+============+====================================================+
-| ``S``      | Dependency-tree hash has changed — entry is stale  |
-+------------+----------------------------------------------------+
-| ``F``      | Cache format version mismatch                      |
-+------------+----------------------------------------------------+
++------------+------------------------------------------------------+
+| Indicator  | Meaning                                              |
++============+======================================================+
+| ``S``      | Dependency-tree hash has changed — entry is stale    |
++------------+------------------------------------------------------+
+| ``F``      | Cache format version mismatch                        |
++------------+------------------------------------------------------+
 | ``N``      | Class not loaded in this process — staleness unknown |
 +------------+------------------------------------------------------+
 | *(blank)*  | Up to date                                           |

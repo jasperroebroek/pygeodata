@@ -16,6 +16,8 @@
       ~TrackedObject.__init__
       ~TrackedObject.clear_function_caches
       ~TrackedObject.find_object_class
+      ~TrackedObject.format_as_json
+      ~TrackedObject.format_for_display
       ~TrackedObject.get_all_dependencies
       ~TrackedObject.get_call_dependencies
       ~TrackedObject.get_class_name
@@ -23,6 +25,11 @@
       ~TrackedObject.get_dependency_tree
       ~TrackedObject.get_dependency_tree_hash
       ~TrackedObject.get_inheritance_dependencies
+      ~TrackedObject.get_instance_hash
+      ~TrackedObject.get_instance_state
+      ~TrackedObject.get_params
+      ~TrackedObject.get_params_as_json
+      ~TrackedObject.get_params_hash
       ~TrackedObject.get_registered_objects
       ~TrackedObject.get_source_ast_tree
       ~TrackedObject.has_dependencies

@@ -26,13 +26,15 @@ class Figure(Artifact):
     Class Attributes
     ----------------
     _sort_params : tuple[str]
-        Parameter names whose list/tuple values should be sorted before hashing and
-        path generation, ensuring order-independence.
+        Inherited from :class:`~pygeodata.tracked_object.TrackedObject`. Parameter names
+        whose list/tuple values should be sorted before hashing and path generation,
+        ensuring order-independence.
 
     Notes
     -----
     Subclasses that define ``__init__`` parameters should store them as instance
-    attributes. :meth:`get_params` discovers parameters by inspecting ``vars(self)``.
+    attributes. :meth:`~pygeodata.tracked_object.TrackedObject.get_params` discovers
+    parameters by inspecting ``vars(self)``.
     Recommended to use dataclasses for this.
 
     Subclasses must not be defined interactively (e.g. in a REPL or Jupyter notebook),

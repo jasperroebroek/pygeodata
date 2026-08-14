@@ -31,6 +31,7 @@
       ~Figure.get_filename
       ~Figure.get_inheritance_dependencies
       ~Figure.get_instance_hash
+      ~Figure.get_instance_state
       ~Figure.get_params
       ~Figure.get_params_as_json
       ~Figure.get_params_hash

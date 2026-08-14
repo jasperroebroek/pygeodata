@@ -31,26 +31,10 @@
 
 .dcard-hd-row { display: contents; }
 
-/* Stale indicator on the entry card header */
-.entry-stale-indicator {
-  font-size: 9px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .08em;
-  padding: 2px 6px;
-  border-radius: 4px;
-  white-space: nowrap;
+/* Status badges in a card header use the shared .badge system (see controls.css);
+   they only need spacing away from the card label here. */
+.dcard-hd-label + .badge {
   margin-left: 6px;
-}
-
-.entry-stale-indicator--deps {
-  color: var(--warn);
-  background: var(--warn-bg);
-}
-
-.entry-stale-indicator--version {
-  color: var(--danger);
-  background: var(--danger-bg);
 }
 
 /* Card type label — small caps label top-left */

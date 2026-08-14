@@ -25,6 +25,8 @@ def _html(s: str) -> str:
 
 @singledispatch
 def format_html_inline(value: Any) -> str:
+    if isinstance(value, type):
+        return _html(f'{value.__module__}.{value.__qualname__}')
     if isinstance(value, AllowsFormatting):
         return _html(value.format_for_display())
     return _html(repr(value))
@@ -69,6 +71,11 @@ def _(value: np.ndarray) -> str:
     return _html(str(format_array(value)))
 
 
+@format_html_inline.register
+def _(value: np.generic) -> str:
+    return format_html_inline(value.item())
+
+
 @format_html_inline.register(Mapping)
 def _(value: Mapping[Any, Any]) -> str:
     inner = ', '.join(
@@ -91,6 +98,10 @@ def _(value: set[Any]) -> str:
 
 
 def format_html_block(value: Any, indent: int = 0, nested: bool = True) -> str:
+    if isinstance(value, type):
+        prefix = _indent(indent) if nested else ''
+        return f'{prefix}{_html(f"{value.__module__}.{value.__qualname__}")}'
+
     if isinstance(value, AllowsFormatting):
         prefix = _indent(indent) if nested else ''
         return f'{prefix}{_html(value.format_for_display())}'

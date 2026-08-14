@@ -8,7 +8,7 @@ description = "Lightweight framework for geospatial data access and processing"
 authors = [
     { name = "Jasper Roebroek", email = "roebroek.jasper@gmail.com" }
 ]
-version = "0.1.0"
+dynamic = ["version"]
 license = { text = "MIT" }
 readme = "README.md"
 requires-python = ">=3.10"
@@ -29,15 +29,20 @@ dependencies = [
 [project.scripts]
 pygeodata = "pygeodata.cli:cli"
 
+[tool.setuptools.dynamic]
+version = { attr = "pygeodata.__version__" }
+
 [tool.setuptools.packages.find]
 include = ["pygeodata*"]
 
 [tool.setuptools.package-data]
 pygeodata = [
-    "registry_browser/static/css/*.css",
-    "registry_browser/static/js/*.js",
-    "registry_browser/templates/*.html",
+    "registry_browser/static/**/*",
+    "registry_browser/templates/**/*",
 ]
+
+[tool.setuptools.exclude-package-data]
+pygeodata = [".DS_Store", "**/.DS_Store"]
 
 [project.optional-dependencies]
 viz = [

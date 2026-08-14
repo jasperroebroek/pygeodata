@@ -1,3 +1,5 @@
+__version__ = '0.1.1'
+
 from pygeodata.api import load, load_from_hash, process
 from pygeodata.artifact import Artifact
 from pygeodata.cache import clean_cache, clean_registry
@@ -13,6 +15,7 @@ __all__ = [
     'Figure',
     'SpatialSpec',
     'TrackedObject',
+    '__version__',
     'clean_cache',
     'clean_registry',
     'get_config',

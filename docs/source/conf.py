@@ -27,8 +27,15 @@ project = 'pygeodata'
 copyright = '2026, Jasper Roebroek'
 author = 'Jasper Roebroek'
 
-# The full version, including alpha/beta/rc tags
-release = '0.1.0'
+# The full version, including alpha/beta/rc tags.
+# Single source of truth is pygeodata.__version__ (see pyproject.toml
+# [tool.setuptools.dynamic]); read it from the installed metadata.
+from importlib.metadata import PackageNotFoundError, version as _version
+
+try:
+    release = _version('pygeodata')
+except PackageNotFoundError:  # not installed (e.g. a bare docs checkout)
+    release = '0.0.0'
 
 
 # -- General configuration ---------------------------------------------------

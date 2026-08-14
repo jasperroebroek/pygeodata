@@ -159,20 +159,14 @@ def browse(port: int, do_import: bool, verbose_import: bool) -> None:
 @cli.command('clean-cache')
 @_import_options
 @click.option(
-    '--no-dry-run',
-    'dry_run',
-    is_flag=True,
-    flag_value=False,
+    '--dry-run/--no-dry-run',
     default=True,
-    help='Actually delete files (default is dry run).',
+    help='Actually delete files with --no-dry-run (default is dry run).',
 )
 @click.option(
-    '--no-delete-unregistered',
-    'delete_unregistered',
-    is_flag=True,
-    flag_value=False,
+    '--delete-unregistered/--no-delete-unregistered',
     default=True,
-    help='Skip entries whose class is not in the registry.',
+    help='Skip entries whose class is not in the registry with --no-delete-unregistered.',
 )
 def clean_cache_cmd(do_import: bool, verbose_import: bool, dry_run: bool, delete_unregistered: bool) -> None:
     """Remove stale or invalid cache entries."""
@@ -185,12 +179,9 @@ def clean_cache_cmd(do_import: bool, verbose_import: bool, dry_run: bool, delete
 @cli.command('clean-source')
 @_import_options
 @click.option(
-    '--no-dry-run',
-    'dry_run',
-    is_flag=True,
-    flag_value=False,
+    '--dry-run/--no-dry-run',
     default=True,
-    help='Actually delete files (default is dry run).',
+    help='Actually delete files with --no-dry-run (default is dry run).',
 )
 def clean_source_cmd(do_import: bool, verbose_import: bool, dry_run: bool) -> None:
     """Remove orphaned code snapshots and dependency trees from .source/.
@@ -397,7 +388,7 @@ def code_versions(registry_path: str | None, class_name: str | None, source_hash
 @click.option('--hash', 'source_hashes', multiple=True, help='Source hash(es). One to show, two to diff.')
 @click.option('--diff', 'do_diff', is_flag=True, default=False, help='Diff latest vs previous (with --class).')
 @click.option('--expand', is_flag=True, default=False, help='Show full file context in diffs.')
-@click.option('--no-color', 'color', is_flag=True, flag_value=False, default=True, help='Disable diff colors.')
+@click.option('--color/--no-color', default=True, help='Disable diff colors with --no-color.')
 def code_source(
     registry_path: str | None,
     full_hash: bool,
@@ -1070,7 +1061,7 @@ def entry_list(
 @entry.command('show')
 @click.argument('hash_prefix')
 @_import_options
-@click.option('--no-params', 'show_params', is_flag=True, flag_value=False, default=True, help='Omit params JSON.')
+@click.option('--params/--no-params', 'show_params', default=True, help='Omit params JSON with --no-params.')
 @click.option('--full-hash', 'full_hash_sub', is_flag=True, default=False, help='Print full hashes.')
 @click.pass_context
 def entry_show(

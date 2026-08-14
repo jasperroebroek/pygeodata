@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import ast
 import functools
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from pygeodata.ast import (
     build_symbol_tables,
@@ -9,17 +11,20 @@ from pygeodata.ast import (
     get_source_ast_tree,
     get_source_code,
 )
+from pygeodata.config import JSONKeys
 from pygeodata.graph_types import ClassNode, DependencyGraph
 from pygeodata.graphs import plot_class_dependency_graph
 from pygeodata.hash import calculate_cls_source_hash, calculate_dict_hash
 from pygeodata.paths import CodeRegistryPathConstructor, TreeRegistryPathConstructor
 from pygeodata.registries.registry_types import CodeState, TreeSnapshot
+from pygeodata.spec import SpatialSpec
 
 
 class TrackedObject:
-    object_type: ClassVar[type['TrackedObject']]
+    object_type: ClassVar[type[TrackedObject]]
     color: ClassVar[str] = '#f8f9fa'
-    _registry: ClassVar[dict[str, type['TrackedObject']]] = {}
+    _sort_params: ClassVar[tuple[str, ...]] = ()
+    _registry: ClassVar[dict[str, type[TrackedObject]]] = {}
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -44,16 +49,97 @@ class TrackedObject:
             )
         TrackedObject._registry[name] = cls
 
+    def __repr__(self) -> str:
+        params = self.get_params()
+        parts = [f'{k}={v!r}' for k, v in sorted(params.items())]
+        return f'{self.get_class_name()}({", ".join(parts)})'
+
     @classmethod
     def get_class_name(cls) -> str:
         return cls.__name__
+
+    def format_for_display(self) -> str:
+        return self.get_class_name()
+
+    def format_as_json(self, spec: SpatialSpec | None = None) -> Any:
+        from pygeodata.formatting.json import format_json
+
+        return {
+            JSONKeys.CLASS_NAME: self.get_class_name(),
+            JSONKeys.PARAMS: format_json(self.get_params(), spec=spec),
+            JSONKeys.INSTANCE_HASH: self.get_instance_hash(),
+        }
+
+    def get_params(self) -> dict[str, Any]:
+        """
+        Return the instance parameters of the object.
+
+        Inspects ``vars(self)`` and filters out underscore-prefixed attributes and
+        reserved names (``processor``, ``driver``, ``ext``, ...).
+
+        Returns
+        -------
+        dict[str, Any]
+            A dict of parameter name-value pairs.
+        """
+        params = {}
+        for key, value in vars(self).items():
+            if key in ('name', 'class_name', 'processor', 'driver', 'process', 'load', 'ext', '_load', '_process'):
+                continue
+            if key.startswith('_'):
+                continue
+
+            if key in self._sort_params and isinstance(value, (list, tuple)):
+                parsed_value = type(value)(sorted(value, key=repr))
+            else:
+                parsed_value = value
+
+            params.update({key: parsed_value})
+        return params
+
+    def get_params_as_json(self, spec: SpatialSpec | None = None) -> dict[str, Any]:
+        from pygeodata.formatting.json import format_json
+
+        return format_json(self.get_params(), spec=spec)  # type: ignore[return-value]
+
+    def get_params_hash(self) -> str:
+        """Hash of params only — no dep_tree_hash. Groups entries with same params across dep versions."""
+        from pygeodata.formatting.json import format_json
+
+        state: dict = {JSONKeys.PARAMS: {k: format_json(v) for k, v in self.get_params().items()}}
+        return calculate_dict_hash(state)
+
+    def get_instance_state(self) -> dict[str, Any]:
+        """
+        Build the state dict that identifies this instance, prior to hashing.
+
+        Covers the dependency tree hash and the instance params. Subclasses that carry
+        identity beyond their own source and params override this and extend the result
+        — see :meth:`~pygeodata.artifact.Artifact.get_instance_state`, which adds the
+        processor source hash.
+
+        Returns
+        -------
+        dict[str, Any]
+            The state hashed by :meth:`get_instance_hash`.
+        """
+        from pygeodata.formatting.json import format_json
+
+        return {
+            JSONKeys.DEPENDENCY_TREE_HASH: self.get_dependency_tree_hash(),
+            JSONKeys.PARAMS: {k: format_json(v) for k, v in self.get_params().items()},
+        }
+
+    def get_instance_hash(self) -> str:
+        """Hash of class code and params — spec-independent. Stable identifier for this instance."""
+        return calculate_dict_hash(self.get_instance_state())
 
     @classmethod
     def find_object_class(cls, name: str) -> type | None:
         return cls._registry.get(name, None)
 
     @classmethod
-    def get_registered_objects(cls) -> set[type['TrackedObject']]:
+    def get_registered_objects(cls) -> set[type[TrackedObject]]:
         base = TrackedObject if cls is TrackedObject else cls.object_type
         return {r for r in cls._registry.values() if issubclass(r, base)}
 
@@ -63,7 +149,7 @@ class TrackedObject:
 
     @classmethod
     @functools.cache
-    def get_call_dependencies(cls) -> set[type['TrackedObject']]:
+    def get_call_dependencies(cls) -> set[type[TrackedObject]]:
         cls_module_tree = get_module_ast_tree(cls)
         tables = build_symbol_tables(cls_module_tree)
 
@@ -81,12 +167,12 @@ class TrackedObject:
 
     @classmethod
     @functools.cache
-    def get_inheritance_dependencies(cls) -> set[type['TrackedObject']]:
+    def get_inheritance_dependencies(cls) -> set[type[TrackedObject]]:
         return {base for base in cls.__mro__ if base != cls and base in cls._registry.values()}
 
     @classmethod
     @functools.cache
-    def get_all_dependencies(cls) -> set[type['TrackedObject']]:
+    def get_all_dependencies(cls) -> set[type[TrackedObject]]:
         return cls.get_call_dependencies() | cls.get_inheritance_dependencies()
 
     @classmethod
