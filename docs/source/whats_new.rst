@@ -1,7 +1,7 @@
 What's new
 ==========
 
-Version 0.1.4
+Version 0.9.7
 -------------
 
 **Instance identity moved to TrackedObject**
