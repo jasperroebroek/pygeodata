@@ -21,10 +21,10 @@ jobs:
         shell: bash -l {0}
         run: |
           micromamba activate pygeodata-tests-env
-          python -m pip install -e .    
+          python -m pip install -e '.[test]'
 
       - name: Run tests
         shell: bash -l {0}
         run: |
           micromamba activate pygeodata-tests-env
-          python -c "import pygeodata"
+          python -m pytest -v

@@ -18,3 +18,5 @@ dependencies:
   - libgdal-netcdf
   - pytest-mock
   - jupyter
+  - flask
+  - click
