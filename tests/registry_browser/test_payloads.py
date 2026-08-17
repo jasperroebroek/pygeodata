@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from pygeodata.config import JSONKeys
+from pygeodata.catalog.filters import Filter, FilterTarget
 from pygeodata.catalog.types import (
     ClassInfo,
     EntryInfo,
@@ -14,6 +14,7 @@ from pygeodata.catalog.types import (
     ParamRow,
     SpecInfo,
 )
+from pygeodata.config import JSONKeys
 from pygeodata.registry_browser.payloads import (
     _build_class_cards,
     _build_detail_payload,
@@ -27,7 +28,6 @@ from pygeodata.registry_browser.payloads import (
 )
 from pygeodata.registry_browser.state import AppState
 from pygeodata.spec import SpecKeys
-from pygeodata.catalog.filters import Filter, FilterTarget
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -282,7 +282,11 @@ def test_sidebar_counts_zero_not_included():
     cls = make_class_info('MyLoader')
     state = make_state(entries={'rec1': entry}, classes={'MyLoader': cls}, groups={'MyLoader': ['rec1']})
     counts = _sidebar_counts(
-        state, kind_filter='all', spec_filters={SpecKeys.CRS: 'EPSG:3857'}, filters=[], logic_mode='AND'
+        state,
+        kind_filter='all',
+        spec_filters={SpecKeys.CRS: 'EPSG:3857'},
+        filters=[],
+        logic_mode='AND',
     )
     assert 'MyLoader' not in counts
 
@@ -304,7 +308,12 @@ def test_sidebar_counts_multiple_entries():
 def test_build_visible_groups_returns_entry():
     state = simple_state()
     groups = _build_visible_groups(
-        state, selected_classes=[], kind_filter='all', spec_filters={}, filters=[], logic_mode='AND'
+        state,
+        selected_classes=[],
+        kind_filter='all',
+        spec_filters={},
+        filters=[],
+        logic_mode='AND',
     )
     assert len(groups) == 1
     class_name, entries = groups[0]
@@ -315,7 +324,12 @@ def test_build_visible_groups_returns_entry():
 def test_build_visible_groups_kind_filter():
     state = simple_state()
     groups = _build_visible_groups(
-        state, selected_classes=[], kind_filter='figure', spec_filters={}, filters=[], logic_mode='AND'
+        state,
+        selected_classes=[],
+        kind_filter='figure',
+        spec_filters={},
+        filters=[],
+        logic_mode='AND',
     )
     assert groups == []
 
@@ -329,7 +343,12 @@ def test_build_visible_groups_sorted_by_class_name():
         groups={'ZLoader': ['r1'], 'ALoader': ['r2']},
     )
     groups = _build_visible_groups(
-        state, selected_classes=[], kind_filter='all', spec_filters={}, filters=[], logic_mode='AND'
+        state,
+        selected_classes=[],
+        kind_filter='all',
+        spec_filters={},
+        filters=[],
+        logic_mode='AND',
     )
     assert groups[0][0] == 'ALoader'
     assert groups[1][0] == 'ZLoader'
@@ -340,7 +359,12 @@ def test_build_visible_groups_class_with_no_group():
     cls = make_class_info('GhostLoader')
     state = make_state(classes={'GhostLoader': cls})
     groups = _build_visible_groups(
-        state, selected_classes=[], kind_filter='all', spec_filters={}, filters=[], logic_mode='AND'
+        state,
+        selected_classes=[],
+        kind_filter='all',
+        spec_filters={},
+        filters=[],
+        logic_mode='AND',
     )
     assert groups == []
 
@@ -427,8 +451,6 @@ def test_build_table_rows_row_display_all():
 
 
 def test_build_table_rows_row_display_selected():
-    
-
     entry = make_entry(rows=[make_row('year', '2020'), make_row('region', 'eu')])
     groups = [('MyLoader', [entry])]
     rows = _build_table_rows(
@@ -510,7 +532,10 @@ def test_build_detail_payload_selected_entry():
     cls = make_class_info('MyLoader')
     state = make_state(entries={'rec1': entry}, classes={'MyLoader': cls})
     detail = _build_detail_payload(
-        state=state, selected_entry_info=entry, selected_classes=[], vreg=state.version_registry
+        state=state,
+        selected_entry_info=entry,
+        selected_classes=[],
+        vreg=state.version_registry,
     )
     assert detail is not None
     assert detail['class_name'] == 'MyLoader'
@@ -521,7 +546,10 @@ def test_build_detail_payload_entry_class_not_in_state():
     entry = make_entry(class_name='GhostLoader')
     state = make_state()
     detail = _build_detail_payload(
-        state=state, selected_entry_info=entry, selected_classes=[], vreg=state.version_registry
+        state=state,
+        selected_entry_info=entry,
+        selected_classes=[],
+        vreg=state.version_registry,
     )
     assert detail is None
 
@@ -530,7 +558,10 @@ def test_build_detail_payload_single_selected_class():
     cls = make_class_info('MyLoader')
     state = make_state(classes={'MyLoader': cls})
     detail = _build_detail_payload(
-        state=state, selected_entry_info=None, selected_classes=['MyLoader'], vreg=state.version_registry
+        state=state,
+        selected_entry_info=None,
+        selected_classes=['MyLoader'],
+        vreg=state.version_registry,
     )
     assert detail is not None
     assert detail['class_name'] == 'MyLoader'
@@ -540,7 +571,10 @@ def test_build_detail_payload_single_selected_class():
 def test_build_detail_payload_multiple_selected_classes():
     state = make_state(classes={'A': make_class_info('A'), 'B': make_class_info('B')})
     detail = _build_detail_payload(
-        state=state, selected_entry_info=None, selected_classes=['A', 'B'], vreg=state.version_registry
+        state=state,
+        selected_entry_info=None,
+        selected_classes=['A', 'B'],
+        vreg=state.version_registry,
     )
     assert detail is None
 
@@ -548,7 +582,10 @@ def test_build_detail_payload_multiple_selected_classes():
 def test_build_detail_payload_no_selection():
     state = make_state()
     detail = _build_detail_payload(
-        state=state, selected_entry_info=None, selected_classes=[], vreg=state.version_registry
+        state=state,
+        selected_entry_info=None,
+        selected_classes=[],
+        vreg=state.version_registry,
     )
     assert detail is None
 
@@ -559,7 +596,10 @@ def test_build_detail_payload_figure_preview():
     cls = make_class_info('MyLoader')
     state = make_state(entries={'rec1': entry}, classes={'MyLoader': cls})
     detail = _build_detail_payload(
-        state=state, selected_entry_info=entry, selected_classes=[], vreg=state.version_registry
+        state=state,
+        selected_entry_info=entry,
+        selected_classes=[],
+        vreg=state.version_registry,
     )
     assert detail['selected_entry']['figure_previews'] == ['/data/fig.png']
 
@@ -570,7 +610,10 @@ def test_build_detail_payload_no_preview_for_non_image():
     cls = make_class_info('MyLoader')
     state = make_state(entries={'rec1': entry}, classes={'MyLoader': cls})
     detail = _build_detail_payload(
-        state=state, selected_entry_info=entry, selected_classes=[], vreg=state.version_registry
+        state=state,
+        selected_entry_info=entry,
+        selected_classes=[],
+        vreg=state.version_registry,
     )
     assert detail['selected_entry']['figure_previews'] == []
 
@@ -581,7 +624,10 @@ def test_build_detail_payload_linked_entries():
     cls = make_class_info('MyLoader')
     state = make_state(entries={'rec1': entry}, classes={'MyLoader': cls})
     detail = _build_detail_payload(
-        state=state, selected_entry_info=entry, selected_classes=[], vreg=state.version_registry
+        state=state,
+        selected_entry_info=entry,
+        selected_classes=[],
+        vreg=state.version_registry,
     )
     linked = detail['selected_entry']['linked_entries']
     assert len(linked) == 1
@@ -689,12 +735,14 @@ def _write_snapshot(registry: Path, source_hash: str, class_name: str, mtime: st
     d.mkdir(parents=True, exist_ok=True)
     (d / 'source.py').write_text(f'class {class_name}: pass\n', encoding='utf-8')
     (d / 'source.json').write_text(
-        json.dumps({
-            JSONKeys.CLASS_NAME: class_name,
-            JSONKeys.OBJECT_TYPE: 'Data',
-            JSONKeys.SOURCE_HASH: source_hash,
-            JSONKeys.REGISTERED_AT: mtime,
-        }),
+        json.dumps(
+            {
+                JSONKeys.CLASS_NAME: class_name,
+                JSONKeys.OBJECT_TYPE: 'Data',
+                JSONKeys.SOURCE_HASH: source_hash,
+                JSONKeys.REGISTERED_AT: mtime,
+            },
+        ),
         encoding='utf-8',
     )
 

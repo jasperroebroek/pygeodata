@@ -15,10 +15,10 @@ from unittest.mock import patch
 
 import pytest
 
+from pygeodata.catalog.entry_catalog import _cache_file
 from pygeodata.config import FORMAT_VERSION, JSONKeys, set_config
 from pygeodata.paths import CachePathConstructor
 from pygeodata.registries.registry import EntryRegistry
-from pygeodata.catalog.entry_catalog import _cache_file
 from pygeodata.registry_browser.state import AppContext, _purge_caches
 
 

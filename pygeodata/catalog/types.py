@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any
 
 from pygeodata.config import FORMAT_VERSION
 from pygeodata.spec import SpatialSpec, SpecKeys, format_resolution
 
+
+class ParamRowType(StrEnum):
+    VALUE = 'value'
+    LIST_MEMBER = 'list_member'
+    DATA_REF = 'data_ref'  # nested artifact — class_name + params
+    CLASS_REF = 'class_ref'  # tracked class passed as a value
 
 
 @dataclass(slots=True)
@@ -49,9 +56,10 @@ class ParamRow:
     key_group: str
     final_key: str
     value_text: str
-    value_type: str
+    value_type: str  # Python type name of the leaf value; informational only
     search_blob: str
     depth: int
+    row_type: ParamRowType = ParamRowType.VALUE
 
 
 @dataclass(slots=True)

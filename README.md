@@ -195,6 +195,8 @@ clean_cache(dry_run=False)   # delete stale entries
 
 `clean_cache` walks `data_processed/` and `figures/` and removes any directory whose state hash no longer matches the live hash of the corresponding class. Classes that have been renamed or removed from the codebase are flagged for manual confirmation.
 
+A `TrackedObject` subclass passed as a *parameter* never enters the dependency tree, so the default check reports such an entry as current even when the pipeline correctly rebuilds it. Pass `check_class_params=True` to validate those too — it is opt-in because an entry whose `parameters.json` is missing then counts as stale.
+
 ```python
 from pygeodata.cache import clean_source_registry
 
@@ -207,8 +209,9 @@ clean_source_registry(dry_run=False)   # delete them
 Both are also available from the CLI, where they preview by default and delete only with `--no-dry-run`:
 
 ```bash
-pygeodata clean-cache                  # preview
-pygeodata clean-cache --no-dry-run     # apply
+pygeodata clean-cache                        # preview
+pygeodata clean-cache --no-dry-run           # apply
+pygeodata clean-cache --check-class-params   # also validate class-valued params
 pygeodata clean-source                 # preview
 pygeodata clean-source --no-dry-run    # apply
 ```

@@ -24,6 +24,7 @@ from pygeodata.config import JSONKeys, set_config
 from pygeodata.registries.versioning import VersionRegistry
 from pygeodata.registry_browser.state import AppContext, AppState
 from pygeodata.registry_browser.web import app as flask_app
+
 # ---------------------------------------------------------------------------
 # Re-use helpers from test_web (same module, keep in sync with test_web.py)
 # ---------------------------------------------------------------------------

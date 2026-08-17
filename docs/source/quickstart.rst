@@ -191,3 +191,9 @@ files whose state hash no longer matches the live code:
 
 Pass ``delete_unregistered=True`` to :func:`~pygeodata.cache.clean_cache` to
 also remove directories that do not belong to any currently imported loader class.
+
+Pass ``check_class_params=True`` to additionally validate
+:class:`~pygeodata.tracked_object.TrackedObject` subclasses held as *parameters*.
+These never enter the dependency tree, so the default check reports such an entry
+as current even though the pipeline correctly rebuilds it. See
+:ref:`07_cache_management`.

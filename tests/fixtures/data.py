@@ -113,6 +113,18 @@ class Child(Parent):
 
 
 @dataclass
+class ClassParamLoader(Data):
+    """Holds a TrackedObject subclass as a param, rather than an instance.
+
+    The referenced class is injected at construction, so it is invisible to AST
+    dependency discovery — its identity has to reach the hash through the params.
+    """
+
+    loader_cls: type[Data]
+    ext = 'tif'
+
+
+@dataclass
 class DictLoader(Data):
     mapping: dict
 

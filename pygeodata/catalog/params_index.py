@@ -1,6 +1,6 @@
 from typing import Any
 
-from pygeodata.catalog.types import LinkedEntry, ParamRow
+from pygeodata.catalog.types import LinkedEntry, ParamRow, ParamRowType
 from pygeodata.config import JSONKeys
 from pygeodata.formatting.json import format_json
 
@@ -9,6 +9,11 @@ HIDDEN_KEYS = frozenset(key.value for key in JSONKeys)
 
 def _is_data_ref(value: Any) -> bool:
     return isinstance(value, dict) and JSONKeys.CLASS_NAME in value and JSONKeys.PARAMS in value
+
+
+def _is_class_ref(value: Any) -> bool:
+    """A tracked class passed as a param value: class_name, but no params of its own."""
+    return isinstance(value, dict) and JSONKeys.CLASS_NAME in value and JSONKeys.PARAMS not in value
 
 
 def _format_scalar(value: Any) -> str:
@@ -41,7 +46,8 @@ def _flatten(
                 key_group=scope,
                 final_key=key,
                 value_text=class_name,
-                value_type='data_ref',
+                value_type=type(value).__name__,
+                row_type=ParamRowType.DATA_REF,
                 search_blob=search_blob,
                 depth=depth,
             ),
@@ -60,6 +66,23 @@ def _flatten(
             if k in HIDDEN_KEYS:
                 continue
             _flatten(v, k, child_scope, rows, linked_entries, depth + 1)
+        return
+
+    if _is_class_ref(value):
+        class_name = value[JSONKeys.CLASS_NAME]
+        dep_hash = value.get(JSONKeys.DEPENDENCY_TREE_HASH) or ''
+        rows.append(
+            ParamRow(
+                path=f'{scope}.{key}' if scope else key,
+                key_group=scope,
+                final_key=key,
+                value_text=class_name,
+                value_type=type(value).__name__,
+                row_type=ParamRowType.CLASS_REF,
+                search_blob=f'{scope} {key} {class_name} {dep_hash} class_ref'.lower(),
+                depth=depth,
+            ),
+        )
         return
 
     if isinstance(value, dict):
@@ -93,7 +116,8 @@ def _flatten(
                             key_group=scope,
                             final_key=indexed_key,
                             value_text=val_str,
-                            value_type='scalar',
+                            value_type=type(item).__name__,
+                            row_type=ParamRowType.VALUE,
                             search_blob=search_blob,
                             depth=depth,
                         ),
@@ -111,7 +135,8 @@ def _flatten(
                         key_group=scope,
                         final_key=list_key,
                         value_text=val_str,
-                        value_type='list_member',
+                        value_type=type(item).__name__,
+                        row_type=ParamRowType.LIST_MEMBER,
                         search_blob=search_blob,
                         depth=depth,
                     ),
@@ -129,6 +154,7 @@ def _flatten(
             final_key=key,
             value_text=val_str,
             value_type=type(value).__name__,
+            row_type=ParamRowType.VALUE,
             search_blob=search_blob,
             depth=depth,
         ),

@@ -11,10 +11,9 @@ from pathlib import Path
 
 import pytest
 
+from pygeodata.catalog.types import EntryInfo, FileRef, SpecInfo
 from pygeodata.config import FORMAT_VERSION, JSONKeys, set_config
 from pygeodata.registries.registry import EntryRegistry
-from pygeodata.catalog.entry_catalog import discover_entries
-from pygeodata.catalog.types import EntryInfo, FileRef, SpecInfo
 from pygeodata.registries.registry_types import EntryRecord
 from pygeodata.tracked_object import TrackedObject
 
@@ -182,8 +181,7 @@ def _make_entry_info(**kwargs) -> EntryInfo:
         (
             {'spec': SpecInfo(bounds_latlon=(-90.0, -180.0, 90.0, 180.0))},
             lambda orig, rec: (
-                isinstance(rec.spec.bounds_latlon, tuple)
-                and rec.spec.bounds_latlon == (-90.0, -180.0, 90.0, 180.0)
+                isinstance(rec.spec.bounds_latlon, tuple) and rec.spec.bounds_latlon == (-90.0, -180.0, 90.0, 180.0)
             ),
         ),
         (
@@ -371,8 +369,8 @@ def test_entry_registry_disk_cache_invalidated_on_mtime_change(tmp_path):
             {
                 JSONKeys.CLASS_NAME: 'MyLoader',
                 JSONKeys.STATE_HASH: 'abc_new',
-            }
-        )
+            },
+        ),
     )
 
     EntryRegistry._instance = None
@@ -384,5 +382,3 @@ def test_entry_registry_disk_cache_invalidated_on_mtime_change(tmp_path):
 # ---------------------------------------------------------------------------
 # discover_entries uses EntryRegistry (no duplicate rglob)
 # ---------------------------------------------------------------------------
-
-

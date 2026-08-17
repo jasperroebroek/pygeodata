@@ -3,10 +3,10 @@
 import json
 from pathlib import Path
 
-from pygeodata.config import JSONKeys, set_config
-from pygeodata.registry_browser import code_service
 from pygeodata.catalog.types import EntryInfo, SpecInfo
+from pygeodata.config import JSONKeys, set_config
 from pygeodata.registries.versioning import VersionRegistry
+from pygeodata.registry_browser import code_service
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers

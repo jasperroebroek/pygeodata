@@ -1,6 +1,29 @@
 What's new
 ==========
 
+Version 0.2.1
+-------------
+
+**Class-valued parameters**
+
+- A :class:`~pygeodata.tracked_object.TrackedObject` subclass passed as a
+  *parameter* is invisible to AST dependency discovery, so it never enters the
+  entry's dependency tree. Its identity now travels through the params channel:
+  ``format_json`` emits ``{class_name, dependency_tree_hash}`` for tracked
+  classes, so the instance hash moves when the referenced class changes and the
+  cache correctly recomputes.
+
+- :func:`~pygeodata.cache.clean_cache` gained ``check_class_params``
+  (CLI: ``--check-class-params``), which validates those class-valued params
+  against ``parameters.json``. Without it the diagnostic reports such an entry
+  as current while the runtime rebuilds it — the disagreement that this flag
+  closes. Opt-in: it reads a second file per entry, and an entry whose
+  ``parameters.json`` is missing or unreadable counts as stale.
+
+  Entries written before this change store a bare dotted name for class-valued
+  params, carrying no hash, and cannot be validated retroactively — one rebuild
+  is required before the check is meaningful for them.
+
 Version 0.2.0
 -------------
 

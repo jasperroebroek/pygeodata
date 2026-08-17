@@ -13,7 +13,6 @@ from pathlib import Path
 
 from flask import Flask, abort, jsonify, render_template, request, send_file
 
-from pygeodata.tracked_object import TrackedObject
 from pygeodata.artifact import Artifact
 from pygeodata.cache import clean_cache, clean_source_registry
 from pygeodata.config import get_config
@@ -27,6 +26,7 @@ from pygeodata.registry_browser.popups import (
     build_source_popup,
 )
 from pygeodata.registry_browser.state import AppContext
+from pygeodata.tracked_object import TrackedObject
 
 _ctx: AppContext = AppContext()  # replaced by create_app() on startup
 _loading = ({'loading': True}, 202)

@@ -45,7 +45,8 @@ it:
 1. Looks for a ``meta.json`` file
 2. If missing → deletes the directory (label: ``Hash missing``)
 3. If present → checks ``format_version`` and the
-   ``dependency_tree_hash`` against the live class
+   ``dependency_tree_hash`` against the live class, and with
+   ``check_class_params=True`` the class-valued params too
 4. If stale → deletes the directory (label: ``Hash wrong``)
 5. If the class is no longer registered in ``TrackedObject._registry`` →
    prompts for confirmation
@@ -66,6 +67,35 @@ interactively:
    OldLoader not found in registry. Delete? [y/N]
 
 Set ``delete_unregistered=False`` to skip these entries silently.
+
+Class-valued parameters
+~~~~~~~~~~~~~~~~~~~~~~~
+
+A :class:`~pygeodata.tracked_object.TrackedObject` **subclass** passed as a
+*parameter* — rather than referenced in a class body — is invisible to AST
+dependency discovery, so it never enters the entry's dependency tree:
+
+.. code-block:: python
+
+   PeriodAveragedFeature(feature_cls=MLFeaturePIKGDPPerCapita)   # concrete class absent from the tree
+
+Its identity travels through the **params** channel instead: ``parameters.json``
+records the ``dependency_tree_hash`` of every class-valued param, so the instance
+hash moves when the referenced class changes and the runtime correctly
+recomputes. The default ``clean_cache`` check compares only the dependency tree
+hash, so it reports such an entry as current while the pipeline rebuilds it.
+
+Pass ``check_class_params=True`` to close that gap. For each class-valued param
+recorded in ``parameters.json``, the class is resolved by name and its live
+dependency tree hash compared against the stored one:
+
+.. code-block:: python
+
+   clean_cache(dry_run=True, check_class_params=True)
+
+The check is **opt-in** because it is stricter: it reads a second file per entry,
+and an entry whose ``parameters.json`` is missing or unreadable counts as stale.
+As always, review a ``dry_run=True`` pass before deleting.
 
 clean_source_registry
 ---------------------

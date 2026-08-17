@@ -10,9 +10,6 @@ from pathlib import Path
 
 import pytest
 
-from pygeodata.config import JSONKeys, set_config
-from pygeodata.paths import CachePathConstructor
-from pygeodata.registries.registry import EntryRegistry
 from pygeodata.catalog.entry_catalog import (
     _cache_mtime_key,
     _enrich_params_path,
@@ -22,6 +19,9 @@ from pygeodata.catalog.entry_catalog import (
     _save_disk_cache,
     discover_entries,
 )
+from pygeodata.config import JSONKeys, set_config
+from pygeodata.paths import CachePathConstructor
+from pygeodata.registries.registry import EntryRegistry
 from pygeodata.tracked_object import TrackedObject
 
 # ---------------------------------------------------------------------------
@@ -195,7 +195,10 @@ def test_enrich_params_path_fields(tmp_path):
     # primary file present
     d3 = tmp_path / 'data_processed' / 'MyLoader3'
     params_path3 = write_cache_entry(
-        d3, 'abc', state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'}, output_ext='tif'
+        d3,
+        'abc',
+        state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'},
+        output_ext='tif',
     )
     entry3 = _enrich_params_path(params_path3)
     assert entry3.primary_file is not None
@@ -204,7 +207,10 @@ def test_enrich_params_path_fields(tmp_path):
     # primary file absent
     d4 = tmp_path / 'data_processed' / 'MyLoader4'
     params_path4 = write_cache_entry(
-        d4, 'abc', state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'}, output_ext=None
+        d4,
+        'abc',
+        state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'},
+        output_ext=None,
     )
     entry4 = _enrich_params_path(params_path4)
     assert entry4.primary_file is None
@@ -305,7 +311,6 @@ def test_discover_entries_single_entry(tmp_path):
     assert entry.class_name == 'MyLoader'
     assert entry.state_hash == 'abc'
     assert entry.spec.crs == 'EPSG:4326'
-
 
 
 def test_discover_entries_missing_state_hash_diagnostic(tmp_path):

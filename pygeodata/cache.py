@@ -2,6 +2,7 @@ import functools
 import json
 import os
 import shutil
+from collections.abc import Iterator
 from pathlib import Path
 
 from pygeodata.artifact import Artifact
@@ -39,7 +40,46 @@ def format_version_matches(hash_path: Path) -> bool:
     return EntryRecord.from_file(hash_path).format_version == FORMAT_VERSION
 
 
-def hash_matches_live(hash_path: Path) -> bool | None:
+def _iter_class_params(value: object) -> Iterator[dict]:
+    """Yield every serialised *class*-valued param nested anywhere in ``value``."""
+    if isinstance(value, dict):
+        if JSONKeys.CLASS_NAME in value and JSONKeys.DEPENDENCY_TREE_HASH in value:
+            yield value
+        for item in value.values():
+            yield from _iter_class_params(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _iter_class_params(item)
+
+
+def class_params_match_live(record: EntryRecord) -> bool | None:
+    """Compare the recorded dependency tree hash of each class-valued param against the live one."""
+    params_path = record.params_path
+    if params_path is None or not params_path.exists():
+        return False
+
+    try:
+        params = json.loads(params_path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError):
+        return False
+
+    for stored in _iter_class_params(params):
+        live_cls = TrackedObject.find_object_class(stored[JSONKeys.CLASS_NAME])
+        if live_cls is None:
+            return None
+        if live_cls.get_dependency_tree_hash() != stored[JSONKeys.DEPENDENCY_TREE_HASH]:
+            return False
+
+    return True
+
+
+def hash_matches_live(hash_path: Path, check_class_params: bool = False) -> bool | None:
+    """Validate a cache entry's recorded hashes against the live classes.
+
+    With ``check_class_params``, additionally validate every ``TrackedObject`` subclass held
+    as a *parameter* — see :func:`class_params_match_live`. Off by default: it reads a second
+    file per entry and reports as stale any entry whose ``parameters.json`` is absent.
+    """
     if not hash_path.exists():
         return False
 
@@ -49,7 +89,13 @@ def hash_matches_live(hash_path: Path) -> bool | None:
     if class_object is None:
         return None
 
-    return record.dependency_tree_hash == class_object.get_dependency_tree_hash()
+    if record.dependency_tree_hash != class_object.get_dependency_tree_hash():
+        return False
+
+    if not check_class_params:
+        return True
+
+    return class_params_match_live(record)
 
 
 def handle_invalid(path: Path, dry_run: bool, label: str, class_name: str | None = None) -> None:
@@ -95,7 +141,7 @@ def _delete_manually(hash_path: Path, delete_unregistered: bool) -> bool:
     return _confirm_class_deletion(class_name)
 
 
-def _purge_dir(dirpath: Path, dry_run: bool, delete_unregistered: bool) -> bool:
+def _purge_dir(dirpath: Path, dry_run: bool, delete_unregistered: bool, check_class_params: bool = False) -> bool:
     """
     Validate a single cache directory. Returns True if the directory was deleted.
 
@@ -116,7 +162,7 @@ def _purge_dir(dirpath: Path, dry_run: bool, delete_unregistered: bool) -> bool:
         handle_invalid(dirpath, dry_run=dry_run, label='Format version mismatch', class_name=class_name)
         return True
 
-    valid = hash_matches_live(hash_path)
+    valid = hash_matches_live(hash_path, check_class_params=check_class_params)
 
     if valid is None and _delete_manually(hash_path, delete_unregistered):
         valid = False
@@ -128,7 +174,25 @@ def _purge_dir(dirpath: Path, dry_run: bool, delete_unregistered: bool) -> bool:
     return False
 
 
-def _purge_cache(dry_run: bool = True, delete_unregistered: bool = True) -> None:
+def clean_cache(
+    dry_run: bool = True,
+    delete_unregistered: bool = True,
+    check_class_params: bool = False,
+) -> None:
+    """Remove stale or invalid cache entries.
+
+    Parameters
+    ----------
+    dry_run : bool
+        Report what would be deleted without removing anything.
+    delete_unregistered : bool
+        Prompt to delete entries whose class is no longer in the registry.
+    check_class_params : bool
+        Also validate ``TrackedObject`` subclasses held as parameters. These never reach the
+        entry's dependency tree, so without this a class-valued param that changed is
+        reported as current even though the runtime correctly recomputes it. Entries with no
+        ``parameters.json`` are reported as stale under this check.
+    """
     for family in Artifact.__subclasses__():
         root = family.get_cache_root()
         if not root.exists():
@@ -143,19 +207,17 @@ def _purge_cache(dry_run: bool = True, delete_unregistered: bool = True) -> None
 
             if dirs:
                 continue
-            deleted = _purge_dir(dirpath, dry_run=dry_run, delete_unregistered=delete_unregistered)
+            deleted = _purge_dir(
+                dirpath,
+                dry_run=dry_run,
+                delete_unregistered=delete_unregistered,
+                check_class_params=check_class_params,
+            )
             if deleted:
                 dirs.clear()
 
         if not dry_run:
             prune_empty_dirs(root)
-
-
-def clean_cache(
-    dry_run: bool = True,
-    delete_unregistered: bool = True,
-) -> None:
-    return _purge_cache(dry_run=dry_run, delete_unregistered=delete_unregistered)
 
 
 def rebuild_registry() -> None:

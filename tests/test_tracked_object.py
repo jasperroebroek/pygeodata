@@ -79,5 +79,3 @@ def test_dependency_tree_no_self_inheritance() -> None:
     base_name = TrackedBase.get_class_name()
     assert [child_name, base_name] in result.inheritance_edges
     assert [child_name, child_name] not in result.inheritance_edges
-
-

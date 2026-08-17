@@ -144,10 +144,7 @@ def _reimport_modules(py_files: list[Path], root: Path):
     if root not in sys.path:
         sys.path.insert(0, str(root))
 
-    module_names = {
-        py_file: '.'.join(py_file.relative_to(root).with_suffix('').parts)
-        for py_file in py_files
-    }
+    module_names = {py_file: '.'.join(py_file.relative_to(root).with_suffix('').parts) for py_file in py_files}
     for name in module_names.values():
         sys.modules.pop(name, None)
 
@@ -183,6 +180,7 @@ def build_state(progress: dict | None = None) -> AppState:
         src=version_registry.source_registry,
         trees=version_registry.tree_registry,
     )
+
     def _none_first(keys: Iterable[str]) -> list[str]:
         return sorted(keys, key=lambda k: (k != 'None', k))
 

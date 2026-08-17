@@ -1,6 +1,6 @@
-from pygeodata.config import JSONKeys
-from pygeodata.catalog.types import LinkedEntry, ParamRow
 from pygeodata.catalog.params_index import flatten_params
+from pygeodata.catalog.types import LinkedEntry, ParamRow, ParamRowType
+from pygeodata.config import JSONKeys
 
 
 def rows(params: dict, linked: list | None = None) -> list[ParamRow]:
@@ -77,7 +77,7 @@ def test_hidden_keys_skipped_in_nested_dict() -> None:
 def test_flat_scalar_list() -> None:
     result = rows({'years': [2019, 2020, 2021]})
     assert all(r.final_key == 'years[]' for r in result)
-    assert all(r.value_type == 'list_member' for r in result)
+    assert all(r.row_type == ParamRowType.LIST_MEMBER for r in result)
     assert len(result) == 3
     values = [r.value_text for r in result]
     assert '2019' in values and '2020' in values and '2021' in values
@@ -101,12 +101,12 @@ def test_data_ref_emits_row_and_linked_entry() -> None:
         'loader': {
             JSONKeys.CLASS_NAME: 'MyLoader',
             JSONKeys.PARAMS: {'year': 2020},
-        }
+        },
     }
     result = rows(params, linked=linked)
 
     # First row is the data_ref itself
-    ref_rows = [r for r in result if r.value_type == 'data_ref']
+    ref_rows = [r for r in result if r.row_type == ParamRowType.DATA_REF]
     assert len(ref_rows) == 1
     assert ref_rows[0].value_text == 'MyLoader'
     assert ref_rows[0].final_key == 'loader'
@@ -122,7 +122,7 @@ def test_data_ref_child_params_also_flattened() -> None:
         'loader': {
             JSONKeys.CLASS_NAME: 'MyLoader',
             JSONKeys.PARAMS: {'region': 'europe'},
-        }
+        },
     }
     result = rows(params)
     keys = [r.final_key for r in result]
@@ -134,7 +134,7 @@ def test_data_ref_hidden_keys_in_inner_params_skipped() -> None:
         'loader': {
             JSONKeys.CLASS_NAME: 'MyLoader',
             JSONKeys.PARAMS: {JSONKeys.STATE_HASH: 'abc', 'label': 'x'},
-        }
+        },
     }
     result = rows(params)
     keys = [r.final_key for r in result]
@@ -147,10 +147,10 @@ def test_linked_entries_none_does_not_crash() -> None:
         'loader': {
             JSONKeys.CLASS_NAME: 'MyLoader',
             JSONKeys.PARAMS: {'year': 2020},
-        }
+        },
     }
     result = rows(params, linked=None)
-    assert any(r.value_type == 'data_ref' for r in result)
+    assert any(r.row_type == ParamRowType.DATA_REF for r in result)
 
 
 def test_search_blob_contains_key_and_value() -> None:
@@ -164,12 +164,82 @@ def test_search_blob_data_ref_contains_class_name() -> None:
         'base': {
             JSONKeys.CLASS_NAME: 'BaseLoader',
             JSONKeys.PARAMS: {},
-        }
+        },
     }
     result = rows(params)
-    ref_row = next(r for r in result if r.value_type == 'data_ref')
+    ref_row = next(r for r in result if r.row_type == ParamRowType.DATA_REF)
     assert 'baseloader' in ref_row.search_blob
     assert 'data_ref' in ref_row.search_blob
+
+
+def test_class_ref_emits_one_row() -> None:
+    """A tracked class passed as a param value must not be silently dropped."""
+    params = {
+        'feature_cls': {
+            JSONKeys.CLASS_NAME: 'X',
+            JSONKeys.DEPENDENCY_TREE_HASH: '728939a8',
+        },
+    }
+    result = rows(params)
+    assert len(result) == 1
+    assert result[0].value_text == 'X'
+    assert result[0].row_type == ParamRowType.CLASS_REF
+    assert result[0].final_key == 'feature_cls'
+    assert result[0].path == 'feature_cls'
+
+
+def test_class_ref_nested_in_data_ref() -> None:
+    params = {
+        'spec': {
+            JSONKeys.CLASS_NAME: 'FeatureSpec',
+            JSONKeys.PARAMS: {
+                'feature_cls': {
+                    JSONKeys.CLASS_NAME: 'MLFeatureBioclim',
+                    JSONKeys.DEPENDENCY_TREE_HASH: 'abc123',
+                },
+                'variable': 1,
+            },
+        },
+    }
+    result = rows(params)
+    class_refs = [r for r in result if r.row_type == ParamRowType.CLASS_REF]
+    assert len(class_refs) == 1
+    assert class_refs[0].value_text == 'MLFeatureBioclim'
+    assert class_refs[0].key_group == 'spec'
+    # The sibling scalar and the wrapper are still emitted.
+    assert {r.value_text for r in result} == {'FeatureSpec', 'MLFeatureBioclim', '1'}
+
+
+def test_class_ref_search_blob_includes_class_and_hash() -> None:
+    params = {
+        'loader': {
+            JSONKeys.CLASS_NAME: 'BioclimEnsemble',
+            JSONKeys.DEPENDENCY_TREE_HASH: 'deadbeef',
+        },
+    }
+    blob = rows(params)[0].search_blob
+    assert 'bioclimensemble' in blob
+    assert 'deadbeef' in blob
+    assert 'class_ref' in blob
+
+
+def test_class_ref_without_hash() -> None:
+    result = rows({'cls': {JSONKeys.CLASS_NAME: 'NoHash'}})
+    assert len(result) == 1
+    assert result[0].value_text == 'NoHash'
+    assert result[0].row_type == ParamRowType.CLASS_REF
+
+
+def test_value_type_is_python_type_not_structural() -> None:
+    """value_type carries the Python type; row_type carries the structural role."""
+    result = rows({'years': [2019, 2020]})
+    assert all(r.value_type == 'int' for r in result)
+    assert all(r.row_type == ParamRowType.LIST_MEMBER for r in result)
+
+    mixed = rows({'items': [{'a': 1}, 'plain']})
+    scalar_row = next(r for r in mixed if r.value_text == 'plain')
+    assert scalar_row.value_type == 'str'
+    assert scalar_row.row_type == ParamRowType.VALUE
 
 
 def test_empty_params() -> None:

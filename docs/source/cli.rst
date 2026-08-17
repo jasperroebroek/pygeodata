@@ -35,6 +35,8 @@ clear error listing the candidates.
     │     --delete-unregistered / --no-delete-unregistered
     │                               Keep entries whose class is no longer in the
     │                               registry with --no-delete-unregistered
+    │     --check-class-params      Also validate TrackedObject subclasses held as
+    │                               parameters (see below).  Off by default.
     │
     ├── clean-source
     │     Remove orphaned code snapshots and dependency trees from .source/.

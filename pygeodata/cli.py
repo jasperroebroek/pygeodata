@@ -15,7 +15,7 @@ from pygeodata.cache import clean_cache, clean_source_registry
 from pygeodata.catalog.class_catalog import discover_loaded_classes, merge_unloaded_classes
 from pygeodata.catalog.entry_catalog import _enrich_params_path
 from pygeodata.catalog.filters import Filter, FilterOperator, FilterTarget, prescan_text
-from pygeodata.catalog.types import SpecInfo
+from pygeodata.catalog.types import ParamRowType, SpecInfo
 from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config
 from pygeodata.data import Data
 from pygeodata.figure import Figure
@@ -168,12 +168,31 @@ def browse(port: int, do_import: bool, verbose_import: bool) -> None:
     default=True,
     help='Skip entries whose class is not in the registry with --no-delete-unregistered.',
 )
-def clean_cache_cmd(do_import: bool, verbose_import: bool, dry_run: bool, delete_unregistered: bool) -> None:
+@click.option(
+    '--check-class-params',
+    is_flag=True,
+    default=False,
+    help=(
+        'Also validate TrackedObject subclasses held as parameters. Catches entries the '
+        'default check reports as current; entries without a parameters.json count as stale.'
+    ),
+)
+def clean_cache_cmd(
+    do_import: bool,
+    verbose_import: bool,
+    dry_run: bool,
+    delete_unregistered: bool,
+    check_class_params: bool,
+) -> None:
     """Remove stale or invalid cache entries."""
     if do_import:
         n = _import_project_modules(Path.cwd(), verbose=verbose_import)
         click.echo(f'Imported {n} module(s)')
-    clean_cache(dry_run=dry_run, delete_unregistered=delete_unregistered)
+    clean_cache(
+        dry_run=dry_run,
+        delete_unregistered=delete_unregistered,
+        check_class_params=check_class_params,
+    )
 
 
 @cli.command('clean-source')
@@ -821,8 +840,6 @@ def _stale_indicator(rec, vreg: VersionRegistry | None = None) -> str:
     return ' '
 
 
-
-
 def _resolve_record(reg, hash_prefix: str):
     """Return (state_hash, EntryRecord) for a partial or full hash. Raises ClickException on ambiguity/miss."""
     matches = [(h, r) for h, r in reg.records.items() if h.startswith(hash_prefix)]
@@ -907,7 +924,7 @@ def _format_param_rows(param_rows) -> list[str]:
     for row in param_rows:
         pad = '  ' * row.depth
         w = max(col - row.depth * 2, 4)
-        if row.value_type == 'data_ref':
+        if row.row_type in (ParamRowType.DATA_REF, ParamRowType.CLASS_REF):
             key_str = click.style(f'→ {row.final_key}', fg='cyan')
             lines.append(f'    {pad}{key_str:<{w + 2}}  {row.value_text}')
         else:

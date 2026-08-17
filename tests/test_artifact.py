@@ -42,8 +42,8 @@ def test_name_conversion_mixed() -> None:
 @pytest.mark.parametrize(
     'setup,expected_present,expected_absent',
     [
-        (lambda l: setattr(l, '_private_attr', 'x'), [], ['_private_attr']),  # noqa: B010
-        (lambda l: setattr(l, 'public_attr', 'x'), ['public_attr'], []),  # noqa: B010
+        (lambda l: setattr(l, '_private_attr', 'x'), [], ['_private_attr']),
+        (lambda l: setattr(l, 'public_attr', 'x'), ['public_attr'], []),
         (lambda l: None, ['path', 'scale'], []),
     ],
 )
@@ -101,9 +101,7 @@ def _setup_output_file(loader, spec):
         (
             lambda loader, spec: (
                 _setup_output_file(loader, spec),
-                loader.resolve_cache_paths(spec).state_hash_path.write_text(
-                    json.dumps({JSONKeys.STATE_HASH: 'stale'})
-                ),
+                loader.resolve_cache_paths(spec).state_hash_path.write_text(json.dumps({JSONKeys.STATE_HASH: 'stale'})),
             ),
             False,
         ),

@@ -5,10 +5,10 @@ from unittest.mock import patch
 import pytest
 
 from pygeodata.config import set_config
+from pygeodata.registries.versioning import VersionRegistry
 from pygeodata.registry_browser.state import AppContext, AppState
 from pygeodata.registry_browser.web import _allowed_roots, _assert_allowed_path
 from pygeodata.registry_browser.web import app as flask_app
-from pygeodata.registries.versioning import VersionRegistry
 
 
 class _FakeEntryRegistry:
@@ -529,7 +529,7 @@ def test_api_code_version_diff_explicit_base(tmp_path: Path) -> None:
         flask_app.config['TESTING'] = True
         with patch('pygeodata.registry_browser.web._ctx', ctx):
             resp = flask_app.test_client().get(
-                f'/api/code/version-diff?base_version_id={initial_vid}&target_version_id={change_vid}'
+                f'/api/code/version-diff?base_version_id={initial_vid}&target_version_id={change_vid}',
             )
 
     assert resp.status_code == 200

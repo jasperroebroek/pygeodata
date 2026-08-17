@@ -6,8 +6,9 @@ from typing import Any
 
 import numpy as np
 
+from pygeodata.config import JSONKeys
 from pygeodata.formatting.shared import JSON_SAFE_TYPES, format_array
-from pygeodata.protocols import AllowsFormatting
+from pygeodata.protocols import AllowsFormatting, AllowsTracking
 from pygeodata.spec import SpatialSpec
 
 
@@ -18,6 +19,12 @@ def format_json(
 ) -> float | int | str | bool | None | dict[str, Any] | list[Any]:
     if isinstance(value, JSON_SAFE_TYPES):
         return value
+
+    if isinstance(value, type) and isinstance(value, AllowsTracking):
+        return {
+            JSONKeys.CLASS_NAME: value.get_class_name(),
+            JSONKeys.DEPENDENCY_TREE_HASH: value.get_dependency_tree_hash(),
+        }
     if isinstance(value, type):
         return f'{value.__module__}.{value.__qualname__}'
     if isinstance(value, AllowsFormatting):

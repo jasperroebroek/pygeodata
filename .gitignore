@@ -8,6 +8,7 @@
 /build
 /.source
 /presentations
+/todo
 
 .DS_Store
 __pycache__

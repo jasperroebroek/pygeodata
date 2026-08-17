@@ -18,6 +18,7 @@ def _row_payload(row) -> dict:
         'parameter': row.final_key,
         'value': row.value_text,
         'value_type': row.value_type,
+        'param_row_type': row.row_type,
         'path': row.path,
         'depth': row.depth,
     }
@@ -476,7 +477,11 @@ def _build_detail_payload(
             key = (selected_entry_info.class_name, selected_entry_info.params_hash, selected_entry_info.spec_hash)
             dep_version_entries = list(ph_index.get(key, []))
             dep_version_entries.sort(
-                key=lambda e: (vreg.version_for_dep_hash(e.dep_hash).mtime if e.dep_hash and vreg.version_for_dep_hash(e.dep_hash) else ''),
+                key=lambda e: (
+                    vreg.version_for_dep_hash(e.dep_hash).mtime
+                    if e.dep_hash and vreg.version_for_dep_hash(e.dep_hash)
+                    else ''
+                ),
                 reverse=True,
             )
         entry_version = (

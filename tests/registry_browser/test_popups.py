@@ -12,7 +12,6 @@ from pygeodata.registry_browser.popups import (
 )
 from pygeodata.tracked_object import TrackedObject
 
-
 # --- _linkify_class_names ---
 
 

@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
+from pygeodata.catalog.types import EntryInfo, SpecInfo
 from pygeodata.config import JSONKeys, set_config
 from pygeodata.registry_browser import export_service
-from pygeodata.catalog.types import EntryInfo, SpecInfo
 
 # ---------------------------------------------------------------------------
 # Helpers

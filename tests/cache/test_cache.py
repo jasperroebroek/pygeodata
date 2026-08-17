@@ -1,8 +1,12 @@
+import ast
 import json
+import textwrap
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from pygeodata import ast as ast_module
 from pygeodata.cache import (
     clean_cache,
     clean_registry,
@@ -13,8 +17,9 @@ from pygeodata.cache import (
     rebuild_registry,
 )
 from pygeodata.config import FORMAT_VERSION, JSONKeys
+from pygeodata.hash import calculate_cls_source_hash
 from pygeodata.spec import SpatialSpec
-from tests.fixtures.data import Child, Parent, SimpleLoader
+from tests.fixtures.data import Child, ClassParamLoader, LoaderA, Parent, SimpleLoader
 
 
 def write_stale_hash(artifact: SimpleLoader, spec: SpatialSpec) -> None:
@@ -218,6 +223,136 @@ def test_hash_matches_live_none_when_class_unregistered(tmp_path: Path) -> None:
     assert hash_matches_live(hash_file) is None
 
 
+# --- hash_matches_live: class-valued params ---
+
+
+def _clear_hash_caches(*classes: type) -> None:
+    """Drop the memoised source and dependency-tree hashes.
+
+    ``get_dependency_tree_hash`` is ``functools.cache``d per class, so without this a test
+    that mutates a class's source compares a hash against itself and passes while asserting
+    nothing.
+    """
+    calculate_cls_source_hash.cache_clear()
+    for cls in classes:
+        cls.clear_function_caches()
+
+
+def _patch_loader_a_source(mock_ast_tree: MagicMock, body: str) -> None:
+    """Rewrite only ``LoaderA``'s source, leaving every other class parsed normally.
+
+    Patching every class would also move ``ClassParamLoader``'s own dependency tree hash,
+    which the plain check already catches — the blind spot would then be invisible.
+    """
+    real = ast_module.get_source_ast_tree
+    rewritten = ast.parse(
+        textwrap.dedent(f"""
+        class LoaderA(Data):
+            def _process(self, spec):
+                return {body}
+    """),
+    )
+    mock_ast_tree.side_effect = lambda cls: rewritten if cls is LoaderA else real(cls)
+
+
+def _write_class_param_entry(spec: SpatialSpec) -> Path:
+    """Write a full cache entry for an artifact holding ``LoaderA`` as a param."""
+    artifact = ClassParamLoader(loader_cls=LoaderA)
+    artifact.write_parameters(spec)
+    artifact.write_cache_metadata(spec)
+    return artifact.resolve_cache_paths(spec).state_hash_path
+
+
+@patch('pygeodata.hash.get_source_ast_tree')
+def test_class_param_change_detected_when_enabled(
+    mock_ast_tree: MagicMock,
+    sample_spatial_spec: SpatialSpec,
+) -> None:
+    """The regression: editing a class passed as a param must be reported as stale."""
+    _clear_hash_caches(ClassParamLoader, LoaderA)
+    _patch_loader_a_source(mock_ast_tree, '1')
+    hash_path = _write_class_param_entry(sample_spatial_spec)
+    assert hash_matches_live(hash_path, check_class_params=True) is True
+
+    _clear_hash_caches(ClassParamLoader, LoaderA)
+    _patch_loader_a_source(mock_ast_tree, '2')
+    assert hash_matches_live(hash_path, check_class_params=True) is False
+
+
+@patch('pygeodata.hash.get_source_ast_tree')
+def test_class_param_change_invisible_when_disabled(
+    mock_ast_tree: MagicMock,
+    sample_spatial_spec: SpatialSpec,
+) -> None:
+    """Without the flag the blind spot remains — that is what makes the check opt-in."""
+    _clear_hash_caches(ClassParamLoader, LoaderA)
+    _patch_loader_a_source(mock_ast_tree, '1')
+    hash_path = _write_class_param_entry(sample_spatial_spec)
+
+    _clear_hash_caches(ClassParamLoader, LoaderA)
+    _patch_loader_a_source(mock_ast_tree, '2')
+    assert hash_matches_live(hash_path) is True
+
+
+def test_entry_without_class_params_unaffected(sample_spatial_spec: SpatialSpec) -> None:
+    loader = SimpleLoader()
+    loader.write_parameters(sample_spatial_spec)
+    loader.write_cache_metadata(sample_spatial_spec)
+    hash_path = loader.resolve_cache_paths(sample_spatial_spec).state_hash_path
+    assert hash_matches_live(hash_path, check_class_params=True) is True
+
+
+def test_missing_parameters_file_is_stale(sample_spatial_spec: SpatialSpec) -> None:
+    """Every entry this version writes has a parameters.json; its absence means broken."""
+    loader = SimpleLoader()
+    loader.write_cache_metadata(sample_spatial_spec)
+    resolver = loader.resolve_cache_paths(sample_spatial_spec)
+    resolver.params_path.unlink(missing_ok=True)
+
+    assert hash_matches_live(resolver.state_hash_path) is True
+    assert hash_matches_live(resolver.state_hash_path, check_class_params=True) is False
+
+
+def test_class_param_unresolvable_returns_none(sample_spatial_spec: SpatialSpec) -> None:
+    loader = SimpleLoader()
+    loader.write_cache_metadata(sample_spatial_spec)
+    resolver = loader.resolve_cache_paths(sample_spatial_spec)
+    resolver.params_path.parent.mkdir(parents=True, exist_ok=True)
+    resolver.params_path.write_text(
+        json.dumps(
+            {
+                'nested': {
+                    'loader_cls': {
+                        JSONKeys.CLASS_NAME: 'NoSuchClass',
+                        JSONKeys.DEPENDENCY_TREE_HASH: 'abc',
+                    },
+                },
+            },
+        ),
+    )
+    assert hash_matches_live(resolver.state_hash_path, check_class_params=True) is None
+
+
+def test_tracked_instance_params_are_not_treated_as_classes(sample_spatial_spec: SpatialSpec) -> None:
+    """An instance serialises as {class_name, params, instance_hash} and carries no tree hash."""
+    loader = SimpleLoader()
+    loader.write_cache_metadata(sample_spatial_spec)
+    resolver = loader.resolve_cache_paths(sample_spatial_spec)
+    resolver.params_path.parent.mkdir(parents=True, exist_ok=True)
+    resolver.params_path.write_text(
+        json.dumps(
+            {
+                'inner': {
+                    JSONKeys.CLASS_NAME: 'NoSuchClass',
+                    JSONKeys.PARAMS: {},
+                    JSONKeys.INSTANCE_HASH: 'abc',
+                },
+            },
+        ),
+    )
+    assert hash_matches_live(resolver.state_hash_path, check_class_params=True) is True
+
+
 # --- format_version_matches ---
 
 
@@ -347,12 +482,14 @@ def _write_code(registry: Path, source_hash: str, class_name: str, mtime: str) -
     d.mkdir(parents=True, exist_ok=True)
     (d / 'source.py').write_text(f'class {class_name}: pass\n', encoding='utf-8')
     (d / 'source.json').write_text(
-        json.dumps({
-            JSONKeys.CLASS_NAME: class_name,
-            JSONKeys.OBJECT_TYPE: 'Data',
-            JSONKeys.SOURCE_HASH: source_hash,
-            JSONKeys.REGISTERED_AT: mtime,
-        }),
+        json.dumps(
+            {
+                JSONKeys.CLASS_NAME: class_name,
+                JSONKeys.OBJECT_TYPE: 'Data',
+                JSONKeys.SOURCE_HASH: source_hash,
+                JSONKeys.REGISTERED_AT: mtime,
+            },
+        ),
         encoding='utf-8',
     )
 
@@ -373,13 +510,15 @@ def _write_entry(cache_dir: Path, state_hash: str, dep_tree_hash: str, class_nam
     entry_dir = cache_dir / class_name / state_hash
     entry_dir.mkdir(parents=True, exist_ok=True)
     CachePathConstructor(entry_dir).state_hash_path.write_text(
-        json.dumps({
-            JSONKeys.FORMAT_VERSION: FORMAT_VERSION,
-            JSONKeys.CLASS_NAME: class_name,
-            JSONKeys.STATE_HASH: state_hash,
-            JSONKeys.DEPENDENCY_TREE_HASH: dep_tree_hash,
-            JSONKeys.INSTANCE_HASH: 'inst1',
-        })
+        json.dumps(
+            {
+                JSONKeys.FORMAT_VERSION: FORMAT_VERSION,
+                JSONKeys.CLASS_NAME: class_name,
+                JSONKeys.STATE_HASH: state_hash,
+                JSONKeys.DEPENDENCY_TREE_HASH: dep_tree_hash,
+                JSONKeys.INSTANCE_HASH: 'inst1',
+            },
+        ),
     )
     CachePathConstructor(entry_dir).params_path.write_text(json.dumps({}))
     CachePathConstructor(entry_dir).spec_path.write_text(json.dumps({}))

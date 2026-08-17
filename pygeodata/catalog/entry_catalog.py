@@ -3,6 +3,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from pygeodata.catalog.params_index import flatten_params
 from pygeodata.catalog.types import (
     EntryInfo,
     FileRef,
@@ -13,11 +14,10 @@ from pygeodata.config import FORMAT_VERSION, get_config
 from pygeodata.hash import calculate_dict_hash
 from pygeodata.paths import CACHE_DIR_SUFFIXES, CACHE_META_FILES, CachePathConstructor, classify_file
 from pygeodata.registries.registry import EntryRegistry
-from pygeodata.catalog.params_index import flatten_params
 from pygeodata.registries.registry_types import EntryRecord
+from pygeodata.registries.versioning import VersionRegistry
 from pygeodata.spec import SpatialSpec
 from pygeodata.tracked_object import TrackedObject
-from pygeodata.registries.versioning import VersionRegistry
 
 
 def _cache_file() -> Path:

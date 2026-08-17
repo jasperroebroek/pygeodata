@@ -1,4 +1,5 @@
 """Tests for pygeodata.api.load_from_hash / pygeodata.load_from_hash."""
+
 import json
 from pathlib import Path
 
@@ -15,12 +16,14 @@ def _write_meta(directory: Path, state_hash: str, class_name: str, object_type: 
     directory.mkdir(parents=True, exist_ok=True)
     meta_path = directory / 'meta.json'
     meta_path.write_text(
-        json.dumps({
-            JSONKeys.CLASS_NAME: class_name,
-            JSONKeys.STATE_HASH: state_hash,
-            JSONKeys.OBJECT_TYPE: object_type,
-            JSONKeys.FORMAT_VERSION: FORMAT_VERSION,
-        }),
+        json.dumps(
+            {
+                JSONKeys.CLASS_NAME: class_name,
+                JSONKeys.STATE_HASH: state_hash,
+                JSONKeys.OBJECT_TYPE: object_type,
+                JSONKeys.FORMAT_VERSION: FORMAT_VERSION,
+            },
+        ),
         encoding='utf-8',
     )
     return meta_path

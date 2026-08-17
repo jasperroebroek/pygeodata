@@ -417,6 +417,8 @@ Four maintenance operations keep the cache and source registry healthy over time
 - Classes no longer in the registry (optionally, with confirmation)
 - Multiple hash files in one directory (conflict resolution)
 
+With `check_class_params=True` (CLI: `--check-class-params`) it also validates `TrackedObject` subclasses held as *parameters*. Those never enter the dependency tree, so by default such an entry reports as current while the pipeline correctly rebuilds it — the diagnostic disagreeing with the engine. Opt-in, because an entry with no `parameters.json` then counts as stale.
+
 **`clean_source_registry(dry_run=True)`** — walks `.source/` and removes orphaned snapshots. Keeps the latest snapshot per class and anything referenced by a live cache entry. Also available as `pygeodata clean-source` on the CLI.
 
 **`clean_registry(dry_run=True)`** — walks `.source/` and removes entries written by a different `FORMAT_VERSION`.

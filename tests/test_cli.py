@@ -318,9 +318,14 @@ def test_classes_loaded_class_appears(monkeypatch) -> None:
 
     monkeypatch.setattr('pygeodata.cli.EntryRegistry', MagicMock(return_value=MagicMock(class_names=[])))
     monkeypatch.setattr('pygeodata.cli.VersionRegistry', MagicMock(return_value=MagicMock()))
-    monkeypatch.setattr('pygeodata.cli.SourceRegistry', MagicMock(return_value=MagicMock(
-        get_latest_state_for_class=MagicMock(return_value=None),
-    )))
+    monkeypatch.setattr(
+        'pygeodata.cli.SourceRegistry',
+        MagicMock(
+            return_value=MagicMock(
+                get_latest_state_for_class=MagicMock(return_value=None),
+            ),
+        ),
+    )
 
     monkeypatch.setattr('pygeodata.cli.discover_loaded_classes', _fake_discover)
     monkeypatch.setattr('pygeodata.cli.merge_unloaded_classes', _fake_merge)
@@ -356,9 +361,14 @@ def test_classes_stale_exits_nonzero(monkeypatch) -> None:
 
     monkeypatch.setattr('pygeodata.cli.EntryRegistry', MagicMock(return_value=MagicMock(class_names=[])))
     monkeypatch.setattr('pygeodata.cli.VersionRegistry', MagicMock(return_value=MagicMock()))
-    monkeypatch.setattr('pygeodata.cli.SourceRegistry', MagicMock(return_value=MagicMock(
-        get_latest_state_for_class=MagicMock(return_value=None),
-    )))
+    monkeypatch.setattr(
+        'pygeodata.cli.SourceRegistry',
+        MagicMock(
+            return_value=MagicMock(
+                get_latest_state_for_class=MagicMock(return_value=None),
+            ),
+        ),
+    )
 
     monkeypatch.setattr('pygeodata.cli.discover_loaded_classes', _fake_discover)
     monkeypatch.setattr('pygeodata.cli.merge_unloaded_classes', _fake_merge)
@@ -387,9 +397,14 @@ def test_classes_hide_current_omits_fresh(monkeypatch) -> None:
 
     monkeypatch.setattr('pygeodata.cli.EntryRegistry', MagicMock(return_value=MagicMock(class_names=[])))
     monkeypatch.setattr('pygeodata.cli.VersionRegistry', MagicMock(return_value=MagicMock()))
-    monkeypatch.setattr('pygeodata.cli.SourceRegistry', MagicMock(return_value=MagicMock(
-        get_latest_state_for_class=MagicMock(return_value=None),
-    )))
+    monkeypatch.setattr(
+        'pygeodata.cli.SourceRegistry',
+        MagicMock(
+            return_value=MagicMock(
+                get_latest_state_for_class=MagicMock(return_value=None),
+            ),
+        ),
+    )
 
     monkeypatch.setattr('pygeodata.cli.discover_loaded_classes', _fake_discover)
     monkeypatch.setattr('pygeodata.cli.merge_unloaded_classes', _fake_merge)
@@ -418,9 +433,14 @@ def test_classes_type_filter(monkeypatch) -> None:
 
     monkeypatch.setattr('pygeodata.cli.EntryRegistry', MagicMock(return_value=MagicMock(class_names=[])))
     monkeypatch.setattr('pygeodata.cli.VersionRegistry', MagicMock(return_value=MagicMock()))
-    monkeypatch.setattr('pygeodata.cli.SourceRegistry', MagicMock(return_value=MagicMock(
-        get_latest_state_for_class=MagicMock(return_value=None),
-    )))
+    monkeypatch.setattr(
+        'pygeodata.cli.SourceRegistry',
+        MagicMock(
+            return_value=MagicMock(
+                get_latest_state_for_class=MagicMock(return_value=None),
+            ),
+        ),
+    )
 
     monkeypatch.setattr('pygeodata.cli.discover_loaded_classes', _fake_discover)
     monkeypatch.setattr('pygeodata.cli.merge_unloaded_classes', _fake_merge)

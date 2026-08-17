@@ -69,7 +69,7 @@ export function _buildRowsHtml(rows, start, maxEntries) {
         </tr>`);
     } else {
       const isLast    = !next || next.row_type === "header";
-      const isRef     = r.value_type === "data_ref";
+      const isRef     = r.param_row_type === "data_ref" || r.param_row_type === "class_ref";
       const scope     = r.group && r.group !== "---" ? r.group : "";
       html.push(`
         <tr class="row-param ${isActive ? "active" : ""} ${isLast ? "entry-last" : ""}" data-entry="${esc(r.record_id)}">
