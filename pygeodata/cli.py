@@ -24,6 +24,7 @@ from pygeodata.registries.registry import EntryRegistry, SourceRegistry, TreeReg
 from pygeodata.registries.registry_types import Version
 from pygeodata.registries.versioning import VersionRegistry
 from pygeodata.spec import SpatialSpec
+from pygeodata.table import Table
 from pygeodata.tracked_object import TrackedObject
 
 
@@ -57,7 +58,7 @@ def cli():
 
 def _cache_root_from_tar(tar: tarfile.TarFile, hash_dir: str) -> Path | None:
     """Read OBJECT_TYPE from the meta.json and return the matching Artifact subclass cache root."""
-    family_by_name = {'Data': Data, 'Figure': Figure}
+    family_by_name = {c.get_class_name(): c for c in (Data, Table, Figure)}
     for member in tar.getmembers():
         p = Path(member.name)
         if p.parts[:1] == ('cache',) and p.parts[1] == hash_dir and p.name == 'meta.json':
@@ -111,7 +112,7 @@ def _import_project_modules(root: Path, verbose: bool = False) -> int:
         sys.path.insert(0, str(root))
     cfg = get_config()
     _config_dirs = set()
-    for _p in (cfg.path_cache, cfg.path_figures, cfg.path_registry):
+    for _p in (*cfg.cache_roots, cfg.path_registry):
         if _p.parts and not _p.is_absolute():
             _config_dirs.add(_p.parts[0])
     _skip_dirs = {'venv', 'env', '.venv', 'build', 'dist', 'site-packages', 'tests', 'test', 'cache'} | _config_dirs
@@ -751,7 +752,7 @@ def classes_cmd(
     classes = discover_loaded_classes()
     classes = merge_unloaded_classes(classes, ereg, version_registry=vreg, src=src)
 
-    # Apply type filter (case-insensitive prefix match against object_type)
+    # Apply type filter (case-insensitive exact match against object_type)
     if type_filter:
         tf = type_filter.upper()
         classes = {k: v for k, v in classes.items() if (v.object_type or '').upper() == tf}
@@ -771,12 +772,12 @@ def classes_cmd(
         if state:
             stored_hashes[class_name] = state.source_hash
 
-    # Group by object type — Data first, then Figure, then others alphabetically
+    # Group by object type — Data, Table, Figure, then others alphabetically
     by_type: dict[str, list[str]] = {}
     for class_name, info in classes.items():
         by_type.setdefault(info.object_type or 'Unknown', []).append(class_name)
 
-    type_order = ['Data', 'Figure']
+    type_order = ['Data', 'Table', 'Figure']
     other_types = sorted(t for t in by_type if t not in type_order)
     ordered_types = [t for t in type_order if t in by_type] + other_types
 
@@ -1006,6 +1007,10 @@ def entry_list(
 
         entry_info = None
         if needs_enrich and params_path:
+            # Deliberately not going through _enrich_with_cache: that would consult the
+            # browser's .dashboard_cache.json, whose upfront load is a fixed cost regardless
+            # of how many entries are enriched. It only pays off for ~500 enriched entries, which
+            # is not common yet. Change as needed.
             try:
                 entry_info = _enrich_params_path(params_path, rec)
             except Exception:  # noqa: BLE001

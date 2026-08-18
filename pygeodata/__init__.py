@@ -7,6 +7,7 @@ from pygeodata.config import get_config, set_config
 from pygeodata.data import Data
 from pygeodata.figure import Figure
 from pygeodata.spec import SpatialSpec
+from pygeodata.table import Table
 from pygeodata.tracked_object import TrackedObject
 
 __all__ = [
@@ -14,6 +15,7 @@ __all__ = [
     'Data',
     'Figure',
     'SpatialSpec',
+    'Table',
     'TrackedObject',
     '__version__',
     'clean_cache',
