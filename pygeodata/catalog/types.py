@@ -91,6 +91,7 @@ class EntryInfo:
     linked_entries: list[LinkedEntry] = field(default_factory=list)
     co_output_hashes: list[str] = field(default_factory=list)
     primary_file: FileRef | None = None
+    sidecar_files: list[FileRef] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     error: str | None = None
     format_version: int = field(default=0)
@@ -126,6 +127,7 @@ class EntryInfo:
             'linked_entries': [dataclasses.asdict(le) for le in self.linked_entries],
             'co_output_hashes': self.co_output_hashes,
             'primary_file': dataclasses.asdict(self.primary_file) if self.primary_file else None,
+            'sidecar_files': [dataclasses.asdict(f) for f in self.sidecar_files],
             'warnings': list(self.warnings),
             'error': self.error,
             'format_version': self.format_version,
@@ -155,6 +157,7 @@ class EntryInfo:
             linked_entries=[LinkedEntry(**le) for le in data.get('linked_entries', [])],
             co_output_hashes=data.get('co_output_hashes', []),
             primary_file=FileRef(**pf_d) if pf_d else None,
+            sidecar_files=[FileRef(**f) for f in data.get('sidecar_files', [])],
             warnings=data.get('warnings', []),
             error=data.get('error'),
             format_version=data.get('format_version', 0),

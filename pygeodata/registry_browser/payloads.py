@@ -1,6 +1,5 @@
 from pygeodata.catalog.filters import Filter, entry_matches_filters, matching_rows, parse_filters
 from pygeodata.catalog.types import ClassInfo, EntryInfo, FileRef, LinkedEntry
-from pygeodata.config import JSONKeys
 from pygeodata.formatting.json import format_json
 from pygeodata.registries.registry import SourceRegistry
 from pygeodata.registries.versioning import VersionRegistry
@@ -35,21 +34,21 @@ def _file_payload(file_ref: FileRef) -> dict:
 def _linked_entry_payload(le: LinkedEntry) -> dict:
     return {
         'param_name': le.param_name,
-        JSONKeys.CLASS_NAME: le.class_name,
-        JSONKeys.STATE_HASH: le.state_hash,
+        'class_name': le.class_name,
+        'state_hash': le.state_hash,
         'params_summary': le.params_summary,
     }
 
 
 def _spec_payload(spec) -> dict:
     return {
-        SpecKeys.CRS: spec.crs,
-        SpecKeys.RESOLUTION: spec.resolution,
-        SpecKeys.RESOLUTION_DISPLAY: spec.resolution_display,
-        SpecKeys.SHAPE: spec.shape,
-        SpecKeys.BOUNDS: spec.bounds,
-        SpecKeys.BOUNDS_LATLON: spec.bounds_latlon,
-        SpecKeys.BOUNDS_DISPLAY: spec.bounds_display,
+        'crs': spec.crs,
+        'resolution': spec.resolution,
+        'resolution_display': spec.resolution_display,
+        'shape': spec.shape,
+        'bounds': spec.bounds,
+        'bounds_latlon': spec.bounds_latlon,
+        'bounds_display': spec.bounds_display,
     }
 
 
@@ -329,9 +328,9 @@ def _co_output_diff_rows(co_entry: EntryInfo, main_entry: EntryInfo) -> list[dic
 def _co_output_payload(entry: EntryInfo, main_entry: EntryInfo) -> dict:
     return {
         'record_id': entry.record_id,
-        JSONKeys.CLASS_NAME: entry.class_name,
-        JSONKeys.OBJECT_TYPE: entry.object_type,
-        JSONKeys.STATE_HASH: entry.state_hash,
+        'class_name': entry.class_name,
+        'object_type': entry.object_type,
+        'state_hash': entry.state_hash,
         'primary_file': _file_payload(entry.primary_file) if entry.primary_file else None,
         'rows': [_row_payload(r) for r in entry.rows],
         'diff_rows': _co_output_diff_rows(entry, main_entry),
@@ -341,20 +340,20 @@ def _co_output_payload(entry: EntryInfo, main_entry: EntryInfo) -> dict:
 def _same_instance_run_payload(sibling: EntryInfo) -> dict:
     return {
         'record_id': sibling.record_id,
-        JSONKeys.CLASS_NAME: sibling.class_name,
-        JSONKeys.STATE_HASH: sibling.state_hash,
+        'class_name': sibling.class_name,
+        'state_hash': sibling.state_hash,
         'primary_file': _file_payload(sibling.primary_file) if sibling.primary_file else None,
-        SpecKeys.SPEC: _spec_payload(sibling.spec),
+        'spec': _spec_payload(sibling.spec),
     }
 
 
 def _entry_detail_payload(entry: EntryInfo, same_instance_runs: list[EntryInfo] | None = None) -> dict:
     return {
         'record_id': entry.record_id,
-        JSONKeys.STATE_HASH: entry.state_hash,
-        JSONKeys.INSTANCE_HASH: entry.instance_hash,
-        JSONKeys.CLASS_NAME: entry.class_name,
-        JSONKeys.OBJECT_TYPE: entry.object_type,
+        'state_hash': entry.state_hash,
+        'instance_hash': entry.instance_hash,
+        'class_name': entry.class_name,
+        'object_type': entry.object_type,
         'warnings': entry.warnings,
         'dep_hash_stale': entry.dep_hash_stale,
         'format_version_stale': entry.format_version_stale,
@@ -362,15 +361,14 @@ def _entry_detail_payload(entry: EntryInfo, same_instance_runs: list[EntryInfo] 
         'params_path': entry.params_path,
         'state_hash_path': entry.state_hash_path,
         'execution_graph_path': entry.execution_graph_path,
-        SpecKeys.SPEC: _spec_payload(entry.spec),
+        'spec': _spec_payload(entry.spec),
         'primary_file': _file_payload(entry.primary_file) if entry.primary_file else None,
-        'figure_previews': [entry.primary_file.path]
+        'sidecar_files': [_file_payload(f) for f in entry.sidecar_files],
+        'figure_preview': entry.primary_file.path
         if entry.primary_file and entry.primary_file.kind == 'image'
-        else [],
-        'table_preview': entry.primary_file.path
-        if entry.primary_file and entry.primary_file.kind == 'table'
         else None,
-        JSONKeys.CO_OUTPUTS: [_co_output_payload(e, entry) for e in entry.co_outputs],
+        'table_preview': entry.primary_file.path if entry.primary_file and entry.primary_file.kind == 'table' else None,
+        'co_outputs': [_co_output_payload(e, entry) for e in entry.co_outputs],
         'same_instance_runs': [_same_instance_run_payload(s) for s in (same_instance_runs or [])],
         'rows': [_row_payload(r) for r in entry.rows],
         'params_tree': format_json(entry.params),
@@ -409,7 +407,7 @@ def _dep_version_sibling_payload(entry: EntryInfo, vreg: VersionRegistry, *, is_
         'version_id': version.version_id if version else None,
         'version_label': vreg.label(version) if version else None,
         'is_self': is_self,
-        SpecKeys.SPEC: _spec_payload(entry.spec),
+        'spec': _spec_payload(entry.spec),
     }
 
 

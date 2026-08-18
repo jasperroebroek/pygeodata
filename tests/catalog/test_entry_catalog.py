@@ -217,6 +217,37 @@ def test_enrich_params_path_fields(tmp_path):
     assert entry4.primary_file is None
 
 
+def test_enrich_params_path_sidecar_files_surfaced(tmp_path):
+    """A Table entry's declared .html output is primary; a sibling .csv is a sidecar,
+    not silently dropped (guards the entry_catalog.py primary-file-selection fix).
+    """
+    d = tmp_path / 'tables' / 'MyTable'
+    params_path = write_cache_entry(
+        d,
+        'my_table',
+        state={JSONKeys.CLASS_NAME: 'MyTable', JSONKeys.STATE_HASH: 'abc', JSONKeys.OBJECT_TYPE: 'Table'},
+        output_ext='html',
+    )
+    (d / 'my_table.csv').write_bytes(b'a,b\n1,2\n')
+
+    entry = _enrich_params_path(params_path)
+    assert entry.primary_file is not None
+    assert entry.primary_file.label == 'my_table.html'
+    assert [f.label for f in entry.sidecar_files] == ['my_table.csv']
+
+
+def test_enrich_params_path_no_sidecars_when_single_output(tmp_path):
+    d = tmp_path / 'data_processed' / 'MyLoader5'
+    params_path = write_cache_entry(
+        d,
+        'abc',
+        state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'},
+        output_ext='tif',
+    )
+    entry = _enrich_params_path(params_path)
+    assert entry.sidecar_files == []
+
+
 def test_enrich_params_path_co_output_hashes(tmp_path):
     d = tmp_path / 'data_processed' / 'MyLoader'
     params_path = write_cache_entry(

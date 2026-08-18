@@ -1,3 +1,6 @@
+from pathlib import Path
+
+from pygeodata.paths import classify_file
 from pygeodata.spec import SpatialSpec
 from tests.fixtures.data import EmptyLoader, LoaderA, LoaderB, LoaderC, LoaderD
 
@@ -33,3 +36,11 @@ def test_parameterless_loader_hash() -> None:
     h = EmptyLoader().get_instance_hash()
     assert isinstance(h, str)
     assert len(h) == 64
+
+
+def test_classify_file_html_is_table() -> None:
+    assert classify_file(Path('x/preview.html')) == 'table'
+
+
+def test_classify_file_png_is_image() -> None:
+    assert classify_file(Path('x/plot.png')) == 'image'

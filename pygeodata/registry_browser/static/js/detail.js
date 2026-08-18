@@ -4,7 +4,7 @@
  * Entry detail pane + JSON explorer.
  */
 
-import { $, esc, badge, _RASTER_EXTS, _fileExt, buildBoundsMapUrl, toast, lastDashboard } from './utils.js';
+import { $, esc, badge, typeBadgeClass, _RASTER_EXTS, _fileExt, buildBoundsMapUrl, toast, lastDashboard } from './utils.js';
 import { state, BOOLEAN_TARGETS } from './state.js';
 import { fileURL, fetchJsonPopup, fetchSourcePopup, fetchGraphPopup, openPath, revealPath, downloadSingleEntry, deleteEntry } from './api.js';
 
@@ -604,7 +604,7 @@ function buildClassCard(detail) {
       ? `<span class="badge badge--sm badge-deps" title="An upstream dependency changed since last run — Source and Graph reflect current code, not the registry snapshot">stale</span>` : "",
   ].filter(Boolean).join(" ");
 
-  const typeBadge = detail.object_type ? `${badge(detail.object_type, "badge-neutral")}` : "";
+  const typeBadge = detail.object_type ? `${badge(detail.object_type, typeBadgeClass(detail.object_type))}` : "";
 
   return `
     <div class="dcard">
@@ -652,15 +652,26 @@ function buildEntryCard(entry) {
         : "")}
     </div>`;
 
+  const sidecars = entry.sidecar_files ?? [];
+
   const fileRow = entry.primary_file
     ? `<div class="entry-file-row">
-        <span class="entry-file-name">${esc(entry.primary_file.label)}</span>
+        <span class="entry-file-name ${sidecars.length ? "entry-file-name--primary" : ""}">${esc(entry.primary_file.label)}</span>
         ${!_RASTER_EXTS.has(_fileExt(entry.primary_file.path))
           ? `<button class="act-btn js-open"   data-path="${esc(entry.primary_file.path)}">Open</button>`
           : ""}
         <button class="act-btn js-reveal" data-path="${esc(entry.primary_file.path)}">Reveal</button>
         <button class="act-btn js-copy"   data-path="${esc(entry.primary_file.path)}">Copy path</button>
-      </div>`
+      </div>
+      ${sidecars.map((f) => `
+      <div class="entry-file-row entry-file-row--sidecar">
+        <span class="entry-file-name">${esc(f.label)}</span>
+        ${!_RASTER_EXTS.has(_fileExt(f.path))
+          ? `<button class="act-btn js-open"   data-path="${esc(f.path)}">Open</button>`
+          : ""}
+        <button class="act-btn js-reveal" data-path="${esc(f.path)}">Reveal</button>
+        <button class="act-btn js-copy"   data-path="${esc(f.path)}">Copy path</button>
+      </div>`).join("")}`
     : "";
 
   // Header actions: internal file buttons + hash chip
@@ -721,8 +732,8 @@ function buildEntryCard(entry) {
 
 function buildFigureCard(entry) {
   if (!entry) return "";
-  const previews = entry.figure_previews ?? [];
-  if (!previews.length) return "";
+  const path = entry.figure_preview;
+  if (!path) return "";
   return `
     <div class="dcard dcard--figure">
       <div class="dcard-hd">
@@ -730,16 +741,12 @@ function buildFigureCard(entry) {
           <span class="dcard-hd-label">Preview</span>
         </div>
         <div class="dcard-hd-actions">
-          <button class="act-btn js-open" data-path="${esc(previews[0])}">Open</button>
+          <button class="act-btn js-open" data-path="${esc(path)}">Open</button>
         </div>
       </div>
       <div class="dcard-body dcard-body--fig">
         <div class="fig-preview">
-          ${previews.map((p, i) =>
-            `<img class="js-img ${i === 0 ? "fig-main" : "fig-thumb"}"
-                  data-path="${esc(p)}" src="${fileURL(p)}" alt=""
-                  loading="${i === 0 ? "eager" : "lazy"}">`
-          ).join("")}
+          <img class="js-img fig-main" data-path="${esc(path)}" src="${fileURL(path)}" alt="" loading="eager">
         </div>
       </div>
     </div>`;
@@ -1020,7 +1027,7 @@ export function renderEntryPills(rows) {
         <span class="entry-pill-name">${esc(r.class_name)}${staleDot}</span>
         <span class="entry-pill-right">
           ${tinyHash ? `<span class="entry-pill-hash">${esc(tinyHash)}</span>` : ""}
-          ${badge(r.object_type, "badge-neutral")}
+          ${badge(r.object_type, typeBadgeClass(r.object_type))}
           ${flags}
         </span>
       </div>`;

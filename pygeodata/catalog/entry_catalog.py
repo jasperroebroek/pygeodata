@@ -10,6 +10,7 @@ from pygeodata.catalog.types import (
     SpecInfo,
 )
 from pygeodata.config import FORMAT_VERSION, dashboard_cache_path
+from pygeodata.figure import Figure
 from pygeodata.paths import (
     CACHE_DIR_SUFFIXES,
     CACHE_META_FILES,
@@ -21,6 +22,7 @@ from pygeodata.registries.registry import EntryRegistry
 from pygeodata.registries.registry_types import EntryRecord
 from pygeodata.registries.versioning import VersionRegistry
 from pygeodata.spec import SpatialSpec
+from pygeodata.table import Table
 from pygeodata.tracked_object import TrackedObject
 
 
@@ -57,6 +59,11 @@ def _save_disk_cache(results: dict[str, dict], mtimes: dict[str, float], dirty: 
 # ---------------------------------------------------------------------------
 
 
+#: Fixed extension per artifact family, for entries whose own class is not imported. `Data` is
+#: absent deliberately: it resolves its extension from a driver, so there is no default.
+_FAMILY_EXT: dict[str, str] = {'Figure': Figure.ext, 'Table': Table.ext}
+
+
 def _is_output_file(path: Path) -> bool:
     if path.name in CACHE_META_FILES:
         return False
@@ -65,12 +72,54 @@ def _is_output_file(path: Path) -> bool:
     return path.is_file()
 
 
-def _find_primary_file(resolver: CachePathConstructor) -> FileRef | None:
-    for path in resolver.directory.iterdir():
-        if not _is_output_file(path):
-            continue
-        return FileRef(label=path.name, path=str(path.resolve()), kind=classify_file(path))
-    return None
+def _preferred_ext(class_name: str | None, object_type: str | None) -> str | None:
+    """The extension this entry's output is expected to carry, or None if unknown.
+
+    The class's own `ext` is the authority, but it is reachable only once the project's classes
+    are imported, and `Data` leaves it None to be resolved from a driver. The `object_type` in
+    meta.json is always recorded, so the family default stands in — only the concrete subclasses
+    register themselves, so the families are named here rather than looked up.
+    """
+    obj_cls = TrackedObject.find_object_class(class_name) if class_name else None
+    ext = getattr(obj_cls, 'ext', None)
+
+    if ext is None:
+        ext = _FAMILY_EXT.get(object_type)
+
+    return f'.{ext}'.lower() if isinstance(ext, str) else None
+
+
+def _find_primary_and_sidecar_files(
+    resolver: CachePathConstructor,
+    class_name: str | None = None,
+    object_type: str | None = None,
+) -> tuple[FileRef | None, list[FileRef]]:
+    """The entry's main output, preferring the file whose suffix the class declares, plus
+    every other output file in the directory as sidecars.
+
+    A `_process` may write sidecars beside its declared output — a CSV next to a rendered HTML
+    table, say. Taking whatever `iterdir` yields first picks between them by filesystem order,
+    so one entry is classified 'table' and the next 'file' for the same class. Sorting breaks
+    the tie deterministically; the declared extension breaks it correctly. The remaining
+    candidates are not primary-file material but are still real outputs, so they are returned
+    as sidecars rather than silently dropped.
+    """
+    candidates = sorted(
+        (p for p in resolver.directory.iterdir() if _is_output_file(p)),
+        key=lambda p: p.name,
+    )
+    if not candidates:
+        return None, []
+
+    ext = _preferred_ext(class_name, object_type)
+    path = next((p for p in candidates if p.suffix.lower() == ext), candidates[0])
+    primary = FileRef(label=path.name, path=str(path.resolve()), kind=classify_file(path))
+    sidecars = [
+        FileRef(label=p.name, path=str(p.resolve()), kind=classify_file(p))
+        for p in candidates
+        if p != path
+    ]
+    return primary, sidecars
 
 
 def _enrich_params_path(params_path: Path, record: EntryRecord | None = None) -> EntryInfo:
@@ -90,8 +139,6 @@ def _enrich_params_path(params_path: Path, record: EntryRecord | None = None) ->
     params = json.loads(params_path.read_text(encoding='utf-8')) if params_path.exists() else {}
     spec = json.loads(resolver.spec_path.read_text(encoding='utf-8')) if resolver.spec_path.exists() else {}
 
-    primary_file = _find_primary_file(resolver)
-
     linked_entries: list[LinkedEntry] = []
     rows = flatten_params(params, linked_entries=linked_entries)
 
@@ -108,6 +155,8 @@ def _enrich_params_path(params_path: Path, record: EntryRecord | None = None) ->
     format_version = record.format_version if record else FORMAT_VERSION
 
     object_type = record.object_type if record else None
+
+    primary_file, sidecar_files = _find_primary_and_sidecar_files(resolver, class_name, object_type)
 
     warnings: list[str] = []
     if not state_hash:
@@ -132,6 +181,7 @@ def _enrich_params_path(params_path: Path, record: EntryRecord | None = None) ->
         linked_entries=linked_entries,
         co_output_hashes=co_output_hashes,
         primary_file=primary_file,
+        sidecar_files=sidecar_files,
         warnings=warnings,
         format_version=format_version,
         dep_hash=stored_dep_hash,

@@ -249,6 +249,16 @@ def test_entry_not_visible_wrong_kind():
     assert not _visible(entry, kind_filter='figure')
 
 
+def test_entry_visible_table_kind_matches():
+    entry = make_entry(object_type='table')
+    assert _visible(entry, kind_filter='table')
+
+
+def test_entry_not_visible_table_kind_excludes_others():
+    entry = make_entry(object_type='data')
+    assert not _visible(entry, kind_filter='table')
+
+
 def test_entry_visible_selected_class_overrides_kind_filter():
     # selected class bypasses kind filter
     entry = make_entry(class_name='MyLoader', object_type='data')
@@ -601,7 +611,7 @@ def test_build_detail_payload_figure_preview():
         selected_classes=[],
         vreg=state.version_registry,
     )
-    assert detail['selected_entry']['figure_previews'] == ['/data/fig.png']
+    assert detail['selected_entry']['figure_preview'] == '/data/fig.png'
 
 
 def test_build_detail_payload_no_preview_for_non_image():
@@ -615,7 +625,56 @@ def test_build_detail_payload_no_preview_for_non_image():
         selected_classes=[],
         vreg=state.version_registry,
     )
-    assert detail['selected_entry']['figure_previews'] == []
+    assert detail['selected_entry']['figure_preview'] is None
+
+
+def test_build_detail_payload_table_preview():
+    file_ref = FileRef(label='preview.html', path='/data/preview.html', kind='table')
+    entry = make_entry(record_id='rec1', class_name='MyTable', primary_file=file_ref)
+    cls = make_class_info('MyTable')
+    state = make_state(entries={'rec1': entry}, classes={'MyTable': cls})
+    detail = _build_detail_payload(
+        state=state,
+        selected_entry_info=entry,
+        selected_classes=[],
+        vreg=state.version_registry,
+    )
+    assert detail['selected_entry']['table_preview'] == '/data/preview.html'
+    assert detail['selected_entry']['figure_preview'] is None
+
+
+def test_build_detail_payload_no_table_preview_for_non_table():
+    file_ref = FileRef(label='fig.png', path='/data/fig.png', kind='image')
+    entry = make_entry(record_id='rec1', class_name='MyLoader', primary_file=file_ref)
+    cls = make_class_info('MyLoader')
+    state = make_state(entries={'rec1': entry}, classes={'MyLoader': cls})
+    detail = _build_detail_payload(
+        state=state,
+        selected_entry_info=entry,
+        selected_classes=[],
+        vreg=state.version_registry,
+    )
+    assert detail['selected_entry']['table_preview'] is None
+
+
+def test_build_detail_payload_co_outputs_key_matches_frontend():
+    """Guards a real bug: the payload key must be 'co_outputs' (what detail.js reads via
+    entry.co_outputs), not 'co_output_hashes' (JSONKeys.CO_OUTPUTS' value, which was
+    previously used here by mistake and made the co-outputs card silently never render)."""
+    co_entry = make_entry(record_id='co1', class_name='CoLoader')
+    entry = make_entry(record_id='rec1', class_name='MyLoader', co_outputs=[co_entry])
+    cls = make_class_info('MyLoader')
+    state = make_state(entries={'rec1': entry}, classes={'MyLoader': cls})
+    detail = _build_detail_payload(
+        state=state,
+        selected_entry_info=entry,
+        selected_classes=[],
+        vreg=state.version_registry,
+    )
+    assert 'co_outputs' in detail['selected_entry']
+    assert len(detail['selected_entry']['co_outputs']) == 1
+    assert detail['selected_entry']['co_outputs'][0]['class_name'] == 'CoLoader'
+    assert 'co_output_hashes' not in detail['selected_entry']
 
 
 def test_build_detail_payload_linked_entries():

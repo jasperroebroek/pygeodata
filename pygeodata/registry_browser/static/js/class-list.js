@@ -5,7 +5,7 @@
  * _showEmptyClasses, _multiSelectEnabled.
  */
 
-import { $, $$, esc, badge } from './utils.js';
+import { $, $$, esc, badge, typeBadgeClass } from './utils.js';
 import { state } from './state.js';
 import { _viewMode, _topView, pushHistory } from './nav.js';
 
@@ -65,7 +65,7 @@ export function renderClassList(classCards) {
           <span class="class-card-name">${esc(c.class_name)}${dot}</span>
           <span class="class-card-meta">
             <span class="class-card-count">${c.visible_record_count}/${c.total_record_count}</span>
-            ${badge(c.object_type, "badge-neutral")}
+            ${badge(c.object_type, typeBadgeClass(c.object_type))}
           </span>
         </div>`;
     })

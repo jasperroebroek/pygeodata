@@ -85,6 +85,12 @@ def test_allowed_roots_includes_registry(tmp_path: Path) -> None:
     assert any(str(tmp_path / '.source') in str(r) for r in roots)
 
 
+def test_allowed_roots_includes_tables(tmp_path: Path) -> None:
+    with set_config(path_tables=tmp_path / 'tables'):
+        roots = _allowed_roots()
+    assert any(str(tmp_path / 'tables') in str(r) for r in roots)
+
+
 # --- _assert_allowed_path ---
 
 
@@ -174,6 +180,22 @@ def test_api_popup_json_outside_root_forbidden(client, tmp_path: Path) -> None:
     outside.write_text('{}')
     resp = client.get(f'/api/popup/json?path={outside}')
     assert resp.status_code == 403
+
+
+def test_api_file_serves_table_html(client, tmp_path: Path, app) -> None:
+    with app.app_context():
+        roots = _allowed_roots()
+    tables_root = next((r for r in roots if 'tables' in str(r)), None)
+    if tables_root is None:
+        pytest.skip('No tables root available')
+
+    tables_root.mkdir(parents=True, exist_ok=True)
+    f = tables_root / 'preview.html'
+    f.write_text('<table><tr><td>1</td></tr></table>')
+
+    resp = client.get(f'/api/file?path={f}')
+    assert resp.status_code == 200
+    assert b'<table>' in resp.data
 
 
 def test_api_bounds_map_returns_html(client) -> None:

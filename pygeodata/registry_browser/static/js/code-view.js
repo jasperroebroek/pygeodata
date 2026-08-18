@@ -6,7 +6,7 @@
  * navigateToCodeClass, showView, and browse-mode wiring.
  */
 
-import { $, $$, esc, badge, toast, lastDashboard } from './utils.js';
+import { $, $$, esc, badge, typeBadgeClass, toast, lastDashboard } from './utils.js';
 import { _viewMode, _topView, setTopView, pushHistory, updateNavBtns } from './nav.js';
 import { renderClassList, toggleClass } from './class-list.js';
 import { state } from './state.js';
@@ -273,7 +273,7 @@ function renderCodeClassList() {
     return `
       <div class="code-class-item ${isActive ? 'active' : ''}" data-cls="${esc(c.class_name)}" data-hash="${esc(c.source_hash)}">
         <span class="code-class-name">${esc(c.class_name)}${staleDot}</span>
-        <span class="code-class-meta">${badge(c.object_type, 'badge-neutral')}</span>
+        <span class="code-class-meta">${badge(c.object_type, typeBadgeClass(c.object_type))}</span>
       </div>`;
   }).join('');
 
@@ -355,7 +355,7 @@ function renderCodeClassFirstList() {
     return `
       <div class="code-class-item ${isActive ? 'active' : ''}" data-cls="${esc(c.class_name)}" data-hash="${esc(c.source_hash)}">
         <span class="code-class-name">${esc(c.class_name)}${staleDot}</span>
-        <span class="code-class-meta">${badge(c.object_type, 'badge-neutral')}</span>
+        <span class="code-class-meta">${badge(c.object_type, typeBadgeClass(c.object_type))}</span>
       </div>`;
   }).join('');
 

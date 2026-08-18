@@ -71,6 +71,24 @@ def test_import_cache_hash_json_also_extracted(tmp_path: Path) -> None:
     assert (dest_dir / 'meta.json').exists()
 
 
+def test_import_cache_table_lands_in_tables_root(tmp_path: Path) -> None:
+    """Guards cli.py:60 — a Table entry must resolve to path_tables, not be dropped silently."""
+    hash_dir = 'abc123'
+    archive = _make_tar(
+        tmp_path,
+        {
+            f'cache/{hash_dir}/meta.json': _meta_json('SummaryTable', object_type='Table'),
+            f'cache/{hash_dir}/summary_table.html': b'<table></table>',
+        },
+    )
+
+    _invoke(archive)
+
+    dest_dir = get_config().path_tables / hash_dir
+    assert (dest_dir / 'summary_table.html').exists()
+    assert not (get_config().path_cache / hash_dir).exists()
+
+
 def test_import_cache_unknown_object_type_skipped(tmp_path: Path) -> None:
     hash_dir = 'abc123'
     archive = _make_tar(

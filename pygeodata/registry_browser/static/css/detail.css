@@ -111,6 +111,15 @@
   white-space: nowrap;
 }
 
+.entry-file-name--primary {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.entry-file-row--sidecar {
+  opacity: 0.85;
+}
+
 .entry-warnings {
   border-top: 1px solid var(--border);
   padding: 8px 14px;

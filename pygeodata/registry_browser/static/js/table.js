@@ -4,7 +4,7 @@
  * Main entries table — renderTable, incremental rendering, PAGE_ENTRIES, scroll logic.
  */
 
-import { $, esc, softBreak, badge } from './utils.js';
+import { $, esc, softBreak, badge, typeBadgeClass } from './utils.js';
 import { state } from './state.js';
 import { _viewMode } from './nav.js';
 import { downloadSingleEntry } from './api.js';
@@ -60,7 +60,7 @@ export function _buildRowsHtml(rows, start, maxEntries) {
               ${cartBtn}${dlBtn}
               <span class="cell-entry-left">
                 <span class="entry-cls">${esc(r.class_name)}</span>
-                <span class="badge badge--sm badge-neutral">${esc(r.object_type)}</span>
+                <span class="badge badge--sm ${typeBadgeClass(r.object_type)}">${esc(r.object_type)}</span>
                 ${staleness}${warns}${err}
               </span>
               <span class="cell-entry-spec">${specParts}</span>

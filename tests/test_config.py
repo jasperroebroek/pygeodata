@@ -18,6 +18,16 @@ def test_multiple_fields_overridden_simultaneously(tmp_path: Path) -> None:
         assert cfg.num_threads == 8
 
 
+def test_cache_roots_contains_all_three_roots() -> None:
+    cfg = Config()
+    assert set(cfg.cache_roots) == {cfg.path_cache, cfg.path_tables, cfg.path_figures}
+
+
+def test_cache_roots_deduplicates_coincident_paths(tmp_path: Path) -> None:
+    with set_config(path_tables=tmp_path, path_figures=tmp_path) as cfg:
+        assert cfg.cache_roots.count(tmp_path) == 1
+
+
 def test_set_config_restores_all_fields_after_exit(tmp_path: Path) -> None:
     original_cache = get_config().path_cache
     original_threads = get_config().num_threads
@@ -65,6 +75,7 @@ def test_get_config_returns_singleton() -> None:
 def test_config_defaults() -> None:
     cfg = Config()
     assert cfg.path_cache == Path('data_processed')
+    assert cfg.path_tables == Path('tables')
     assert cfg.path_figures == Path('figures')
     assert cfg.path_registry == Path('.source')
     assert cfg.num_threads == 1

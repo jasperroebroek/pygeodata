@@ -726,7 +726,7 @@ def snapshot_version(registry_path: str | None, dep_hash: str) -> None:
     '--type',
     'type_filter',
     default=None,
-    help='Filter to one object type, e.g. DATA or FIGURE.',
+    help='Filter to one object type: Data, Table, Figure, or TrackedObject (case-insensitive).',
 )
 @click.option('--hide-current', is_flag=True, default=False, help='Omit classes with no staleness.')
 @_full_hash_option
@@ -1142,6 +1142,8 @@ def entry_show(
         click.echo()
         if entry_info and entry_info.primary_file:
             click.echo(f'Output       {entry_info.primary_file.path}')
+        for f in (entry_info.sidecar_files if entry_info else []):
+            click.echo(f'Sidecar      {f.path}')
         click.echo(f'Params path  {resolver.params_path}')
         click.echo(f'Hash path    {rec.hash_path}')
         if resolver.spec_path.exists():

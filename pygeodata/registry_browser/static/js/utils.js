@@ -51,6 +51,11 @@ export function badge(text, cls = "badge-accent") {
     : `<span class="kv-nil">unknown</span>`;
 }
 
+export const typeBadgeClass = (t) => {
+  const k = (t ?? "").toLowerCase();
+  return ["data", "table", "figure"].includes(k) ? `badge-type-${k}` : "badge-neutral";
+};
+
 export const _RASTER_EXTS = new Set([".tif", ".tiff", ".nc", ".vrt", ".npy", ".zarr"]);
 export const _fileExt = (p) => p.slice(p.lastIndexOf(".")).toLowerCase();
 

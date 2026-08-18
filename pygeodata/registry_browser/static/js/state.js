@@ -14,7 +14,7 @@ export const state = {
   select_mode: false,           // whether + icons are visible in entries view
 
   // --- filters -------------------------------------------------------------
-  kind_filter:  "all",     // "all" | "data" | "figure"
+  kind_filter:  "all",     // "all" | "data" | "table" | "figure"
   logic_mode:   "AND",     // "AND" | "OR" | "NOT"
   row_display:  "all",     // "selected" | "all" | "none"
   hide_stale:   false,     // when true, stale entries are excluded

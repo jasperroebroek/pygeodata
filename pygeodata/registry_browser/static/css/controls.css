@@ -270,6 +270,10 @@
 .badge-cache    { border-color: var(--border);      color: var(--muted);  background: var(--s2); }
 .badge-deps     { border-color: #a0bdd0;            color: #4a7a9b;       background: #e8f0f5; }
 
+.badge-type-data   { border-color: #a8bad3; color: #3f5876; background: #e8eef6; }
+.badge-type-table  { border-color: #a9c2a3; color: #46683f; background: #eaf2e8; }
+.badge-type-figure { border-color: #c0a5bf; color: #6d4a6c; background: #f2eaf2; }
+
 /* Inline status dot — used in class list cards and entry pill names */
 .status-dot {
   display: inline-block;
