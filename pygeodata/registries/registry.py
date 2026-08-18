@@ -221,7 +221,7 @@ class EntryRegistry:
     :func:`pygeodata.registry_browser.entry_catalog.discover_entries`.
 
     ``paths`` sets the cache roots to scan.  When omitted, defaults to
-    ``[config.path_cache, config.path_figures]``.
+    :attr:`config.cache_roots <pygeodata.config.Config.cache_roots>`.
     """
 
     def __init__(self, paths: list[Path] | None = None) -> None:
@@ -238,8 +238,7 @@ class EntryRegistry:
     def _cache_resolver(self) -> CachePathResolver:
         if self._paths is not None:
             return CachePathResolver(tuple(self._paths))
-        cfg = get_config()
-        return CachePathResolver((cfg.path_cache, cfg.path_figures))
+        return CachePathResolver(get_config().cache_roots)
 
     def diagnostics(self) -> dict:
         return {

@@ -5,7 +5,6 @@ import shutil
 from collections.abc import Iterator
 from pathlib import Path
 
-from pygeodata.artifact import Artifact
 from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config
 from pygeodata.paths import CachePathConstructor
 from pygeodata.registries.registry_types import EntryRecord
@@ -193,8 +192,7 @@ def clean_cache(
         reported as current even though the runtime correctly recomputes it. Entries with no
         ``parameters.json`` are reported as stale under this check.
     """
-    for family in Artifact.__subclasses__():
-        root = family.get_cache_root()
+    for root in get_config().cache_roots:
         if not root.exists():
             continue
 

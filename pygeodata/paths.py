@@ -65,8 +65,7 @@ class CachePathResolver:
     roots: tuple[Path] | None = None
 
     def glob_meta_paths(self) -> Generator[Path, None, None]:
-        cfg = get_config()
-        roots = (cfg.path_cache, cfg.path_figures) if self.roots is None else self.roots
+        roots = get_config().cache_roots if self.roots is None else self.roots
         for root in roots:
             if root.exists():
                 yield from root.rglob('meta.json')

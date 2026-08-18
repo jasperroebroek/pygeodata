@@ -13,7 +13,6 @@ from pathlib import Path
 
 from flask import Flask, abort, jsonify, render_template, request, send_file
 
-from pygeodata.artifact import Artifact
 from pygeodata.cache import clean_cache, clean_source_registry
 from pygeodata.config import get_config
 from pygeodata.registry_browser import code_service, export_service, payloads
@@ -37,9 +36,8 @@ app.json.sort_keys = False
 
 
 def _allowed_roots() -> list[Path]:
-    roots = [family.get_cache_root() for family in Artifact.__subclasses__()]
-    roots.append(get_config().path_registry)
-    return roots
+    cfg = get_config()
+    return [*cfg.cache_roots, cfg.path_registry]
 
 
 def _assert_allowed_path(path_str: str) -> Path | None:

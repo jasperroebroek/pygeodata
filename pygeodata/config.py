@@ -12,6 +12,7 @@ from pygeodata.spec import SpatialSpec
 @dataclass
 class Config:
     path_cache: Path = Path('data_processed')
+    path_tables: Path = Path('tables')
     path_figures: Path = Path('figures')
     path_registry: Path = Path('.source')
     num_threads: int = 1
@@ -28,6 +29,10 @@ class Config:
         '.tmp',
         '~',
     )
+
+    @property
+    def cache_roots(self) -> tuple[Path, ...]:
+        return tuple({self.path_cache, self.path_tables, self.path_figures})
 
     def update(self, **kwargs) -> None:
         for key, value in kwargs.items():
