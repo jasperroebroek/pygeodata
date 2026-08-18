@@ -36,6 +36,7 @@ Core classes
    :toctree: generated/
 
    pygeodata.data.Data
+   pygeodata.table.Table
    pygeodata.figure.Figure
    pygeodata.artifact.Artifact
    pygeodata.tracked_object.TrackedObject
@@ -44,6 +45,15 @@ Data
 ----
 
 .. autoclass:: pygeodata.data.Data
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :no-index:
+
+Table
+-----
+
+.. autoclass:: pygeodata.table.Table
    :members:
    :undoc-members:
    :show-inheritance:

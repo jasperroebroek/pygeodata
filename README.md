@@ -33,7 +33,7 @@ slope     = load(SlopeLoader())
 
 ## How it works
 
-Every `Data` or `Figure` class is fingerprinted by hashing the AST of its source code, the ASTs of all its transitive dependencies, and its parameter values. That fingerprint, combined with the spatial spec, is the cache key. If it matches what's on disk, the cached file is returned. If not, the class is reprocessed and the new fingerprint is written.
+Every `Data`, `Table`, or `Figure` class is fingerprinted by hashing the AST of its source code, the ASTs of all its transitive dependencies, and its parameter values. That fingerprint, combined with the spatial spec, is the cache key. If it matches what's on disk, the cached file is returned. If not, the class is reprocessed and the new fingerprint is written.
 
 The hash is AST-based, not text-based: reformatting your code or editing a comment never triggers a rerun.
 
@@ -54,6 +54,13 @@ data_processed/
     parameters.json                 ← params at time of run
     spec.json                       ← spec at time of run
 
+tables/
+  {state_hash}/
+    summary_table.html              ← rendered output (Table's ext)
+    meta.json
+    parameters.json
+    spec.json
+
 .source/
   code/{source_hash}/
     source.py                       ← every version of every class
@@ -65,7 +72,7 @@ data_processed/
 
 ## Defining loaders
 
-Subclass `Data` for datasets, `Figure` for plots. Use a `processor` property for standard reprojection/rasterization, or override `_process` directly for anything else. Parameters are plain instance attributes — dataclasses work perfectly.
+Subclass `Data` for datasets, `Figure` for plots, `Table` for rendered summary tables. Use a `processor` property for standard reprojection/rasterization, or override `_process` directly for anything else. Parameters are plain instance attributes — dataclasses work perfectly.
 
 ```python
 # Delegate to the built-in Reprojector
@@ -159,6 +166,8 @@ class RegressionLoader(Data):
 
 `Figure` works identically to `Data` — same caching, same hashing, same registry — but outputs go to `figures/` and the default extension is `png`. There is no `load()` method; figures are outputs only.
 
+`Table` is the same kind of class as `Figure` — outputs go to `tables/`, default extension `html`, no `load()`. A `Table` subclass's `_process` loads whatever `Data` it wants to summarise and writes the rendered HTML itself, typically `df.to_html()`. The registry browser renders that HTML directly in the entry's detail pane, the same way it renders a `Figure`'s PNG.
+
 ```python
 @dataclass
 class FigureElevation(Figure):
@@ -193,7 +202,7 @@ clean_cache(dry_run=True)    # preview what would be deleted
 clean_cache(dry_run=False)   # delete stale entries
 ```
 
-`clean_cache` walks `data_processed/` and `figures/` and removes any directory whose state hash no longer matches the live hash of the corresponding class. Classes that have been renamed or removed from the codebase are flagged for manual confirmation.
+`clean_cache` walks `data_processed/`, `tables/`, and `figures/` and removes any directory whose state hash no longer matches the live hash of the corresponding class. Classes that have been renamed or removed from the codebase are flagged for manual confirmation.
 
 A `TrackedObject` subclass passed as a *parameter* never enters the dependency tree, so the default check reports such an entry as current even when the pipeline correctly rebuilds it. Pass `check_class_params=True` to validate those too — it is opt-in because an entry whose `parameters.json` is missing then counts as stale.
 

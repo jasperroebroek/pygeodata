@@ -14,8 +14,8 @@ This tutorial covers:
   output path
 - ``resolve_spec`` — when and why to call it from within ``_process``
 - Co-outputs: yielding sibling artifacts from a single ``_process`` run
-- ``Figure``: same pattern, stores to ``path_figures`` instead of
-  ``path_cache``
+- ``Figure`` and ``Table``: the same pattern, storing to ``path_figures`` /
+  ``path_tables`` instead of ``path_cache``
 
 Overriding \_process
 --------------------
@@ -92,30 +92,33 @@ caches all three. Subsequent calls on any sibling are no-ops.
 The registry browser groups co-output siblings together in the entry
 detail panel (see :doc:`08_registry_browser`).
 
-Figure
-------
+Figure and Table
+----------------
 
-``Figure`` is a sibling base class to ``Data``. It follows identical
-``_process`` / co-output semantics but stores outputs in
-``path_figures`` instead of ``path_cache``, and has ``ext = 'png'`` as
-its default.
+``Figure`` and ``Table`` are sibling base classes to ``Data``, and to each
+other — both subclass ``Artifact`` directly rather than ``Data``. They follow
+identical ``_process`` / co-output semantics but store outputs under their own
+cache root, have a fixed default ``ext``, and have no ``load()`` — the point of
+a ``Figure`` or ``Table`` is to be viewed in the registry browser, not read
+back into Python.
 
-==================== ======================== ==========================
-\                    ``Data``                 ``Figure``
-==================== ======================== ==========================
-Cache root           ``path_cache``           ``path_figures``
-Default ``ext``      None (must set)          ``'png'``
-``load()`` available Yes                      Yes (returns path content)
-Typical use          Rasters, vectors, arrays Plots, maps, diagrams
-==================== ======================== ==========================
+===================== ======================== ========================= ==========================
+\                     ``Data``                 ``Figure``                ``Table``
+===================== ======================== ========================= ==========================
+Cache root            ``path_cache``           ``path_figures``          ``path_tables``
+Default ``ext``       None (must set)          ``'png'``                 ``'html'``
+``load()`` available  Yes                      No                        No
+Typical use           Rasters, vectors, arrays Plots, maps, diagrams     Rendered summary tables
+===================== ======================== ========================= ==========================
 
-Use ``Figure`` for any visualisation output that should be cached
-alongside data outputs. The registry browser shows ``Figure`` entries
-alongside ``Data`` entries.
+Use ``Figure`` for a plot or map; use ``Table`` for a rendered HTML table —
+typically loading a ``Data`` class and calling ``.to_html()`` on the result
+inside ``_process``. Both show alongside ``Data`` entries in the registry
+browser, filterable by kind.
 
-Figure co-outputs
-~~~~~~~~~~~~~~~~~
+Figure and Table co-outputs
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The co-output pattern works identically for ``Figure``. For example, a
-single rendering pass that produces both a global map and a regional
-inset can yield both loaders from one ``_process``.
+The co-output pattern works identically for ``Figure`` and ``Table``. For
+example, a single rendering pass that produces both a global map and a
+regional inset can yield both loaders from one ``_process``.

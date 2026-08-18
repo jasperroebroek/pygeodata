@@ -23,7 +23,8 @@ clear error listing the candidates.
     │     Show staleness for all loaded and known classes, grouped by type.
     │     --import-all            Import all .py files from cwd first
     │     --verbose-import        Print each module imported (with --import-all)
-    │     --type TEXT             Filter to one object type: DATA or FIGURE
+    │     --type TEXT             Filter to one object type: Data, Table,
+    │                             Figure, or TrackedObject (case-insensitive)
     │     --hide-current          Omit classes with no staleness
     │     --full-hash             Print full source hashes
     │     --registry TEXT         Path to .source/ registry root

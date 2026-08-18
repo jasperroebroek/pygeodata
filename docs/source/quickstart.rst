@@ -39,6 +39,28 @@ Subclass :class:`~pygeodata.data.Data` and attach a ``processor``:
        def processor(self):
            return Reprojector(src_path=self.src)
 
+Define a table
+--------------
+
+:class:`~pygeodata.table.Table` renders a summary of your data as HTML — the
+same caching machinery as :class:`~pygeodata.data.Data`, but structurally like
+:class:`~pygeodata.figure.Figure`: fixed ``ext = 'html'``, its own cache root
+(``path_tables``), and no ``load()`` — the point of a ``Table`` is to be
+*viewed*, not read back into Python. A subclass loads whatever ``Data`` it
+wants to summarise and writes the rendered HTML itself:
+
+.. code-block:: python
+
+   from pygeodata import Table
+
+   class ElevationSummary(Table):
+       def _process(self, spec):
+           df = ElevationLoader().load(spec).to_dataframe()
+           self.ensure_processed_path(spec).write_text(df.describe().to_html())
+
+The registry browser renders the stored HTML directly in the entry's detail
+pane, the same way it renders a ``Figure``'s PNG.
+
 Process and load
 ----------------
 

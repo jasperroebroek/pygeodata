@@ -24,10 +24,12 @@
 
    .. autosummary::
    
+      ~Config.cache_roots
       ~Config.num_threads
       ~Config.path_cache
       ~Config.path_figures
       ~Config.path_registry
+      ~Config.path_tables
       ~Config.removable_system_files
       ~Config.removable_system_suffixes
       ~Config.spec

@@ -5,6 +5,8 @@
 /*.egg-info
 /.vscode
 /data_processed
+/tables
+/figures
 /build
 /.source
 /presentations

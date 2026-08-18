@@ -52,7 +52,7 @@ From Python:
    from pygeodata.registry_browser.serve import open_registry_browser
    open_registry_browser(port=8080)  # blocks
 
-The browser reads ``path_cache``, ``path_figures``, and
+The browser reads ``path_cache``, ``path_tables``, ``path_figures``, and
 ``path_registry`` as configured in the current session. No data leaves
 your machine.
 
@@ -63,7 +63,8 @@ The **Classes** tab lists every loader class that has at least one entry
 in ``.source/code/``. Each class card shows:
 
 - The class docstring
-- The object type (``Data`` or ``Figure``)
+- The object type (``Data``, ``Table``, or ``Figure``), colour-coded blue /
+  green / mauve
 - Count of cached entries: valid / total
 - A staleness indicator: green dot if all entries are valid, yellow if
   some are stale, red if all are stale
@@ -124,6 +125,13 @@ The search box filters by class name or parameter value. The sidebar on
 the left lets you show only entries from a specific class. Entries are
 rendered incrementally so large caches load without blocking the UI.
 
+The kind-filter row above the table — ``All | Data | Table | Figure`` — narrows
+the view to one object family. The **Code** view's own kind-filter row has a
+fifth ``Object`` tab for plain :class:`~pygeodata.tracked_object.TrackedObject`
+subclasses (processors, helpers). ``Object`` only appears there, not in the
+Entries view: those classes have source history but never produce cache
+entries, so an ``Object`` tab in the Entries view would always be empty.
+
 Entry detail panel
 ------------------
 
@@ -153,6 +161,22 @@ parameter (e.g. ``stat=mean`` vs ``stat=std``) and links to its own
 entry detail. Each sibling has its own state hash (they differ by
 parameters); every sibling's ``meta.json`` records the others in its
 ``co_output_hashes`` list.
+
+Preview card
+~~~~~~~~~~~~
+
+When the entry's primary output is an image (a ``Figure``) or a rendered HTML
+table (a ``Table``), the detail panel shows it inline — the PNG as an image,
+the HTML fetched and rendered directly in the panel using the browser's own
+styling (sticky header, row hover) rather than in an isolated frame. A
+**Show** button opens the same content full-size in a modal; **Open** opens
+the underlying file in the OS default application.
+
+If the entry's ``_process`` wrote extra files beside its primary output — a
+CSV sidecar next to a rendered HTML table, say — those sidecar files are
+listed under the primary file's row, each with its own Open / Reveal / Copy
+path actions. The primary file's name is shown in bold when sidecars are
+present, to distinguish it from the sidecars listed beneath it.
 
 Dependency graph
 ~~~~~~~~~~~~~~~~

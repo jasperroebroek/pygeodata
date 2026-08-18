@@ -1,6 +1,66 @@
 What's new
 ==========
 
+Version 0.3.0
+-------------
+
+**New Table class**
+
+- :class:`~pygeodata.table.Table` is a third artifact family, structurally a
+  sibling of :class:`~pygeodata.figure.Figure` rather than
+  :class:`~pygeodata.data.Data`: fixed ``ext = 'html'``, no ``load()``, no
+  driver. A ``Table`` subclass's ``_process`` loads whatever ``Data`` it wants
+  to summarise and writes the rendered HTML itself — typically
+  ``df.to_html()`` — and that HTML file *is* the stored artifact.
+
+- New ``path_tables`` config field (default ``Path('tables')``) — existing
+  projects will see a new top-level ``tables/`` directory appear the first
+  time a ``Table`` is processed. Repoint it with
+  ``set_config(path_tables=...)`` like any other cache root, and add it to
+  your ``.gitignore`` alongside ``data_processed/`` and ``figures/``.
+
+- New :attr:`~pygeodata.config.Config.cache_roots` property — the single
+  source of truth for "every root that holds cache entries," replacing four
+  call sites that previously enumerated ``path_cache``/``path_figures`` by
+  hand (or via a live-class walk). :func:`~pygeodata.cache.clean_cache`, the
+  registry browser's file sandbox, and the entry-hash scanner all read it.
+
+**Registry browser**
+
+- The Entries kind-filter row gains a ``Table`` tab: ``All | Data | Table |
+  Figure``. The Code view's kind-filter row gains a fifth ``Object`` tab for
+  plain :class:`~pygeodata.tracked_object.TrackedObject` subclasses
+  (processors, helpers) — Code-view only, since those classes have source
+  history but never produce cache entries.
+- ``object_type`` badges are now colour-coded per family (blue / green /
+  mauve for Data / Table / Figure) everywhere they appear — the sidebar, the
+  entries table, the entry detail card, and the Code view.
+- The entry detail panel renders a ``Table``'s stored HTML directly, styled
+  with the browser's own CSS (sticky header, row hover) rather than in an
+  isolated frame, with a **Show** button to open it full-size in a modal —
+  the same mechanism the existing figure preview uses for PNGs.
+- **Fix:** an entry whose ``_process`` wrote a sidecar file beside its primary
+  output (a CSV next to a rendered HTML table, say) had the sidecar silently
+  discarded — only one output file was ever tracked per entry. Sidecar files
+  are now surfaced in the detail panel beneath the primary file, which is
+  shown in bold when sidecars are present.
+- **Fix:** the co-outputs card's payload used the wrong dict key
+  (``co_output_hashes`` instead of the ``co_outputs`` the frontend reads), so
+  it has silently never rendered. Found while auditing the payload layer for
+  an unrelated cleanup.
+
+**CLI**
+
+- ``pygeodata classes --type`` now accepts ``table`` alongside
+  ``data``/``figure``/``trackedobject``; its help text lists all four values.
+- ``pygeodata entry show`` lists sidecar files under the primary output.
+
+No migration is needed for existing projects: ``Table`` is new, so no
+existing entry changes location. Reclassifying an existing ``Data`` subclass
+as a ``Table`` gets a new ``state_hash`` and a fresh computation into
+``tables/``, leaving the old entry orphaned under ``data_processed/`` for
+``clean-cache`` to collect — the normal behaviour for any class change.
+
 Version 0.2.1
 -------------
 

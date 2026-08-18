@@ -23,9 +23,10 @@ This tutorial covers:
 clean_cache
 -----------
 
-``clean_cache`` walks ``path_cache`` (and ``path_figures`` for
-``Figure`` outputs) and removes any directory whose cached hash no
-longer matches the live state. This happens when:
+``clean_cache`` walks every root in :attr:`~pygeodata.config.Config.cache_roots`
+— ``path_cache``, ``path_tables``, and ``path_figures`` — and removes any
+directory whose cached hash no longer matches the live state. This happens
+when:
 
 - The class or any of its dependencies was modified after the output was
   written
