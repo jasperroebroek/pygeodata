@@ -13,16 +13,6 @@ class Figure(Artifact):
     a deterministic, cached output file. Subclasses define how Figure is produced by
     implementing :meth:`_process` and/or providing a :attr:`processor`.
 
-    The caching system works as follows:
-
-    1. Each object computes a **state hash** from its class source code (via AST) and
-       its parameter values. This hash uniquely identifies the combination of logic and
-       inputs.
-    2. On :meth:`process`, the hash is compared against a hash file written
-       alongside the output. If they match, processing is skipped.
-    3. The source code registry (``.source/``) tracks the class AST hash on disk,
-       enabling detection of stale cache entries after code changes.
-
     Class Attributes
     ----------------
     _sort_params : tuple[str]

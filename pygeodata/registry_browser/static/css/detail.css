@@ -298,6 +298,69 @@
   cursor: pointer;
 }
 
+/* Table previews */
+.dcard-body--table {
+  padding: 0 !important;
+  overflow: auto;
+  max-height: 420px;
+}
+
+.tbl-preview {
+  padding: 10px 12px;
+}
+
+.tbl-preview-loading {
+  padding: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.tbl-preview table {
+  border-collapse: collapse;
+  border-spacing: 0;
+  border: 1px solid var(--faint);
+  font-size: 11px;
+  width: max-content;
+  min-width: 100%;
+}
+
+.tbl-preview th,
+.tbl-preview td {
+  border: none;
+}
+
+.tbl-preview thead th {
+  position: sticky;
+  top: 0;
+  background: var(--s2);
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.tbl-preview tbody th,
+.tbl-preview tbody td {
+  padding: 2px 8px;
+  border-bottom: 1px solid var(--border-s);
+  white-space: nowrap;
+  font-weight: 400;
+  text-align: left;
+}
+
+.tbl-preview tbody tr:last-child th,
+.tbl-preview tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.tbl-preview tbody th {
+  color: var(--muted);
+  text-align: right;
+}
+
+.tbl-preview tbody tr:hover {
+  background: var(--s2);
+}
+
 /* Files card */
 .dcard-body--files {
   display: flex;

@@ -455,6 +455,14 @@ export function bindFileActions(root) {
       if (mi) bindZoom(mi);
     };
   });
+
+  root.querySelectorAll(".js-table-show").forEach((btn) => {
+    btn.onclick = () => {
+      const wrap = btn.closest(".dcard--table")?.querySelector(".tbl-preview");
+      if (!wrap) return;
+      openModal("Preview", `<div class="tbl-preview">${wrap.innerHTML}</div>`);
+    };
+  });
 }
 
 
@@ -516,19 +524,21 @@ export function renderDetail(detail) {
   const classCard      = buildClassCard(detail);
   const entryCard      = buildEntryCard(detail.selected_entry);
   const figureCard     = buildFigureCard(detail.selected_entry);
+  const tableCard      = buildTablePreviewCard(detail.selected_entry);
   const coOutputsCard  = buildCoOutputsCard(detail.selected_entry);
   const sameSpecCard   = buildSameSpecSiblingsCard(detail.selected_entry);
   const linkedCard     = buildLinkedEntriesCard(detail.selected_entry);
   const depVersionsCard = buildDepVersionsCard(detail);
   const paramsCard      = buildParamsCard(detail.selected_entry);
 
-  el.innerHTML = [figureCard, classCard, entryCard, coOutputsCard, sameSpecCard, linkedCard, depVersionsCard, paramsCard].join("");
+  el.innerHTML = [figureCard, tableCard, classCard, entryCard, coOutputsCard, sameSpecCard, linkedCard, depVersionsCard, paramsCard].join("");
 
   // Re-bind JSON explorer toggles (lost when using innerHTML/outerHTML)
   el.querySelectorAll(".jx-toggle").forEach(bindJxToggle);
 
   bindFileActions(el);
   el.querySelectorAll(".fig-main").forEach(bindZoom);
+  fillTablePreviews(el);
 
   // Delegated handler for class links and entry links inside the detail pane
   el.onclick = (e) => {
@@ -733,6 +743,45 @@ function buildFigureCard(entry) {
         </div>
       </div>
     </div>`;
+}
+
+function buildTablePreviewCard(entry) {
+  if (!entry) return "";
+  const path = entry.table_preview;
+  if (!path) return "";
+  return `
+    <div class="dcard dcard--table">
+      <div class="dcard-hd">
+        <div class="dcard-hd-top">
+          <span class="dcard-hd-label">Preview</span>
+        </div>
+        <div class="dcard-hd-actions">
+          <button class="act-btn js-table-show">Show</button>
+          <button class="act-btn js-open" data-path="${esc(path)}">Open</button>
+        </div>
+      </div>
+      <div class="dcard-body dcard-body--table">
+        <div class="tbl-preview-loading" data-table-preview-path="${esc(path)}">Loading…</div>
+      </div>
+    </div>`;
+}
+
+async function fillTablePreviews(root) {
+  const targets = root.querySelectorAll("[data-table-preview-path]");
+  for (const el of targets) {
+    const path = el.dataset.tablePreviewPath;
+    try {
+      const res = await fetch(fileURL(path));
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const html = await res.text();
+      const wrapper = document.createElement("div");
+      wrapper.className = "tbl-preview";
+      wrapper.innerHTML = html;
+      el.replaceWith(wrapper);
+    } catch {
+      el.textContent = "Failed to load preview";
+    }
+  }
 }
 
 function buildLinkedEntriesCard(entry) {

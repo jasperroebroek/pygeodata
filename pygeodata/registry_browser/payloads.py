@@ -367,6 +367,9 @@ def _entry_detail_payload(entry: EntryInfo, same_instance_runs: list[EntryInfo] 
         'figure_previews': [entry.primary_file.path]
         if entry.primary_file and entry.primary_file.kind == 'image'
         else [],
+        'table_preview': entry.primary_file.path
+        if entry.primary_file and entry.primary_file.kind == 'table'
+        else None,
         JSONKeys.CO_OUTPUTS: [_co_output_payload(e, entry) for e in entry.co_outputs],
         'same_instance_runs': [_same_instance_run_payload(s) for s in (same_instance_runs or [])],
         'rows': [_row_payload(r) for r in entry.rows],

@@ -1,56 +1,48 @@
 from pathlib import Path
 from typing import ClassVar
 
-import pandas as pd
-
+from pygeodata.artifact import Artifact
 from pygeodata.config import get_config
-from pygeodata.data import Data
-from pygeodata.drivers.pandas import PandasDriver
-from pygeodata.protocols import Driver
 
 
-class Table(Data[pd.DataFrame]):
+class Table(Artifact):
     """
-    Base class for tabular (non-spatial) outputs in pygeodata.
+    Base class for rendered-table outputs in pygeodata.
 
-    Identical to :class:`~pygeodata.data.Data` in every respect except that it produces a
-    :class:`pandas.DataFrame`, stores its outputs under
-    :attr:`~pygeodata.config.Config.path_tables`, and forms its own ``object_type`` family.
-
-    A subclass that only implements :meth:`_process` needs neither a ``driver`` nor an ``ext``
-    declaration: the default :class:`~pygeodata.drivers.pandas.PandasDriver` reads CSV, and
-    :meth:`~pygeodata.data.Data.get_ext` derives ``'csv'`` from it. Both remain overridable —
-    set ``ext`` and ``driver`` together to store another format.
-
-    Examples
-    --------
-    A minimal table writing a CSV:
+    A :class:`Table` subclass's ``_process`` renders a :class:`pandas.DataFrame` — typically
+    loaded from a separate :class:`~pygeodata.data.Data` class — to an HTML file.
 
     .. code-block:: python
-
-        import pandas as pd
-        from pygeodata.table import Table
-
 
         class SummaryTable(Table):
             def _process(self, spec):
-                df = pd.DataFrame({'a': [1, 2, 3]})
-                df.to_csv(self.ensure_processed_path(spec), index=False)
+                df = SomeDataLoader().load(spec)
+                self.ensure_processed_path(spec).write_text(df.head(20).to_html())
 
-    A table stored as parquet:
+    Structurally identical to :class:`~pygeodata.figure.Figure` (fixed ``ext``, own colour, own
+    cache root, no ``load()``) rather than to :class:`~pygeodata.data.Data`. It forms its own
+    ``object_type`` family so tables are filterable and colour-coded separately in the CLI and
+    the registry browser.
 
-    .. code-block:: python
+    Class Attributes
+    ----------------
+    _sort_params : tuple[str]
+        Inherited from :class:`~pygeodata.tracked_object.TrackedObject`. Parameter names
+        whose list/tuple values should be sorted before hashing and path generation,
+        ensuring order-independence.
 
-        from pygeodata.drivers.pandas import PandasDriver, PandasFormat
+    Notes
+    -----
+    Subclasses that define ``__init__`` parameters should store them as instance
+    attributes. :meth:`~pygeodata.tracked_object.TrackedObject.get_params` discovers
+    parameters by inspecting ``vars(self)``. Recommended to use dataclasses for this.
 
-
-        class WideTable(Table):
-            ext = 'parquet'
-            driver = PandasDriver(format=PandasFormat.PARQUET)
+    Subclasses must not be defined interactively (e.g. in a REPL or Jupyter notebook), as the
+    caching relies on :func:`inspect.getsource` for AST parsing.
     """
 
     color: ClassVar[str] = '#c9d8c5'
-    driver: ClassVar[Driver] = PandasDriver()
+    ext: ClassVar[str] = 'html'
 
     @classmethod
     def get_cache_root(cls) -> Path:

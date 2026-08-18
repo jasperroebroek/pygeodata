@@ -143,6 +143,8 @@ def classify_file(path: Path) -> str:
         return 'pdf'
     if suffix in {'.tif', '.tiff', '.nc', '.vrt', '.npy', '.zarr'}:
         return 'raster'
+    if suffix == '.html':
+        return 'table'
     if suffix == '.json':
         return 'json'
     if suffix in {'.py', '.pyx', '.ipynb'}:
