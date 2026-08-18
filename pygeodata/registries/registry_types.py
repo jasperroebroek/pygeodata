@@ -131,7 +131,7 @@ class TreeSnapshot:
 
     def get_object_type(self, class_name: str) -> str | None:
         node = self.nodes.get(class_name)
-        return node.get('object_type') if isinstance(node, dict) else None
+        return node.get(JSONKeys.OBJECT_TYPE) if isinstance(node, dict) else None
 
     def get_call_dependencies(self) -> list[str]:
         """Direct call dependencies of the root class."""

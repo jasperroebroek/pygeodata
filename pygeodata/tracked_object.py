@@ -213,15 +213,15 @@ class TrackedObject:
         """Raw tree data dict — shared by get_dependency_tree_hash and get_dependency_tree."""
         names, call_edges, inheritance_edges = cls._traverse(lambda c: c.get_class_name())
         return {
-            'nodes': {
+            JSONKeys.NODES: {
                 name: {
                     'hash': calculate_cls_source_hash(cls._registry[name]),
-                    'object_type': cls._registry[name].object_type.get_class_name(),
+                    JSONKeys.OBJECT_TYPE: cls._registry[name].object_type.get_class_name(),
                 }
                 for name in names
             },
-            'call_edges': sorted([s, t] for s, t in call_edges),
-            'inheritance_edges': sorted([s, t] for s, t in inheritance_edges),
+            JSONKeys.CALL_EDGES: sorted([s, t] for s, t in call_edges),
+            JSONKeys.INHERITANCE_EDGES: sorted([s, t] for s, t in inheritance_edges),
         }
 
     @classmethod
@@ -237,9 +237,9 @@ class TrackedObject:
         d = cls._dependency_tree_dict()
         return TreeSnapshot(
             dependency_tree_hash=cls.get_dependency_tree_hash(),
-            nodes=d['nodes'],
-            call_edges=d['call_edges'],
-            inheritance_edges=d['inheritance_edges'],
+            nodes=d[JSONKeys.NODES],
+            call_edges=d[JSONKeys.CALL_EDGES],
+            inheritance_edges=d[JSONKeys.INHERITANCE_EDGES],
             root_class=cls.get_class_name(),
         )
 
