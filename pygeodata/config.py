@@ -72,6 +72,8 @@ class JSONKeys(StrEnum):
     SOURCE_HASH = 'source_hash'
     PROCESSOR_HASH = 'processor_hash'
     INSTANCE_HASH = 'instance_hash'
+    PARAMS_HASH = 'params_hash'
+    SPEC_HASH = 'spec_hash'
     STATE_HASH = 'state_hash'
     DEPENDENCY_TREE_HASH = 'dependency_tree_hash'
     CO_OUTPUTS = 'co_output_hashes'

@@ -148,9 +148,7 @@ class EntryInfo:
             state_hash=data.get('state_hash'),
             instance_hash=data.get('instance_hash'),
             params_hash=data.get('params_hash'),
-            # Backfill for dashboard cache entries written before spec_hash was persisted.
-            # Delete once no cached blobs predate that change.
-            spec_hash=data.get('spec_hash') or (SpatialSpec.from_dict(spec_d).get_hash() if spec_d else None),
+            spec_hash=data.get('spec_hash'),
             params=data.get('params', {}),
             spec=SpecInfo(**spec_d) if spec_d else SpecInfo(),
             rows=[ParamRow(**r) for r in data.get('rows', [])],
@@ -159,11 +157,7 @@ class EntryInfo:
             primary_file=FileRef(**pf_d) if pf_d else None,
             warnings=data.get('warnings', []),
             error=data.get('error'),
-            # accept old cache blobs that stored format_version_stale bool
-            format_version=data.get(
-                'format_version',
-                FORMAT_VERSION if not data.get('format_version_stale') else FORMAT_VERSION - 1,
-            ),
+            format_version=data.get('format_version', 0),
             dep_hash=data.get('dep_hash'),
             dep_hash_stale=data.get('dep_hash_stale', False),
         )

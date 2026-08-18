@@ -10,7 +10,7 @@ from functools import total_ordering
 from pathlib import Path
 from typing import Self
 
-from pygeodata.config import FORMAT_VERSION
+from pygeodata.config import FORMAT_VERSION, JSONKeys
 from pygeodata.paths import CachePathConstructor
 
 
@@ -96,17 +96,17 @@ class EntryRecord:
     def from_file(cls, hash_path: Path) -> EntryRecord:
         data = json.loads(hash_path.read_text(encoding='utf-8'))
         return cls(
-            class_name=data.get('class_name'),
+            class_name=data.get(JSONKeys.CLASS_NAME),
             hash_path=str(hash_path),
-            object_type=data.get('object_type'),
-            state_hash=data.get('state_hash'),
-            instance_hash=data.get('instance_hash'),
-            params_hash=data.get('params_hash'),
-            spec_hash=data.get('spec_hash'),
-            source_hash=data.get('source_hash'),
-            dependency_tree_hash=data.get('dependency_tree_hash'),
-            co_output_hashes=data.get('co_output_hashes', []),
-            format_version=data.get('format_version'),
+            object_type=data.get(JSONKeys.OBJECT_TYPE),
+            state_hash=data.get(JSONKeys.STATE_HASH),
+            instance_hash=data.get(JSONKeys.INSTANCE_HASH),
+            params_hash=data.get(JSONKeys.PARAMS_HASH),
+            spec_hash=data.get(JSONKeys.SPEC_HASH),
+            source_hash=data.get(JSONKeys.SOURCE_HASH),
+            dependency_tree_hash=data.get(JSONKeys.DEPENDENCY_TREE_HASH),
+            co_output_hashes=data.get(JSONKeys.CO_OUTPUTS, []),
+            format_version=data.get(JSONKeys.FORMAT_VERSION),
         )
 
     def dump(self, path: Path) -> None:
@@ -148,13 +148,13 @@ class TreeSnapshot:
     def from_file(cls, path: Path) -> Self:
         data = json.loads(path.read_text(encoding='utf-8'))
         return cls(
-            dependency_tree_hash=data.get('dependency_tree_hash', ''),
-            nodes=data.get('nodes', {}),
-            call_edges=data.get('call_edges', []),
-            inheritance_edges=data.get('inheritance_edges', []),
-            root_class=data.get('root_class', ''),
-            registered_at=data.get('registered_at', ''),
-            format_version=data.get('format_version', FORMAT_VERSION),
+            dependency_tree_hash=data.get(JSONKeys.DEPENDENCY_TREE_HASH, ''),
+            nodes=data.get(JSONKeys.NODES, {}),
+            call_edges=data.get(JSONKeys.CALL_EDGES, []),
+            inheritance_edges=data.get(JSONKeys.INHERITANCE_EDGES, []),
+            root_class=data.get(JSONKeys.ROOT_CLASS, ''),
+            registered_at=data.get(JSONKeys.REGISTERED_AT, ''),
+            format_version=data.get(JSONKeys.FORMAT_VERSION, FORMAT_VERSION),
         )
 
 
@@ -173,11 +173,11 @@ class CodeState:
     def from_file(cls, path: Path) -> Self:
         data = json.loads(path.read_text(encoding='utf-8'))
         return cls(
-            source_hash=data['source_hash'],
-            class_name=data['class_name'],
-            object_type=data['object_type'],
-            registered_at=data['registered_at'],
-            format_version=data.get('format_version', FORMAT_VERSION),
+            source_hash=data[JSONKeys.SOURCE_HASH],
+            class_name=data[JSONKeys.CLASS_NAME],
+            object_type=data[JSONKeys.OBJECT_TYPE],
+            registered_at=data[JSONKeys.REGISTERED_AT],
+            format_version=data.get(JSONKeys.FORMAT_VERSION, FORMAT_VERSION),
         )
 
 

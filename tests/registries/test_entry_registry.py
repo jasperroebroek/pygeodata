@@ -227,40 +227,6 @@ def test_entry_info_format_version_stale_property():
 
 
 # ---------------------------------------------------------------------------
-# Old cache format degradation (pre-merge cache with format_version_stale bool)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize('stale_flag,expected', [(True, True), (False, False)])
-def test_entry_info_from_dict_old_format_version_stale(stale_flag, expected):
-    """Pre-merge cache blob with format_version_stale bool must degrade gracefully."""
-    old_blob = {
-        'record_id': 'abc',
-        'class_name': 'MyLoader',
-        'object_type': None,
-        'params_path': '/cache/file',
-        'spec_path': None,
-        'state_hash_path': None,
-        'execution_graph_path': None,
-        'state_hash': 'abc',
-        'instance_hash': None,
-        'params': {},
-        'spec': {'crs': None, 'resolution': None, 'shape': None, 'bounds': None, 'bounds_latlon': None},
-        'rows': [],
-        'linked_entries': [],
-        'co_output_hashes': [],
-        'primary_file': None,
-        'warnings': [],
-        'error': None,
-        'format_version_stale': stale_flag,
-        'dep_hash': None,
-        'dep_hash_stale': False,
-    }
-    entry = EntryInfo.from_dict(old_blob)
-    assert entry.format_version_stale is expected
-
-
-# ---------------------------------------------------------------------------
 # EntryRegistry scan + assembly
 # ---------------------------------------------------------------------------
 
