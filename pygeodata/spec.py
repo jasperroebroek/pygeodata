@@ -78,12 +78,19 @@ def format_resolution(resolution: Any, crs: Any) -> str | None:
         return str(resolution)
 
 
+@lru_cache(maxsize=64)
+def _crs_from_string(crs_raw: str):
+    """Parse a CRS string, memoized."""
+    from pyproj import CRS
+
+    return CRS.from_user_input(crs_raw)
+
+
 @lru_cache(maxsize=32)
 def _get_transformer(crs_wkt: str):
-    from pyproj import CRS, Transformer
+    from pyproj import Transformer
 
-    crs_obj = CRS.from_user_input(crs_wkt)
-    return Transformer.from_crs(crs_obj, 'EPSG:4326', always_xy=True)
+    return Transformer.from_crs(_crs_from_string(crs_wkt), 'EPSG:4326', always_xy=True)
 
 
 def _bounds_latlon_from_outline(
@@ -116,25 +123,15 @@ def _bounds_latlon_from_outline(
     return (round(lat_min, 1), round(lon_min, 1), round(lat_max, 1), round(lon_max, 1))
 
 
-def compute_bounds_latlon(
-    bounds: Any,
-    crs: CRS | str,
+@lru_cache(maxsize=256)
+def _compute_bounds_latlon_cached(
+    coords: tuple[float, float, float, float],
+    crs_key: str,
 ) -> tuple[float, float, float, float] | None:
-    """Reproject a native bounding box to (lat_min, lon_min, lat_max, lon_max).
-
-    Returns None if the inputs are missing or the projection fails everywhere.
-    """
-    from pyproj import CRS
+    """Reprojection core for :func:`compute_bounds_latlon`, memoized on hashable inputs."""
     from pyproj.exceptions import ProjError
 
-    if not bounds or not crs:
-        return None
     try:
-        coords = list(bounds) if isinstance(bounds, (list, tuple)) else None
-        if not coords or len(coords) != 4:
-            return None
-
-        crs_key = crs.to_wkt() if isinstance(crs, CRS) else crs
         t = _get_transformer(crs_key)
         xmin, ymin, xmax, ymax = coords
         lon_min, lat_min = t.transform(xmin, ymin)
@@ -147,6 +144,32 @@ def compute_bounds_latlon(
         return _bounds_latlon_from_outline(t, xmin, ymin, xmax, ymax)
     except ProjError:
         return None
+
+
+def compute_bounds_latlon(
+    bounds: Any,
+    crs: CRS | str,
+) -> tuple[float, float, float, float] | None:
+    """Reproject a native bounding box to (lat_min, lon_min, lat_max, lon_max).
+
+    Returns None if the inputs are missing or the projection fails everywhere.
+    """
+    from pyproj import CRS
+
+    if not bounds or not crs:
+        return None
+
+    coords = tuple(bounds) if isinstance(bounds, (list, tuple)) else None
+    if not coords or len(coords) != 4:
+        return None
+
+    try:
+        key = tuple(float(v) for v in coords)
+    except (TypeError, ValueError):
+        return None
+
+    crs_key = crs.to_wkt() if isinstance(crs, CRS) else crs
+    return _compute_bounds_latlon_cached(key, crs_key)
 
 
 def _fmt_coord(v: float, pos: str, neg: str) -> str:
@@ -224,19 +247,18 @@ class SpatialSpec:
         """Human-readable bounds for display: lat/lon with N/S/E/W when available,
         else the raw native tuple, else None if unset.
         """
-        formatted = format_bounds_latlon(self.bounds_latlon)
-        if formatted is not None:
-            return formatted
         b = self.bounds
-        return str(tuple(b)) if b else None
+        if b is None:
+            return None
+        formatted = format_bounds_latlon(compute_bounds_latlon([b.left, b.bottom, b.right, b.top], self.crs))
+        return formatted if formatted is not None else str(tuple(b))
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SpatialSpec:
         from affine import Affine
-        from pyproj import CRS
 
         crs_raw = data.get(SpecKeys.CRS)
-        crs = CRS.from_user_input(crs_raw) if crs_raw else None
+        crs = _crs_from_string(crs_raw) if crs_raw else None
         transform_d = data.get(SpecKeys.TRANSFORM)
         transform = (
             Affine(

@@ -1,6 +1,5 @@
 import contextlib
 import json
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from pygeodata.catalog.params_index import flatten_params
@@ -10,18 +9,19 @@ from pygeodata.catalog.types import (
     LinkedEntry,
     SpecInfo,
 )
-from pygeodata.config import FORMAT_VERSION, get_config
-from pygeodata.hash import calculate_dict_hash
-from pygeodata.paths import CACHE_DIR_SUFFIXES, CACHE_META_FILES, CachePathConstructor, classify_file
+from pygeodata.config import FORMAT_VERSION, dashboard_cache_path
+from pygeodata.paths import (
+    CACHE_DIR_SUFFIXES,
+    CACHE_META_FILES,
+    CachePathConstructor,
+    classify_file,
+    write_json_atomic,
+)
 from pygeodata.registries.registry import EntryRegistry
 from pygeodata.registries.registry_types import EntryRecord
 from pygeodata.registries.versioning import VersionRegistry
 from pygeodata.spec import SpatialSpec
 from pygeodata.tracked_object import TrackedObject
-
-
-def _cache_file() -> Path:
-    return get_config().path_registry / '.dashboard_cache.json'
 
 
 def _cache_mtime_key(params_path: Path) -> float:
@@ -36,7 +36,7 @@ def _cache_mtime_key(params_path: Path) -> float:
 
 def _load_disk_cache() -> tuple[dict[str, dict], dict[str, float]]:
     """Load display cache from disk. Returns (results, mtimes) or empty dicts."""
-    path = _cache_file()
+    path = dashboard_cache_path()
     if not path.exists():
         return {}, {}
     try:
@@ -46,15 +46,10 @@ def _load_disk_cache() -> tuple[dict[str, dict], dict[str, float]]:
         return {}, {}
 
 
-def _save_disk_cache(results: dict[str, dict], mtimes: dict[str, float]) -> None:
-    try:
-        path = _cache_file()
-        path.write_text(
-            json.dumps({'results': results, 'mtimes': mtimes}, separators=(',', ':')),
-            encoding='utf-8',
-        )
-    except OSError:
-        pass
+def _save_disk_cache(results: dict[str, dict], mtimes: dict[str, float], dirty: bool = True) -> None:
+    if not dirty:
+        return
+    write_json_atomic(dashboard_cache_path(), {'results': results, 'mtimes': mtimes})
 
 
 # ---------------------------------------------------------------------------
@@ -78,12 +73,16 @@ def _find_primary_file(resolver: CachePathConstructor) -> FileRef | None:
     return None
 
 
-def _enrich_params_path(params_path: Path) -> EntryInfo:
+def _enrich_params_path(params_path: Path, record: EntryRecord | None = None) -> EntryInfo:
     """Read the display-layer files for one entry. Never raises.
 
     Returns a partial EntryInfo with all display fields populated but
     assembly-stage fields (record_id, dep_hash_stale, co_outputs) left
     at their defaults — those are filled by discover_entries.
+
+    ``record`` is the EntryRegistry record for this entry, which discover_entries
+    already holds in memory; passing it avoids re-reading meta.json per entry.
+    When omitted the record is read from disk, so standalone callers still work.
     """
     params_path_str = str(params_path.resolve())
     resolver = CachePathConstructor.from_path(params_path)
@@ -96,7 +95,8 @@ def _enrich_params_path(params_path: Path) -> EntryInfo:
     linked_entries: list[LinkedEntry] = []
     rows = flatten_params(params, linked_entries=linked_entries)
 
-    record = EntryRecord.from_file(resolver.state_hash_path) if resolver.state_hash_path.exists() else None
+    if record is None and resolver.state_hash_path.exists():
+        record = EntryRecord.from_file(resolver.state_hash_path)
     class_name = (record.class_name if record else None) or resolver.directory.name
     state_hash = record.state_hash if record else None
     instance_hash = record.instance_hash if record else None
@@ -104,10 +104,6 @@ def _enrich_params_path(params_path: Path) -> EntryInfo:
     spec_hash = record.spec_hash if record else None
     stored_dep_hash = record.dependency_tree_hash if record else None
 
-    # Backfill for meta.json written before params_hash was persisted. Delete once no
-    # cache entries predate that change.
-    if params_hash is None:
-        params_hash = calculate_dict_hash(params)
     co_output_hashes = record.co_output_hashes if record else []
     format_version = record.format_version if record else FORMAT_VERSION
 
@@ -118,11 +114,6 @@ def _enrich_params_path(params_path: Path) -> EntryInfo:
         warnings.append('Missing state hash in meta.json')
 
     spatial_spec = SpatialSpec.from_dict(spec) if spec else None
-
-    # Backfill for meta.json written before spec_hash was persisted. Delete once no
-    # cache entries predate that change.
-    if spec_hash is None and spatial_spec is not None:
-        spec_hash = spatial_spec.get_hash()
 
     return EntryInfo(
         class_name=class_name,
@@ -151,21 +142,17 @@ def _enrich_with_cache(
     params_path: Path,
     cached_results: dict[str, dict],
     cached_mtimes: dict[str, float],
+    record: EntryRecord | None = None,
 ) -> tuple[EntryInfo, bool]:
     """Return (entry, from_cache). Uses display cache if mtimes match."""
     key = str(params_path.resolve())
     current_mtime = _cache_mtime_key(params_path)
     if key in cached_results and cached_mtimes.get(key) == current_mtime:
         try:
-            entry = EntryInfo.from_dict(dict(cached_results[key]))
-            if entry.object_type is not None:
-                return entry, True
-            # object_type was missing when this entry was cached (e.g. meta.json
-            # predates that field). Re-read it from disk rather than serving a
-            # stale None forever — it's not part of the cache key.
+            return EntryInfo.from_dict(dict(cached_results[key])), True
         except (KeyError, TypeError):
             pass
-    entry = _enrich_params_path(params_path)
+    entry = _enrich_params_path(params_path, record)
     return entry, False
 
 
@@ -200,30 +187,28 @@ def discover_entries(
 
     cached_results, cached_mtimes = _load_disk_cache()
 
-    partial_entries: list[EntryInfo] = [None] * len(params_paths)  # type: ignore[list-item]
+    partial_entries: list[EntryInfo] = []
     new_results: dict[str, dict] = {}
     new_mtimes: dict[str, float] = {}
 
-    def _process(i: int, p: Path) -> tuple[int, EntryInfo]:
-        entry, from_cache = _enrich_with_cache(p, cached_results, cached_mtimes)
+    any_miss = False
+    for p in params_paths:
         key = str(p.resolve())
-        if not from_cache and entry.error is None:
-            new_results[key] = entry.to_dict()
-            new_mtimes[key] = _cache_mtime_key(p)
-        elif from_cache:
+        entry, from_cache = _enrich_with_cache(p, cached_results, cached_mtimes, record_by_params.get(key))
+        if from_cache:
             new_results[key] = cached_results[key]
             new_mtimes[key] = cached_mtimes[key]
-        return i, entry
+        else:
+            any_miss = True
+            if entry.error is None:
+                new_results[key] = entry.to_dict()
+                new_mtimes[key] = _cache_mtime_key(p)
+        partial_entries.append(entry)
+        if progress is not None:
+            progress['done'] += 1
 
-    with ThreadPoolExecutor() as pool:
-        future_to_idx = {pool.submit(_process, i, p): i for i, p in enumerate(params_paths)}
-        for future in as_completed(future_to_idx):
-            idx, entry = future.result()
-            partial_entries[idx] = entry
-            if progress is not None:
-                progress['done'] += 1
-
-    _save_disk_cache(new_results, new_mtimes)
+    dirty = any_miss or new_results.keys() != cached_results.keys() or not dashboard_cache_path().exists()
+    _save_disk_cache(new_results, new_mtimes, dirty=dirty)
 
     entries: dict[str, EntryInfo] = {}
     diagnostics = dict(entry_registry.diagnostics())

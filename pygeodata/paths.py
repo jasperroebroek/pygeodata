@@ -1,13 +1,26 @@
 from __future__ import annotations
 
+import contextlib
+import json
 from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from pygeodata.config import get_config
 
 CACHE_META_FILES = frozenset({'parameters.json', 'meta.json', 'spec.json', 'graph.pdf', 'graph.png', 'process.lock'})
 CACHE_DIR_SUFFIXES = frozenset({'.zarr'})
+
+
+def write_json_atomic(path: Path, data: Any) -> None:
+    tmp = path.with_suffix('.tmp')
+    try:
+        tmp.write_text(json.dumps(data, separators=(',', ':')), encoding='utf-8')
+        tmp.replace(path)
+    except OSError:
+        with contextlib.suppress(OSError):
+            tmp.unlink(missing_ok=True)
 
 
 @dataclass
@@ -52,7 +65,8 @@ class CachePathResolver:
     roots: tuple[Path] | None = None
 
     def glob_meta_paths(self) -> Generator[Path, None, None]:
-        roots = (get_config().path_registry, get_config().path_figures) if self.roots is None else self.roots
+        cfg = get_config()
+        roots = (cfg.path_cache, cfg.path_figures) if self.roots is None else self.roots
         for root in roots:
             if root.exists():
                 yield from root.rglob('meta.json')

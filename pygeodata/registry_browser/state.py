@@ -12,13 +12,16 @@ from pygeodata.catalog.class_catalog import (
     discover_loaded_classes,
     merge_unloaded_classes,
 )
-from pygeodata.catalog.entry_catalog import _cache_file, discover_entries
+from pygeodata.catalog.entry_catalog import discover_entries
 from pygeodata.catalog.types import ClassInfo, EntryInfo
+from pygeodata.config import dashboard_cache_path, entry_registry_cache_path
 from pygeodata.registries.registry import EntryRegistry
 from pygeodata.registries.versioning import VersionRegistry
 from pygeodata.spec import SpecKeys
 from pygeodata.tracked_object import TrackedObject
 
+_SKIP_DIRS = {'venv', 'env', '.venv', 'build', 'dist', 'site-packages', 'tests', 'test', 'cache'}
+_SKIP_PREFIXES = ('test_', 'conftest', 'setup', 'manage')
 _log = logging.getLogger(__name__)
 
 
@@ -69,8 +72,8 @@ class AppContext:
 
         def _reload() -> None:
             try:
-                _purge_caches()
                 if reimport:
+                    _purge_caches()
                     root = Path.cwd()
                     py_files = _collect_reimport_files(root)
                     total = len(py_files)
@@ -96,13 +99,9 @@ class AppContext:
 def _purge_caches() -> None:
     """Delete the two tmp JSONs so the next scan starts clean."""
     with contextlib.suppress(OSError):
-        _cache_file().unlink(missing_ok=True)
+        dashboard_cache_path().unlink(missing_ok=True)
     with contextlib.suppress(OSError):
-        EntryRegistry()._cache_path().unlink(missing_ok=True)
-
-
-_SKIP_DIRS = {'venv', 'env', '.venv', 'build', 'dist', 'site-packages', 'tests', 'test', 'cache'}
-_SKIP_PREFIXES = ('test_', 'conftest', 'setup', 'manage')
+        entry_registry_cache_path().unlink(missing_ok=True)
 
 
 def _collect_reimport_files(root: Path) -> list[Path]:

@@ -1007,7 +1007,7 @@ def entry_list(
         entry_info = None
         if needs_enrich and params_path:
             try:
-                entry_info = _enrich_params_path(params_path)
+                entry_info = _enrich_params_path(params_path, rec)
             except Exception:  # noqa: BLE001
                 pass
 
@@ -1102,7 +1102,7 @@ def entry_show(
     entry_info = None
     if resolver:
         try:
-            entry_info = _enrich_params_path(resolver.params_path)
+            entry_info = _enrich_params_path(resolver.params_path, rec)
         except Exception:  # noqa: BLE001
             pass
 

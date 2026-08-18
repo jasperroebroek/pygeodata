@@ -15,11 +15,17 @@ from unittest.mock import patch
 
 import pytest
 
-from pygeodata.catalog.entry_catalog import _cache_file
-from pygeodata.config import FORMAT_VERSION, JSONKeys, set_config
+from pygeodata.config import (
+    FORMAT_VERSION,
+    JSONKeys,
+    dashboard_cache_path,
+    entry_registry_cache_path,
+    set_config,
+)
 from pygeodata.paths import CachePathConstructor
 from pygeodata.registries.registry import EntryRegistry
 from pygeodata.registry_browser.state import AppContext, _purge_caches
+from pygeodata.tracked_object import TrackedObject
 
 
 def _write_hash_file(
@@ -151,7 +157,7 @@ def test_purge_caches_removes_tmp_jsons(tmp_path: Path) -> None:
     registry_root = tmp_path / '.source'
     registry_root.mkdir(parents=True, exist_ok=True)
 
-    dashboard_cache = _cache_file()
+    dashboard_cache = dashboard_cache_path()
     dashboard_cache.parent.mkdir(parents=True, exist_ok=True)
     dashboard_cache.write_text('{"test": 1}')
 
@@ -167,6 +173,49 @@ def test_purge_caches_removes_tmp_jsons(tmp_path: Path) -> None:
 def test_purge_caches_is_idempotent() -> None:
     """_purge_caches must not raise when the files are already absent."""
     _purge_caches()
+
+
+def test_plain_rebuild_keeps_caches(tmp_path: Path) -> None:
+    """A rebuild without reimport must preserve the caches — that is what makes it fast."""
+    registry_root = tmp_path / '.source'
+    registry_root.mkdir(parents=True, exist_ok=True)
+
+    with set_config(path_registry=registry_root, path_cache=tmp_path / 'data', path_figures=tmp_path / 'figures'):
+        dashboard_cache_path().write_text('{"results": {}, "mtimes": {}}')
+        entry_registry_cache_path().write_text('{"records": {}, "mtimes": {}}')
+
+        ctx = AppContext()
+        ctx.start_reload(reimport=False)
+        ctx.ready.wait(timeout=60)
+
+        assert dashboard_cache_path().exists(), 'plain rebuild must not purge the dashboard cache'
+        assert entry_registry_cache_path().exists(), 'plain rebuild must not purge the registry cache'
+
+
+def test_reimport_rebuild_purges_caches(tmp_path: Path) -> None:
+    """A reimport re-executes project code, so it must still purge both caches.
+
+    Stubs out the reimport/build work itself: a real run clears the global
+    TrackedObject registry, which would leak into every later test.
+    """
+    registry_root = tmp_path / '.source'
+    registry_root.mkdir(parents=True, exist_ok=True)
+
+    with set_config(path_registry=registry_root, path_cache=tmp_path / 'data', path_figures=tmp_path / 'figures'):
+        purged: list[bool] = []
+
+        with (
+            patch('pygeodata.registry_browser.state._purge_caches', side_effect=lambda: purged.append(True)),
+            patch('pygeodata.registry_browser.state._collect_reimport_files', return_value=[]),
+            patch('pygeodata.registry_browser.state._reimport_modules', return_value=iter(())),
+            patch('pygeodata.registry_browser.state.build_state'),
+            patch.object(TrackedObject, '_registry', {}),
+        ):
+            ctx = AppContext()
+            ctx.start_reload(reimport=True)
+            ctx.ready.wait(timeout=60)
+
+        assert purged, 'reimport must purge the caches'
 
 
 def test_tmp_jsons_regenerated_after_reload(tmp_path: Path) -> None:

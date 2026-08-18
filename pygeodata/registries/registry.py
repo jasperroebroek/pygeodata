@@ -9,19 +9,18 @@ Three registries, all keyed by resolved root path:
 
 from __future__ import annotations
 
-import contextlib
 import dataclasses
 import json
 from collections.abc import Iterable
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from pygeodata.config import get_config
+from pygeodata.config import entry_registry_cache_path, get_config
 from pygeodata.paths import (
     CachePathResolver,
     CodeRegistryPathConstructor,
     RegistryResolver,
     TreeRegistryPathConstructor,
+    write_json_atomic,
 )
 from pygeodata.registries.registry_types import CodeState, EntryRecord, TreeSnapshot
 
@@ -234,7 +233,7 @@ class EntryRegistry:
         self.reload()
 
     def _cache_path(self) -> Path:
-        return get_config().path_registry / '.entry_registry_cache.json'
+        return entry_registry_cache_path()
 
     def _cache_resolver(self) -> CachePathResolver:
         if self._paths is not None:
@@ -284,8 +283,7 @@ class EntryRegistry:
         new_cache_records: dict[str, dict] = {}
         new_cache_mtimes: dict[str, float] = {}
 
-        def _process(p: Path) -> EntryRecord | None:
-            key = str(p.resolve())
+        def _process(p: Path, key: str) -> EntryRecord | None:
             mtime = p.stat().st_mtime
             if key in cached_records and cached_mtimes.get(key) == mtime:
                 try:
@@ -301,24 +299,21 @@ class EntryRegistry:
             return record
 
         scanned = 0
+        any_miss = False
         records: list[EntryRecord | None] = []
-        with ThreadPoolExecutor() as pool:
-            futures = {pool.submit(_process, p): p for p in self._cache_resolver().glob_meta_paths()}
-            for future in as_completed(futures):
-                scanned += 1
-                rec = future.result()
-                records.append(rec)
-                if rec is not None:
-                    key = str(futures[future].resolve())
-                    if key in cached_records and key not in new_cache_records:
-                        new_cache_records[key] = cached_records[key]
-                        new_cache_mtimes[key] = cached_mtimes[key]
+        for p in self._cache_resolver().glob_meta_paths():
+            scanned += 1
+            key = str(p.resolve())
+            rec = _process(p, key)
+            records.append(rec)
+            if key in new_cache_records:
+                any_miss = True
+            elif rec is not None and key in cached_records:
+                new_cache_records[key] = cached_records[key]
+                new_cache_mtimes[key] = cached_mtimes[key]
 
-        with contextlib.suppress(OSError):
-            cache_path.write_text(
-                json.dumps({'records': new_cache_records, 'mtimes': new_cache_mtimes}, separators=(',', ':')),
-                encoding='utf-8',
-            )
+        if any_miss or new_cache_records.keys() != cached_records.keys() or not cache_path.exists():
+            write_json_atomic(cache_path, {'records': new_cache_records, 'mtimes': new_cache_mtimes})
 
         self._hash_index: dict[str, EntryRecord] = {}
         self._class_index: dict[str, list[str]] = {}

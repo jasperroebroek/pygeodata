@@ -6,6 +6,7 @@ This file covers the display-enrichment helpers and discover_entries integration
 """
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -364,6 +365,56 @@ def test_discover_entries_writes_disk_cache(tmp_path):
     data = json.loads(cache_file.read_text())
     assert 'results' in data
     assert 'mtimes' in data
+
+
+def test_discover_entries_skips_rewrite_when_nothing_changed(tmp_path):
+    """A fully-cached run must not rewrite the cache file."""
+    reg = tmp_path / '.source'
+    reg.mkdir(parents=True)
+    d = tmp_path / 'data_processed' / 'MyLoader'
+    write_cache_entry(d, 'abc', state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'})
+
+    discover_entries()
+    cache_file = reg / '.dashboard_cache.json'
+    first_mtime = cache_file.stat().st_mtime_ns
+
+    discover_entries()
+
+    assert cache_file.stat().st_mtime_ns == first_mtime, 'no-op run should not rewrite the cache'
+
+
+def test_discover_entries_rewrites_when_entry_removed(tmp_path):
+    """Deleting an entry must drop it from the cache even though survivors all hit."""
+    reg = tmp_path / '.source'
+    reg.mkdir(parents=True)
+    d1 = tmp_path / 'data_processed' / 'LoaderA'
+    d2 = tmp_path / 'data_processed' / 'LoaderB'
+    write_cache_entry(d1, 'aaa', state={JSONKeys.CLASS_NAME: 'LoaderA', JSONKeys.STATE_HASH: 'aaa'})
+    write_cache_entry(d2, 'bbb', state={JSONKeys.CLASS_NAME: 'LoaderB', JSONKeys.STATE_HASH: 'bbb'})
+
+    discover_entries()
+    cache_file = reg / '.dashboard_cache.json'
+    assert len(json.loads(cache_file.read_text())['results']) == 2
+
+    shutil.rmtree(d2)
+    discover_entries()
+
+    results = json.loads(cache_file.read_text())['results']
+    assert len(results) == 1, 'removed entry must be dropped from the cache'
+    assert not any('LoaderB' in k for k in results)
+
+
+def test_discover_entries_leaves_no_tmp_file(tmp_path):
+    """The atomic write must not leave its temp file behind."""
+    reg = tmp_path / '.source'
+    reg.mkdir(parents=True)
+    d = tmp_path / 'data_processed' / 'MyLoader'
+    write_cache_entry(d, 'abc', state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'})
+
+    discover_entries()
+
+    assert (reg / '.dashboard_cache.json').exists()
+    assert not list(reg.glob('*.tmp')), 'temp file should be renamed, not left behind'
 
 
 def test_discover_entries_uses_disk_cache_on_second_call(tmp_path):
