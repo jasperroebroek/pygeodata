@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 
 from pygeodata.formatting.shared import format_array
-from pygeodata.protocols import AllowsFormatting
+from pygeodata.protocols import AllowsFormatting, AllowsTracking
 
 
 def _is_container(value: Any) -> bool:
@@ -25,6 +25,8 @@ def _html(s: str) -> str:
 
 @singledispatch
 def format_html_inline(value: Any) -> str:
+    if isinstance(value, type) and isinstance(value, AllowsTracking):
+        return _html(value.get_class_name())
     if isinstance(value, type):
         return _html(f'{value.__module__}.{value.__qualname__}')
     if isinstance(value, AllowsFormatting):
@@ -98,6 +100,10 @@ def _(value: set[Any]) -> str:
 
 
 def format_html_block(value: Any, indent: int = 0, nested: bool = True) -> str:
+    if isinstance(value, type) and isinstance(value, AllowsTracking):
+        prefix = _indent(indent) if nested else ''
+        return f'{prefix}{_html(value.get_class_name())}'
+
     if isinstance(value, type):
         prefix = _indent(indent) if nested else ''
         return f'{prefix}{_html(f"{value.__module__}.{value.__qualname__}")}'

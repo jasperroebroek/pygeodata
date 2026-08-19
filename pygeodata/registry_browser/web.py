@@ -12,6 +12,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 from flask import Flask, abort, jsonify, render_template, request, send_file
+from werkzeug.exceptions import HTTPException
 
 from pygeodata.cache import clean_cache, clean_source_registry
 from pygeodata.config import get_config
@@ -54,6 +55,20 @@ def _assert_allowed_path(path_str: str) -> Path | None:
             return p
     abort(403)
     return None
+
+
+def _path_allowed(path_str: str) -> bool:
+    """Adapt _assert_allowed_path to the bool-returning contract catalog/export.py expects.
+
+    Export treats a boundary violation like any other skippable entry (one
+    bad entry shouldn't sink the whole export), unlike _assert_allowed_path's
+    other call sites, which still abort the request outright.
+    """
+    try:
+        _assert_allowed_path(path_str)
+    except HTTPException:
+        return False
+    return True
 
 
 @app.get('/')
@@ -378,22 +393,22 @@ def api_export_start():
     record_ids = body.get('record_ids', [])
     include_snapshots = body.get('include_snapshots', True)
 
-    files = export_service.collect_export_files(
+    files, warnings = export_service.collect_export_files(
         record_ids,
         _ctx.state.entries,
         include_snapshots,
-        _assert_allowed_path,
+        _path_allowed,
         tree_registry=_ctx.state.version_registry.tree_registry,
     )
 
     job_id = str(uuid.uuid4())
-    export_service.create_job(job_id, len(files))
+    export_service.create_job(job_id, len(files), warnings)
     threading.Thread(
         target=export_service.run_export_job,
         args=(job_id, files),
         daemon=True,
     ).start()
-    return jsonify({'job_id': job_id, 'total': len(files)})
+    return jsonify({'job_id': job_id, 'total': len(files), 'warnings': warnings})
 
 
 @app.get('/api/export/status/<job_id>')
@@ -407,6 +422,7 @@ def api_export_status(job_id: str):
             'done': job['done'],
             'total': job['total'],
             'error': job['error'],
+            'warnings': job['warnings'],
         },
     )
 
@@ -475,7 +491,7 @@ def api_export_single(record_id: str):
     data_path, download_name, needs_tar = export_service.single_entry_tar_path(
         record_id,
         _ctx.state.entries,
-        _assert_allowed_path,
+        _path_allowed,
     )
     if data_path is None:
         abort(404)

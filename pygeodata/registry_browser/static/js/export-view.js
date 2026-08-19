@@ -112,7 +112,12 @@ export async function startExport() {
   if (progBar) progBar.style.width = "0%";
 
   try {
-    const { job_id, total } = await startExportJob([...state.selected_entries], includeSnapshots);
+    const { job_id, total, warnings } = await startExportJob([...state.selected_entries], includeSnapshots);
+
+    if (warnings && warnings.length) {
+      console.warn("Export skipped some entries:", warnings);
+      toast(`Exporting ${total} files — ${warnings.length} entr${warnings.length === 1 ? 'y' : 'ies'} skipped (see console)`);
+    }
 
     while (true) {
       await new Promise((r) => setTimeout(r, 500));

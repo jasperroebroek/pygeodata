@@ -13,7 +13,8 @@ import click
 
 from pygeodata.cache import clean_cache, clean_source_registry
 from pygeodata.catalog.class_catalog import discover_loaded_classes, merge_unloaded_classes
-from pygeodata.catalog.entry_catalog import _enrich_params_path
+from pygeodata.catalog.entry_catalog import _enrich_params_path, discover_entries
+from pygeodata.catalog.export import collect_export_files, write_export_tar
 from pygeodata.catalog.filters import Filter, FilterOperator, FilterTarget, prescan_text
 from pygeodata.catalog.types import ParamRowType, SpecInfo
 from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config
@@ -222,7 +223,7 @@ def import_archive(archive: str) -> None:
     source_root = Path(get_config().path_registry)
     counts = {'cache': 0, 'code': 0, 'snapshots': 0}
 
-    with tarfile.open(archive, 'r:gz') as tar:
+    with tarfile.open(archive, 'r:*') as tar:
         cache_roots: dict[str, Path | None] = {}
         for member in tar.getmembers():
             p = Path(member.name)
@@ -250,6 +251,73 @@ def import_archive(archive: str) -> None:
         f'{counts["code"]} code snapshot files, '
         f'{counts["snapshots"]} tree snapshot files.',
     )
+
+
+@cli.command('export')
+@click.argument('archive', type=click.Path())
+@click.argument('hash_prefixes', nargs=-1)
+@_import_options
+@click.option('--class', 'class_name', default=None, help='Export all entries of this class.')
+@click.option(
+    '--type',
+    'type_filter',
+    default=None,
+    help='Export all entries of one object type: Data, Table, or Figure (case-insensitive).',
+)
+@click.option('--all', 'export_all', is_flag=True, default=False, help='Export every cache entry.')
+@click.option(
+    '--snapshots/--no-snapshots',
+    'include_snapshots',
+    default=True,
+    help='Include code/dep-tree snapshots needed to reproduce the entries (default: included).',
+)
+def export_archive(
+    archive: str,
+    hash_prefixes: tuple[str, ...],
+    do_import: bool,
+    verbose_import: bool,
+    class_name: str | None,
+    type_filter: str | None,
+    export_all: bool,
+    include_snapshots: bool,
+) -> None:
+    """Export cache entries to a pygeodata archive (a counterpart to `import`).
+
+    Select entries by one or more HASH_PREFIXES, by --class, by --type, or with --all.
+    """
+    n_selectors = sum((bool(hash_prefixes), bool(class_name), bool(type_filter), export_all))
+    if n_selectors == 0:
+        raise click.UsageError('Provide HASH_PREFIXES, --class, --type, or --all.')
+    if n_selectors > 1:
+        raise click.UsageError('Provide only one of HASH_PREFIXES, --class, --type, or --all.')
+
+    if do_import:
+        n = _import_project_modules(Path.cwd(), verbose=verbose_import)
+        click.echo(f'Imported {n} module(s)')
+
+    entries, entry_registry, _ = discover_entries()
+
+    if export_all:
+        record_ids = list(entries)
+    elif class_name:
+        record_ids = [rid for rid, e in entries.items() if e.class_name == class_name]
+        if not record_ids:
+            raise click.ClickException(f'No entries found for class {class_name!r}.')
+    elif type_filter:
+        tf = type_filter.upper()
+        record_ids = [rid for rid, e in entries.items() if (e.object_type or '').upper() == tf]
+        if not record_ids:
+            raise click.ClickException(f'No entries found for type {type_filter!r}.')
+    else:
+        record_ids = [_resolve_record(entry_registry, prefix)[0] for prefix in hash_prefixes]
+
+    files, warnings = collect_export_files(record_ids, entries, include_snapshots)
+    write_export_tar(files, Path(archive))
+    click.echo(
+        f'Exported {len(record_ids)} entr{"y" if len(record_ids) == 1 else "ies"} ({len(files)} files) to {archive}',
+    )
+    for warning in warnings:
+        click.echo(click.style(f'  warning: {warning}', fg='yellow'))
 
 
 # ---------------------------------------------------------------------------
@@ -1142,7 +1210,7 @@ def entry_show(
         click.echo()
         if entry_info and entry_info.primary_file:
             click.echo(f'Output       {entry_info.primary_file.path}')
-        for f in (entry_info.sidecar_files if entry_info else []):
+        for f in entry_info.sidecar_files if entry_info else []:
             click.echo(f'Sidecar      {f.path}')
         click.echo(f'Params path  {resolver.params_path}')
         click.echo(f'Hash path    {rec.hash_path}')

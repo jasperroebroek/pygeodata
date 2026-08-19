@@ -69,12 +69,23 @@ export function buildBoundsMapUrl(bl, crs) {
 // Toast
 // ---------------------------------------------------------------------------
 
-let toastTimer;
-
 export function toast(message) {
-  const el = $("#toast");
+  const stack = $("#toast");
+  const el = document.createElement("div");
+  el.className = "toast-item";
   el.textContent = String(message);
-  el.classList.add("on");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove("on"), 8000);
+  stack.appendChild(el);
+
+  // Two rAFs so the browser paints the initial (off) state before the
+  // "on" transition class is added — a single rAF can still coalesce
+  // with the append into the same frame and skip the fade-in.
+  requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add("on")));
+
+  setTimeout(() => {
+    el.classList.remove("on");
+    el.addEventListener("transitionend", () => el.remove(), { once: true });
+    // Fallback in case the element is already display:none'd or the
+    // transition never fires (e.g. reduced-motion settings).
+    setTimeout(() => el.remove(), 300);
+  }, 8000);
 }

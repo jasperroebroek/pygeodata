@@ -545,10 +545,19 @@
    Toast
    ------------------------------------------------------------ */
 
-.toast {
+.toast-stack {
   position: fixed;
   right: 14px;
   bottom: 14px;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-end;
+  gap: 8px;
+  z-index: 60;
+  pointer-events: none;
+}
+
+.toast-item {
   background: #1c1e1a;
   color: #fff;
   padding: 8px 12px;
@@ -558,10 +567,9 @@
   transform: translateY(5px);
   transition: opacity .15s, transform .15s;
   pointer-events: none;
-  z-index: 60;
 }
 
-.toast.on {
+.toast-item.on {
   opacity: 1;
   transform: translateY(0);
 }

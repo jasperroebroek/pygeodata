@@ -114,11 +114,7 @@ def _find_primary_and_sidecar_files(
     ext = _preferred_ext(class_name, object_type)
     path = next((p for p in candidates if p.suffix.lower() == ext), candidates[0])
     primary = FileRef(label=path.name, path=str(path.resolve()), kind=classify_file(path))
-    sidecars = [
-        FileRef(label=p.name, path=str(p.resolve()), kind=classify_file(p))
-        for p in candidates
-        if p != path
-    ]
+    sidecars = [FileRef(label=p.name, path=str(p.resolve()), kind=classify_file(p)) for p in candidates if p != path]
     return primary, sidecars
 
 

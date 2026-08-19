@@ -3,10 +3,9 @@
 import json
 from pathlib import Path
 
-import pytest
-
 from pygeodata.catalog.types import EntryInfo, SpecInfo
 from pygeodata.config import JSONKeys, set_config
+from pygeodata.paths import CachePathConstructor
 from pygeodata.registry_browser import export_service
 
 # ---------------------------------------------------------------------------
@@ -34,11 +33,12 @@ def _make_entry(record_id: str, params_path: str, dep_hash: str | None = None) -
     )
 
 
-_noop_allowed = lambda path_str: None
+def _noop_allowed(_path_str: str) -> bool:
+    return True
 
 
-def _rejecting_allowed(path_str: str):
-    raise Exception(f'path not allowed: {path_str}')
+def _rejecting_allowed(_path_str: str) -> bool:
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -46,11 +46,10 @@ def _rejecting_allowed(path_str: str):
 # ---------------------------------------------------------------------------
 
 
-def test_collect_cache_files(tmp_path: Path):
+def test_collect_cache_files(tmp_path: Path) -> None:
     registry = tmp_path / '.source'
     cache_root = tmp_path / 'data'
     cache_dir = cache_root / 'abc'
-    from pygeodata.paths import CachePathConstructor
 
     cache_dir.mkdir(parents=True)
     (cache_dir / 'output.tif').write_bytes(b'TIFF')
@@ -60,16 +59,22 @@ def test_collect_cache_files(tmp_path: Path):
     entry = _make_entry('abc', str(resolver.params_path))
 
     with set_config(path_cache=cache_root, path_figures=tmp_path / 'figs', path_registry=registry):
-        files = export_service.collect_export_files(['abc'], {'abc': entry}, False, _noop_allowed)
+        files, warnings = export_service.collect_export_files(
+            ['abc'],
+            {'abc': entry},
+            include_snapshots=False,
+            path_allowed=_noop_allowed,
+        )
 
     arcnames = [a for _, a in files]
     assert 'cache/abc/output.tif' in arcnames
     assert 'cache/abc/parameters.json' in arcnames
     assert not any(a.startswith('snapshots/') for a in arcnames)
     assert not any(a.startswith('code/') for a in arcnames)
+    assert warnings == []
 
 
-def test_collect_snapshot_and_code_members(tmp_path: Path):
+def test_collect_snapshot_and_code_members(tmp_path: Path) -> None:
     registry = tmp_path / '.source'
     cache_root = tmp_path / 'data'
     cache_dir = cache_root / 'abc'
@@ -106,24 +111,53 @@ def test_collect_snapshot_and_code_members(tmp_path: Path):
     entry = _make_entry('abc', str(cache_dir / 'output.tif'), dep_hash=dep_hash)
 
     with set_config(path_cache=cache_root, path_figures=tmp_path / 'figs', path_registry=registry):
-        files = export_service.collect_export_files(['abc'], {'abc': entry}, True, _noop_allowed)
+        files, warnings = export_service.collect_export_files(
+            ['abc'],
+            {'abc': entry},
+            include_snapshots=True,
+            path_allowed=_noop_allowed,
+        )
 
     arcnames = [a for _, a in files]
     assert 'cache/abc/output.tif' in arcnames
     assert f'snapshots/{dep_hash}/tree.json' in arcnames
     assert f'code/{src_hash}/source.py' in arcnames
     assert f'code/{src_hash}/source.json' in arcnames
+    assert warnings == []
 
 
-def test_collect_skips_unknown_record_id(tmp_path: Path):
+def test_collect_skips_unknown_record_id(tmp_path: Path) -> None:
     registry = tmp_path / '.source'
     with set_config(path_cache=tmp_path / 'data', path_figures=tmp_path / 'figs', path_registry=registry):
-        files = export_service.collect_export_files(['no_such_id'], {}, False, _noop_allowed)
+        files, warnings = export_service.collect_export_files(
+            ['no_such_id'],
+            {},
+            include_snapshots=False,
+            path_allowed=_noop_allowed,
+        )
     assert files == []
+    assert warnings == []
 
 
-def test_collect_calls_assert_allowed_path(tmp_path: Path):
-    """assert_allowed_path must be invoked for every cache directory."""
+def test_collect_default_path_allowed_is_permissive(tmp_path: Path) -> None:
+    """Omitting path_allowed should not block collection (CLI has no HTTP boundary to guard)."""
+    registry = tmp_path / '.source'
+    cache_root = tmp_path / 'data'
+    cache_dir = cache_root / 'abc'
+    cache_dir.mkdir(parents=True)
+    (cache_dir / 'output.tif').write_bytes(b'TIFF')
+    entry = _make_entry('abc', str(cache_dir / 'output.tif'))
+
+    with set_config(path_cache=cache_root, path_figures=tmp_path / 'figs', path_registry=registry):
+        files, warnings = export_service.collect_export_files(['abc'], {'abc': entry}, include_snapshots=False)
+
+    arcnames = [a for _, a in files]
+    assert 'cache/abc/output.tif' in arcnames
+    assert warnings == []
+
+
+def test_collect_disallowed_path_is_skipped_not_fatal(tmp_path: Path) -> None:
+    """A path_allowed False for one entry should skip just that entry, not fail the whole export."""
     registry = tmp_path / '.source'
     cache_root = tmp_path / 'data'
     cache_dir = cache_root / 'abc'
@@ -133,5 +167,33 @@ def test_collect_calls_assert_allowed_path(tmp_path: Path):
     entry = _make_entry('abc', str(cache_dir / 'output.tif'))
 
     with set_config(path_cache=cache_root, path_figures=tmp_path / 'figs', path_registry=registry):
-        with pytest.raises(Exception, match='path not allowed'):
-            export_service.collect_export_files(['abc'], {'abc': entry}, False, _rejecting_allowed)
+        files, warnings = export_service.collect_export_files(
+            ['abc'],
+            {'abc': entry},
+            include_snapshots=False,
+            path_allowed=_rejecting_allowed,
+        )
+
+    assert files == []
+    assert len(warnings) == 1
+    assert 'abc' in warnings[0]
+
+
+def test_collect_unreadable_dir_is_skipped_not_fatal(tmp_path: Path) -> None:
+    """A missing/unreadable cache dir should skip just that entry, not raise."""
+    registry = tmp_path / '.source'
+    cache_root = tmp_path / 'data'
+    missing_dir = cache_root / 'missing'
+    entry = _make_entry('abc', str(missing_dir / 'output.tif'))
+
+    with set_config(path_cache=cache_root, path_figures=tmp_path / 'figs', path_registry=registry):
+        files, warnings = export_service.collect_export_files(
+            ['abc'],
+            {'abc': entry},
+            include_snapshots=False,
+            path_allowed=_noop_allowed,
+        )
+
+    assert files == []
+    assert len(warnings) == 1
+    assert 'abc' in warnings[0]
