@@ -10,9 +10,10 @@ from pathlib import Path
 
 import pytest
 
+from pygeodata.catalog import store
 from pygeodata.catalog.display import is_output_file
 from pygeodata.catalog.entry_catalog import _enrich_params_path, discover_entries
-from pygeodata.config import JSONKeys, set_config
+from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config, set_config
 from pygeodata.paths import CachePathConstructor
 from pygeodata.registries.registry import EntryRegistry
 from pygeodata.tracked_object import TrackedObject
@@ -266,3 +267,26 @@ def test_discover_entries_progress_tracking(tmp_path):
     discover_entries(progress=progress)
     assert progress['done'] == 1
     assert progress['total'] == 1
+
+
+def test_discover_entries_absolute_paths_from_catalog(tmp_path, monkeypatch):
+    d = tmp_path / 'data_processed' / 'MyLoader'
+    write_cache_entry(
+        d,
+        'abc',
+        params={'year': 2020},
+        state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'},
+        spec={'crs': 'EPSG:4326'},
+    )
+
+    # A catalog built from a project opened at its root stores relative entry dirs;
+    # hydrated EntryInfo paths must still be absolute (e.g. for send_file).
+    monkeypatch.chdir(tmp_path)
+    with set_config(path_cache=Path('data_processed'), path_figures=Path('figures'), path_registry=Path('.source')):
+        EntryRegistry._instance = None
+        store.refresh(get_config().path_registry, get_config().cache_roots, FORMAT_VERSION)
+        entries, _, diag = discover_entries()
+    assert diag['created_entries'] == 1
+    entry = entries['abc']
+    assert Path(entry.params_path).is_absolute()
+    assert Path(entry.params_path).exists()

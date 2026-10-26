@@ -25,6 +25,7 @@ dependencies = [
     "pyarrow",
     "filelock",
     "sqlalchemy",
+    "click",
 ]
 
 [project.scripts]
@@ -36,15 +37,6 @@ version = { attr = "pygeodata.__version__" }
 [tool.setuptools.packages.find]
 include = ["pygeodata*"]
 
-[tool.setuptools.package-data]
-pygeodata = [
-    "registry_browser/static/**/*",
-    "registry_browser/templates/**/*",
-]
-
-[tool.setuptools.exclude-package-data]
-pygeodata = [".DS_Store", "**/.DS_Store"]
-
 [project.optional-dependencies]
 viz = [
     "graphviz",
@@ -53,9 +45,8 @@ parallel = [
     "dask",
     "distributed",
 ]
-dashboard = [
-    "flask",
-    "click",
+browser = [
+    "pygeodata-browser",
 ]
 test = [
     "pytest",
@@ -72,7 +63,7 @@ documentation = [
 all = [
     "pygeodata[viz]",
     "pygeodata[parallel]",
-    "pygeodata[dashboard]",
+    "pygeodata[browser]",
     "pygeodata[test]",
     "pygeodata[documentation]",
 ]

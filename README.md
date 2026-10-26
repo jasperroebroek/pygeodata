@@ -241,7 +241,7 @@ Optional extras:
 
 ```bash
 pip install pygeodata[viz]        # dependency graph plots (graphviz)
-pip install pygeodata[dashboard]  # registry browser (Flask)
+pip install pygeodata[browser]     # registry browser (pygeodata-browser)
 ```
 
 ## License

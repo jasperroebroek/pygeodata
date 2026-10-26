@@ -182,7 +182,7 @@ Output paths follow the structure::
 where ``state_hash`` is the SHA-256 over ``(instance_hash, spec)`` and ``name``
 is the class name in snake_case. Use the registry browser to navigate cached
 entries without needing human-readable paths — see
-:func:`~pygeodata.registry_browser.serve.open_registry_browser`.
+:func:`~pygeodata_browser.serve.open_registry_browser`.
 
 Parallel execution
 ~~~~~~~~~~~~~~~~~~

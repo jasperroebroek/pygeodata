@@ -49,7 +49,7 @@ From Python:
 
 .. code-block:: python
 
-   from pygeodata.registry_browser.serve import open_registry_browser
+   from pygeodata_browser.serve import open_registry_browser
    open_registry_browser(port=8080)  # blocks
 
 The browser reads ``path_cache``, ``path_tables``, ``path_figures``, and

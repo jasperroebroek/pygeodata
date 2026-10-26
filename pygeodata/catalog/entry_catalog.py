@@ -215,7 +215,7 @@ def discover_entries(
 
 
 def _entry_info_from_display(rec: EntryRecord, disp: dict) -> EntryInfo:
-    entry_dir = disp['entry_dir']
+    entry_dir = Path(disp['entry_dir']).resolve()
     resolver = CachePathConstructor(entry_dir)
     return EntryInfo(
         class_name=rec.class_name or entry_dir.name,

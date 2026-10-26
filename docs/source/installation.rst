@@ -30,7 +30,7 @@ Install additional optional dependencies by specifying extras:
 
    pip install pygeodata[viz]           # dependency graph plots
    pip install pygeodata[parallel]      # Dask integration
-   pip install pygeodata[dashboard]     # registry browser
+   pip install pygeodata[browser]        # registry browser
    pip install pygeodata[test]          # test suite
    pip install pygeodata[documentation] # docs build
 
@@ -49,8 +49,9 @@ The extras provide:
 - **parallel** — ``dask`` and ``distributed`` for converting loader graphs to
   Dask delayed graphs via :func:`~pygeodata.parallel.build_dask_graph`.
 
-- **dashboard** — ``flask`` for the local registry browser launched by
-  :func:`~pygeodata.registry_browser.open_registry_browser`.
+- **browser** — the ``pygeodata-browser`` package for the local registry
+  browser launched by ``pygeodata browse`` and
+  :func:`~pygeodata_browser.open_registry_browser`.
 
 - **test** — ``pytest`` and ``pytest-mock`` for running the test suite.
 

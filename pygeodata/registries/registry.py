@@ -220,7 +220,7 @@ class EntryRegistry:
 
     Browser display fields (rows, spec strings, linked entries, primary file) are
     NOT populated here — that enrichment is done by
-    :func:`pygeodata.registry_browser.entry_catalog.discover_entries`.
+    :func:`pygeodata.catalog.entry_catalog.discover_entries`.
 
     ``paths`` sets the cache roots to scan.  When omitted, defaults to
     :attr:`config.cache_roots <pygeodata.config.Config.cache_roots>`.

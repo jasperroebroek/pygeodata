@@ -170,7 +170,13 @@ def browse(
     port: int, fast: bool, reconcile_interval: float, reimport_on_reconcile: bool, do_import: bool, verbose_import: bool
 ) -> None:
     """Launch the registry browser."""
-    from pygeodata.registry_browser.serve import open_registry_browser
+    try:
+        from pygeodata_browser.serve import open_registry_browser
+    except ImportError as err:
+        raise click.ClickException(
+            f'The registry browser lives in the pygeodata-browser package: pip install pygeodata[browser]. '
+            f'Original error: {err}'
+        ) from err
 
     if do_import:
         root = Path.cwd()

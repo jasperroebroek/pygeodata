@@ -184,6 +184,7 @@ Initial release.
 
 **Registry browser**
 
-- :func:`~pygeodata.registry_browser.open_registry_browser` — local Flask web
-  UI for exploring cached entries, inspecting parameters and state hashes,
-  viewing co-outputs, navigating dependency graphs, and opening output files.
+- ``pygeodata browse`` — local Flask web UI (now in the
+  ``pygeodata-browser`` package, installed via ``pygeodata[browser]``) for
+  exploring cached entries, inspecting parameters and state hashes, viewing
+  co-outputs, navigating dependency graphs, and opening output files.

@@ -65,16 +65,20 @@ pygeodata/catalog/
                   (moved here from entry_catalog; reused by both)
   store.py        Engine (WAL), fingerprint sync, upserts, incremental backfill,
                   prune, refresh, bootstrap_rows, index_entry (write hook target)
+pygeodata/artifact.py
+  write_cache_metadata  ends with index_entry(...) — data only (record, resolved
+                   spec, params_json); catalog derives display internally
 pygeodata/registries/registry.py
   EntryRegistry   hydrates from the catalog (one SELECT of identity columns);
                   falls back to a plain meta.json disk scan when no/empty catalog
 pygeodata/catalog/entry_catalog.py
-  discover_entries  assembles EntryInfo entirely from the DB; disk fallback per
-                   entry only when the catalog is missing
-pygeodata/artifact.py
-  write_cache_metadata  ends with index_entry(...) — data only (record, resolved
-                   spec, params_json); catalog derives display internally
-pygeodata/registry_browser/  (legacy Flask UI; to be replaced)
+  discover_entries  assembles EntryInfo entirely from the DB; entry dirs are
+                   resolved to absolute paths (send_file requirement); disk
+                   fallback per entry only when the catalog is missing
+~/Packages/pygeodata-browser/  (separate installable package, own git repo)
+  pygeodata_browser/  the Flask browser (web, payloads, code/export services,
+                   state, templates, static JS/CSS) + its tests; installs with
+                   `pip install pygeodata-browser` or `pygeodata[browser]`
 ```
 
 **Contract details:**
@@ -130,16 +134,20 @@ not more caching.
 
 ## Remaining buckets (in order)
 
-### Bucket 3 — Package split
-- New installable package `pygeodata-browser` (separate directory or repo — user
-  hasn't finalized; ask). Owns: `pygeodata/registry_browser/` (Flask app, templates,
-  static JS, its tests). Core keeps: registries, catalog, CLI, view-models
-  (`catalog/types.py`, `payloads` move with the browser or stay as a neutral layer —
-  decide during design).
-- Core CLI `browse` delegates: `import pygeodata_browser` with a clear install hint
-  if absent; core ships an optional extra `pygeodata[browser]`. CLI stays in core.
-- SQLAlchemy is already a core dependency (catalog); Flask/Svelte deps live only in
-  the browser package.
+### Bucket 3 — Package split (COMPLETE)
+Done: browser lives in the sibling package `~/Packages/pygeodata-browser`
+(module `pygeodata_browser`, deps `pygeodata>=0.3` + `flask`, own repo, tests
+moved with it). Core `browse` CLI delegates to `pygeodata_browser` with an
+install hint (`pygeodata[browser]` extra). The legacy `pygeodata/registry_browser`
+and its tests are removed from core; the `dashboard` extra is gone. The
+structured-diff helper tests (`_word_segments`, `_build_structured_hunks`) moved
+to the browser package (`tests/test_code_diff_helpers.py`). Verified
+screen-by-screen with Playwright against a synthetic fixture project AND the
+real `apes` project (normal + fast mode, legacy vs new): all views identical
+(screenshots pixel-equal, API payloads byte-equal modulo per-process version
+UUIDs). One shared bug fixed in core during verification: catalog-hydrated
+EntryInfo paths are now absolute (regression test in
+`tests/catalog/test_entry_catalog.py`).
 
 ### Bucket 4 — Svelte 5 frontend
 Sub-bucket roughly: (a) Vite+Svelte scaffold against the existing JSON API
@@ -162,9 +170,9 @@ auto-opens the first table row** (explicit user requirement, currently unimpleme
 
 ## Known loose ends
 
-- The legacy JS fast-mode implementation is pragmatic (bootstrap list into the class
-  column, top bar, swap on ready). It is expected to be replaced by bucket 4; don't
-  polish it.
+- The legacy JS fast-mode implementation (now in `pygeodata-browser`) is pragmatic
+  (bootstrap list into the class column, top bar, swap on ready). It is expected
+  to be replaced by bucket 4; don't polish it.
 - `catalog/filters.py`, `catalog/export.py`, `class_catalog.py` were not refactored;
   they operate on the same `EntryInfo` view and keep working.
 - `tests/processors` was skipped throughout (per CLAUDE.md default); run it once

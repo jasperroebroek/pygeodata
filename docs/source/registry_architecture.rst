@@ -18,9 +18,8 @@ construct one ``VersionRegistry`` and access the others through it.
 
 The neutral view-model layer lives in ``pygeodata/catalog/``: ``class_catalog.py``
 and ``entry_catalog.py`` build ``ClassInfo`` / ``EntryInfo`` dicts from the
-registries without any Flask dependency.  Both the CLI and the browser import
-from ``pygeodata.catalog``; only the browser imports from
-``pygeodata.registry_browser``.
+registries without any Flask dependency.  Both the CLI and the browser (the
+``pygeodata-browser`` package) import from ``pygeodata.catalog``.
 
 Construction pattern
 --------------------
