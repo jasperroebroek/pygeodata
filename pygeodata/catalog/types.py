@@ -9,6 +9,11 @@ from pygeodata.config import FORMAT_VERSION
 from pygeodata.spec import SpatialSpec, SpecKeys, format_resolution
 
 
+class FileRole(StrEnum):
+    PRIMARY = 'primary'
+    SIDECAR = 'sidecar'
+
+
 class ParamRowType(StrEnum):
     VALUE = 'value'
     LIST_MEMBER = 'list_member'

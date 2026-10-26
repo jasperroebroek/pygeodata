@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from pygeodata.catalog.filters import Filter, entry_matches_filters, matching_rows, parse_filters
 from pygeodata.catalog.types import ClassInfo, EntryInfo, FileRef, LinkedEntry
 from pygeodata.formatting.json import format_json
@@ -371,9 +373,22 @@ def _entry_detail_payload(entry: EntryInfo, same_instance_runs: list[EntryInfo] 
         'co_outputs': [_co_output_payload(e, entry) for e in entry.co_outputs],
         'same_instance_runs': [_same_instance_run_payload(s) for s in (same_instance_runs or [])],
         'rows': [_row_payload(r) for r in entry.rows],
-        'params_tree': format_json(entry.params),
+        'params_tree': format_json(_params_tree(entry)),
         'linked_entries': [_linked_entry_payload(le) for le in entry.linked_entries],
     }
+
+
+def _params_tree(entry: EntryInfo) -> dict:
+    """The raw params tree — read from disk on demand, never during import."""
+    import json
+
+    path = Path(entry.params_path)
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError):
+        return {}
 
 
 def _build_instance_hash_index(entries: dict[str, 'EntryInfo']) -> dict[str, list['EntryInfo']]:

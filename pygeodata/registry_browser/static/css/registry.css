@@ -242,3 +242,21 @@ body.select-mode .dl-icon { display: inline-flex; align-items: center; justify-c
 #export-table-scroll table {
   padding-bottom: 12px;
 }
+
+/* Fast mode: slim progress bar pinned under the top row while the full state builds */
+.fast-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  padding: 2px 8px;
+  background: var(--bg, #f6f7f9);
+  border-bottom: 1px solid var(--border, #d9dde3);
+}
+
+.fast-progress.hidden { display: none; }
+
+.fast-progress-track { height: 3px; }
+
+#fast-progress-fill { background: var(--accent, #4c7bf3); }

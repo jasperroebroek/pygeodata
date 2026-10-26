@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Float, ForeignKey, MetaData, String, Text
+from sqlalchemy import JSON, Enum, Float, ForeignKey, MetaData, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+from pygeodata.catalog.types import FileRole
 
 
 class Base(DeclarativeBase):
@@ -36,6 +38,12 @@ class Resolution(Base):
     __tablename__ = 'resolutions'
 
     transform_hash: Mapped[str] = mapped_column(String, primary_key=True)
+    a: Mapped[float | None] = mapped_column(Float)
+    b: Mapped[float | None] = mapped_column(Float)
+    c: Mapped[float | None] = mapped_column(Float)
+    d: Mapped[float | None] = mapped_column(Float)
+    e: Mapped[float | None] = mapped_column(Float)
+    f: Mapped[float | None] = mapped_column(Float)
     res_x: Mapped[float | None] = mapped_column(Float)
     res_y: Mapped[float | None] = mapped_column(Float)
 
@@ -73,6 +81,18 @@ class Entry(Base):
     bounds_hash: Mapped[str | None] = mapped_column(ForeignKey('bounds.bounds_hash'))
     shape_hash: Mapped[str | None] = mapped_column(ForeignKey('shapes.shape_hash'))
     co_output_hashes: Mapped[str | None] = mapped_column(Text)
+    rows: Mapped[list | None] = mapped_column(JSON)
+    linked_entries: Mapped[list | None] = mapped_column(JSON)
     dir_relpath: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[float | None] = mapped_column(Float)
     updated_at: Mapped[float | None] = mapped_column(Float)
+
+
+class EntryFile(Base):
+    __tablename__ = 'entry_files'
+
+    state_hash: Mapped[str] = mapped_column(ForeignKey('entries.state_hash'), primary_key=True)
+    relpath: Mapped[str] = mapped_column(Text, primary_key=True)
+    label: Mapped[str] = mapped_column(Text)
+    kind: Mapped[str] = mapped_column(Text)
+    role: Mapped[FileRole] = mapped_column(Enum(FileRole))

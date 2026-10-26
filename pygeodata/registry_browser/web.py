@@ -7,15 +7,17 @@ import shutil
 import tarfile
 import tempfile
 import threading
+import time
 import uuid
 from contextlib import redirect_stdout
 from pathlib import Path
 
-from flask import Flask, abort, jsonify, render_template, request, send_file
+from flask import Flask, Response, abort, jsonify, render_template, request, send_file
 from werkzeug.exceptions import HTTPException
 
 from pygeodata.cache import clean_cache, clean_source_registry
-from pygeodata.config import get_config
+from pygeodata.catalog import store
+from pygeodata.config import FORMAT_VERSION, get_config
 from pygeodata.registry_browser import code_service, export_service, payloads
 from pygeodata.registry_browser.logging import configure_logging
 from pygeodata.registry_browser.path_actions import open_path, reveal_path
@@ -29,7 +31,11 @@ from pygeodata.registry_browser.state import AppContext
 from pygeodata.tracked_object import TrackedObject
 
 _ctx: AppContext = AppContext()  # replaced by create_app() on startup
-_loading = ({'loading': True}, 202)
+
+
+def _loading():
+    return ({'loading': True, 'fast': bool(app.config.get('FAST'))}, 202)
+
 
 app = Flask(__name__, template_folder='templates')
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
@@ -74,6 +80,18 @@ def _path_allowed(path_str: str) -> bool:
 @app.get('/')
 def index():
     return render_template('index.html')
+
+
+@app.get('/api/bootstrap')
+def api_bootstrap() -> Response:
+    """Most recent entry per class — served instantly while the full state builds."""
+    source_root = get_config().path_registry
+    try:
+        engine = store.get_engine(str(source_root.resolve()), format_version=FORMAT_VERSION)
+        rows = store.bootstrap_rows(engine)
+    except Exception:  # noqa: BLE001 — bootstrap is best-effort; the full load follows
+        rows = []
+    return jsonify(rows)
 
 
 @app.get('/api/popup/json')
@@ -149,6 +167,7 @@ def api_status():
             'progress': _ctx.progress,
             'load_error': _ctx.load_error,
             'has_live_classes': bool(TrackedObject._registry),
+            'fast': bool(app.config.get('FAST')),
         },
     )
 
@@ -156,7 +175,7 @@ def api_status():
 @app.post('/api/dashboard')
 def api_dashboard():
     if _ctx.is_loading() or _ctx.state is None:
-        return _loading
+        return _loading()
     payload = request.get_json(force=True) or {}
     return jsonify(
         build_browser_payload(
@@ -179,13 +198,13 @@ def api_rebuild():
     body = request.get_json(force=True, silent=True) or {}
     reimport = bool(body.get('reimport', False))
     _ctx.start_reload(reimport=reimport)
-    return _loading
+    return _loading()
 
 
 @app.delete('/api/entry/<record_id>')
 def api_delete_entry(record_id: str):
     if _ctx.is_loading() or _ctx.state is None:
-        return _loading
+        return _loading()
     entry = _ctx.state.entries.get(record_id)
     if entry is None:
         abort(404)
@@ -227,7 +246,7 @@ def api_clean_source():
 def api_code_versions():
     """Return merged version groups sorted newest first, with a synthetic Initial entry last."""
     if _ctx.is_loading() or _ctx.state is None:
-        return _loading
+        return _loading()
     from pygeodata.tracked_object import TrackedObject
 
     entry_dep_hashes = {e.dep_hash for e in _ctx.state.entries.values() if e.dep_hash}
@@ -251,7 +270,7 @@ def api_code_resolve_dep_hash():
     if not dep_hash or not class_name:
         abort(400)
     if _ctx.is_loading() or _ctx.state is None:
-        return _loading
+        return _loading()
     vreg = _ctx.state.version_registry
     source_hash = vreg.tree_registry.get_class_source_hash(dep_hash, class_name)
     if not source_hash:
@@ -267,7 +286,7 @@ def api_code_source_hash_version():
     Returns ``{"version_id": "<uuid>"}`` or 404.
     """
     if _ctx.is_loading() or _ctx.state is None:
-        return _loading
+        return _loading()
 
     source_hash = request.args.get('source_hash', '')
     if not source_hash:
@@ -287,7 +306,7 @@ def api_code_version_classes():
     Pass ``version_id=<uuid>`` to select a specific group, or omit for the newest group.
     """
     if _ctx.is_loading() or _ctx.state is None:
-        return _loading
+        return _loading()
     version_id = request.args.get('version_id', '')
     return jsonify(
         [dataclasses.asdict(c) for c in code_service.version_classes(version_id, _ctx.state.version_registry)],
@@ -302,7 +321,7 @@ def api_code_version_changes():
     ``{class_name, status, hash_old, hash_new}`` entries, or 404 if unknown.
     """
     if _ctx.is_loading() or _ctx.state is None:
-        return _loading
+        return _loading()
     version_id = request.args.get('version_id', '')
     if not version_id:
         abort(400)
@@ -316,7 +335,7 @@ def api_code_version_changes():
 @app.get('/api/code/snapshot')
 def api_code_snapshot():
     if _ctx.is_loading() or _ctx.state is None:
-        return _loading
+        return _loading()
     source_hash = request.args.get('source_hash', '')
     if not source_hash:
         abort(400)
@@ -358,7 +377,7 @@ def api_code_version_diff():
     Returns {changes, base_version_id, has_live_stale}.
     """
     if _ctx.is_loading() or _ctx.state is None:
-        return _loading
+        return _loading()
 
     record_id = request.args.get('record_id') or None
     base_version_id = request.args.get('base_version_id') or None
@@ -387,7 +406,7 @@ def api_code_version_diff():
 @app.post('/api/export/start')
 def api_export_start():
     if _ctx.is_loading() or _ctx.state is None:
-        return _loading
+        return _loading()
 
     body = request.get_json(force=True) or {}
     record_ids = body.get('record_ids', [])
@@ -456,7 +475,7 @@ def api_export_download(job_id: str):
 def api_export_table():
     """Return table rows for a specific set of record IDs (for the export view)."""
     if _ctx.is_loading() or _ctx.state is None:
-        return _loading
+        return _loading()
 
     body = request.get_json(force=True) or {}
     record_ids: list[str] = body.get('record_ids', [])
@@ -486,7 +505,7 @@ def api_export_table():
 @app.get('/api/export/single/<record_id>')
 def api_export_single(record_id: str):
     if _ctx.is_loading() or _ctx.state is None:
-        return _loading
+        return _loading()
 
     data_path, download_name, needs_tar = export_service.single_entry_tar_path(
         record_id,
@@ -506,9 +525,28 @@ def api_export_single(record_id: str):
     return send_file(data_path, as_attachment=True, download_name=download_name)
 
 
-def create_app() -> Flask:
+def create_app(
+    fast: bool = False,
+    reconcile_interval: float = 300,
+    reimport_on_reconcile: bool = True,
+) -> Flask:
+    """``fast`` serves the UI immediately from the bootstrap payload while the
+    full state builds; the default blocks until the first full state is ready.
+    A daemon thread reconciles the catalog (and optionally reimports project
+    modules) every ``reconcile_interval`` seconds.
+    """
     global _ctx
     configure_logging(logging.INFO)
+    app.config['FAST'] = fast
     _ctx = AppContext()
     _ctx.start_load()
+    if reconcile_interval > 0:
+
+        def _periodic_reconcile() -> None:
+            while True:
+                time.sleep(reconcile_interval)
+                if not _ctx.is_loading():
+                    _ctx.start_reload(reimport=reimport_on_reconcile)
+
+        threading.Thread(target=_periodic_reconcile, daemon=True).start()
     return app

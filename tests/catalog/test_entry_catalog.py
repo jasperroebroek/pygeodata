@@ -6,20 +6,12 @@ This file covers the display-enrichment helpers and discover_entries integration
 """
 
 import json
-import shutil
 from pathlib import Path
 
 import pytest
 
-from pygeodata.catalog.entry_catalog import (
-    _cache_mtime_key,
-    _enrich_params_path,
-    _enrich_with_cache,
-    _is_output_file,
-    _load_disk_cache,
-    _save_disk_cache,
-    discover_entries,
-)
+from pygeodata.catalog.display import is_output_file
+from pygeodata.catalog.entry_catalog import _enrich_params_path, discover_entries
 from pygeodata.config import JSONKeys, set_config
 from pygeodata.paths import CachePathConstructor
 from pygeodata.registries.registry import EntryRegistry
@@ -103,73 +95,17 @@ def _make_subdir(p):
 )
 def test_is_output_file(tmp_path, make_path, expected):
     path = make_path(tmp_path)
-    assert _is_output_file(path) is expected
+    assert is_output_file(path) is expected
 
 
 def test_is_output_file_meta_files(tmp_path):
     for name in ('parameters.json', 'meta.json', 'spec.json', 'graph.pdf', 'process.lock'):
         f = tmp_path / name
         f.write_bytes(b'x')
-        assert not _is_output_file(f)
+        assert not is_output_file(f)
 
 
 # ---------------------------------------------------------------------------
-# _load_disk_cache / _save_disk_cache
-# ---------------------------------------------------------------------------
-
-
-def test_load_disk_cache_missing_file(tmp_path):
-    with set_config(path_registry=tmp_path / '.source'):
-        results, mtimes = _load_disk_cache()
-    assert results == {}
-    assert mtimes == {}
-
-
-def test_save_and_load_disk_cache(tmp_path):
-    with set_config(path_registry=tmp_path / '.source'):
-        (tmp_path / '.source').mkdir(parents=True)
-        _save_disk_cache({'key': {'a': 1}}, {'key': 1.23})
-        results, mtimes = _load_disk_cache()
-    assert results == {'key': {'a': 1}}
-    assert mtimes == {'key': pytest.approx(1.23)}
-
-
-def test_load_disk_cache_corrupted_file(tmp_path):
-    reg = tmp_path / '.source'
-    reg.mkdir(parents=True)
-    (reg / '.dashboard_cache.json').write_text('not json')
-    with set_config(path_registry=reg):
-        results, mtimes = _load_disk_cache()
-    assert results == {}
-    assert mtimes == {}
-
-
-# ---------------------------------------------------------------------------
-# _cache_mtime_key
-# ---------------------------------------------------------------------------
-
-
-def test_cache_mtime_key_sums_existing_files(tmp_path):
-    d = tmp_path / 'data_processed' / 'MyLoader'
-    params_path = write_cache_entry(d, 'abc', params={'year': 2020})
-    total = _cache_mtime_key(params_path)
-    assert total > 0
-
-
-def test_cache_mtime_key_missing_files_contribute_zero(tmp_path):
-    d = tmp_path / 'data_processed' / 'MyLoader'
-    d.mkdir(parents=True)
-    resolver = CachePathConstructor(d)
-    resolver.params_path.write_text('{}')
-    total = _cache_mtime_key(resolver.params_path)
-    assert isinstance(total, float)
-
-
-# ---------------------------------------------------------------------------
-# _enrich_params_path  (was _process_params_path)
-# ---------------------------------------------------------------------------
-
-
 def test_enrich_params_path_fields(tmp_path):
     d = tmp_path / 'data_processed' / 'MyLoader'
     params_path = write_cache_entry(
@@ -268,57 +204,6 @@ def test_enrich_params_path_co_output_hashes(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_enrich_with_cache_cold_miss(tmp_path):
-    d = tmp_path / 'data_processed' / 'MyLoader'
-    params_path = write_cache_entry(
-        d,
-        'abc',
-        state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'},
-    )
-    entry, from_cache = _enrich_with_cache(params_path, {}, {})
-    assert not from_cache
-    assert entry.class_name == 'MyLoader'
-
-
-def test_enrich_with_cache_hit(tmp_path):
-    d = tmp_path / 'data_processed' / 'MyLoader'
-    params_path = write_cache_entry(
-        d,
-        'abc',
-        state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc', JSONKeys.OBJECT_TYPE: 'Data'},
-    )
-    key = str(params_path.resolve())
-    mtime = _cache_mtime_key(params_path)
-
-    fresh, _ = _enrich_with_cache(params_path, {}, {})
-    serialised = fresh.to_dict()
-
-    entry, from_cache = _enrich_with_cache(params_path, {key: serialised}, {key: mtime})
-    assert from_cache
-    assert entry.class_name == 'MyLoader'
-
-
-def test_enrich_with_cache_miss_on_mtime_change(tmp_path):
-    d = tmp_path / 'data_processed' / 'MyLoader'
-    params_path = write_cache_entry(
-        d,
-        'abc',
-        state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'},
-    )
-    key = str(params_path.resolve())
-    fresh, _ = _enrich_with_cache(params_path, {}, {})
-    serialised = fresh.to_dict()
-
-    stale_mtime = 0.0
-    entry, from_cache = _enrich_with_cache(params_path, {key: serialised}, {key: stale_mtime})
-    assert not from_cache
-
-
-# ---------------------------------------------------------------------------
-# discover_entries (integration)
-# ---------------------------------------------------------------------------
-
-
 def test_discover_entries_empty_cache(tmp_path):
     entries, entry_registry, diag = discover_entries()
     assert entries == {}
@@ -381,80 +266,3 @@ def test_discover_entries_progress_tracking(tmp_path):
     discover_entries(progress=progress)
     assert progress['done'] == 1
     assert progress['total'] == 1
-
-
-def test_discover_entries_writes_disk_cache(tmp_path):
-    reg = tmp_path / '.source'
-    reg.mkdir(parents=True)
-    d = tmp_path / 'data_processed' / 'MyLoader'
-    write_cache_entry(d, 'abc', state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'})
-
-    discover_entries()
-
-    cache_file = reg / '.dashboard_cache.json'
-    assert cache_file.exists()
-    data = json.loads(cache_file.read_text())
-    assert 'results' in data
-    assert 'mtimes' in data
-
-
-def test_discover_entries_skips_rewrite_when_nothing_changed(tmp_path):
-    """A fully-cached run must not rewrite the cache file."""
-    reg = tmp_path / '.source'
-    reg.mkdir(parents=True)
-    d = tmp_path / 'data_processed' / 'MyLoader'
-    write_cache_entry(d, 'abc', state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'})
-
-    discover_entries()
-    cache_file = reg / '.dashboard_cache.json'
-    first_mtime = cache_file.stat().st_mtime_ns
-
-    discover_entries()
-
-    assert cache_file.stat().st_mtime_ns == first_mtime, 'no-op run should not rewrite the cache'
-
-
-def test_discover_entries_rewrites_when_entry_removed(tmp_path):
-    """Deleting an entry must drop it from the cache even though survivors all hit."""
-    reg = tmp_path / '.source'
-    reg.mkdir(parents=True)
-    d1 = tmp_path / 'data_processed' / 'LoaderA'
-    d2 = tmp_path / 'data_processed' / 'LoaderB'
-    write_cache_entry(d1, 'aaa', state={JSONKeys.CLASS_NAME: 'LoaderA', JSONKeys.STATE_HASH: 'aaa'})
-    write_cache_entry(d2, 'bbb', state={JSONKeys.CLASS_NAME: 'LoaderB', JSONKeys.STATE_HASH: 'bbb'})
-
-    discover_entries()
-    cache_file = reg / '.dashboard_cache.json'
-    assert len(json.loads(cache_file.read_text())['results']) == 2
-
-    shutil.rmtree(d2)
-    discover_entries()
-
-    results = json.loads(cache_file.read_text())['results']
-    assert len(results) == 1, 'removed entry must be dropped from the cache'
-    assert not any('LoaderB' in k for k in results)
-
-
-def test_discover_entries_leaves_no_tmp_file(tmp_path):
-    """The atomic write must not leave its temp file behind."""
-    reg = tmp_path / '.source'
-    reg.mkdir(parents=True)
-    d = tmp_path / 'data_processed' / 'MyLoader'
-    write_cache_entry(d, 'abc', state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'})
-
-    discover_entries()
-
-    assert (reg / '.dashboard_cache.json').exists()
-    assert not list(reg.glob('*.tmp')), 'temp file should be renamed, not left behind'
-
-
-def test_discover_entries_uses_disk_cache_on_second_call(tmp_path):
-    reg = tmp_path / '.source'
-    reg.mkdir(parents=True)
-    d = tmp_path / 'data_processed' / 'MyLoader'
-    write_cache_entry(d, 'abc', state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'})
-
-    entries1, _, _ = discover_entries()
-    entries2, _, _ = discover_entries()
-
-    assert set(entries1.keys()) == set(entries2.keys())

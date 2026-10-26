@@ -1,121 +1,35 @@
-import contextlib
+import ast
 import json
+from functools import cache
 from pathlib import Path
 
+from affine import Affine
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from pygeodata.catalog import models, store
+from pygeodata.catalog.display import find_primary_and_sidecar_files
 from pygeodata.catalog.params_index import flatten_params
 from pygeodata.catalog.types import (
     EntryInfo,
     FileRef,
+    FileRole,
     LinkedEntry,
+    ParamRow,
+    ParamRowType,
     SpecInfo,
 )
-from pygeodata.config import FORMAT_VERSION, dashboard_cache_path
-from pygeodata.figure import Figure
-from pygeodata.paths import (
-    CACHE_DIR_SUFFIXES,
-    CACHE_META_FILES,
-    CachePathConstructor,
-    classify_file,
-    write_json_atomic,
-)
+from pygeodata.config import FORMAT_VERSION, catalog_db_path, get_config
+from pygeodata.paths import CachePathConstructor
 from pygeodata.registries.registry import EntryRegistry
 from pygeodata.registries.registry_types import EntryRecord
 from pygeodata.registries.versioning import VersionRegistry
-from pygeodata.spec import SpatialSpec
-from pygeodata.table import Table
+from pygeodata.spec import SpatialSpec, _crs_from_string
 from pygeodata.tracked_object import TrackedObject
-
-
-def _cache_mtime_key(params_path: Path) -> float:
-    """Combined mtime of params + spec files — any change invalidates the display cache."""
-    resolver = CachePathConstructor.from_path(params_path)
-    total = 0.0
-    for p in (params_path, resolver.spec_path):
-        with contextlib.suppress(OSError):
-            total += p.stat().st_mtime
-    return total
-
-
-def _load_disk_cache() -> tuple[dict[str, dict], dict[str, float]]:
-    """Load display cache from disk. Returns (results, mtimes) or empty dicts."""
-    path = dashboard_cache_path()
-    if not path.exists():
-        return {}, {}
-    try:
-        data = json.loads(path.read_text(encoding='utf-8'))
-        return data.get('results', {}), data.get('mtimes', {})
-    except (OSError, json.JSONDecodeError):
-        return {}, {}
-
-
-def _save_disk_cache(results: dict[str, dict], mtimes: dict[str, float], dirty: bool = True) -> None:
-    if not dirty:
-        return
-    write_json_atomic(dashboard_cache_path(), {'results': results, 'mtimes': mtimes})
-
 
 # ---------------------------------------------------------------------------
 # Per-entry display enrichment
 # ---------------------------------------------------------------------------
-
-
-#: Fixed extension per artifact family, for entries whose own class is not imported. `Data` is
-#: absent deliberately: it resolves its extension from a driver, so there is no default.
-_FAMILY_EXT: dict[str, str] = {'Figure': Figure.ext, 'Table': Table.ext}
-
-
-def _is_output_file(path: Path) -> bool:
-    if path.name in CACHE_META_FILES:
-        return False
-    if path.is_dir():
-        return path.suffix.lower() in CACHE_DIR_SUFFIXES
-    return path.is_file()
-
-
-def _preferred_ext(class_name: str | None, object_type: str | None) -> str | None:
-    """The extension this entry's output is expected to carry, or None if unknown.
-
-    The class's own `ext` is the authority, but it is reachable only once the project's classes
-    are imported, and `Data` leaves it None to be resolved from a driver. The `object_type` in
-    meta.json is always recorded, so the family default stands in — only the concrete subclasses
-    register themselves, so the families are named here rather than looked up.
-    """
-    obj_cls = TrackedObject.find_object_class(class_name) if class_name else None
-    ext = getattr(obj_cls, 'ext', None)
-
-    if ext is None:
-        ext = _FAMILY_EXT.get(object_type)
-
-    return f'.{ext}'.lower() if isinstance(ext, str) else None
-
-
-def _find_primary_and_sidecar_files(
-    resolver: CachePathConstructor,
-    class_name: str | None = None,
-    object_type: str | None = None,
-) -> tuple[FileRef | None, list[FileRef]]:
-    """The entry's main output, preferring the file whose suffix the class declares, plus
-    every other output file in the directory as sidecars.
-
-    A `_process` may write sidecars beside its declared output — a CSV next to a rendered HTML
-    table, say. Taking whatever `iterdir` yields first picks between them by filesystem order,
-    so one entry is classified 'table' and the next 'file' for the same class. Sorting breaks
-    the tie deterministically; the declared extension breaks it correctly. The remaining
-    candidates are not primary-file material but are still real outputs, so they are returned
-    as sidecars rather than silently dropped.
-    """
-    candidates = sorted(
-        (p for p in resolver.directory.iterdir() if _is_output_file(p)),
-        key=lambda p: p.name,
-    )
-    if not candidates:
-        return None, []
-
-    ext = _preferred_ext(class_name, object_type)
-    path = next((p for p in candidates if p.suffix.lower() == ext), candidates[0])
-    primary = FileRef(label=path.name, path=str(path.resolve()), kind=classify_file(path))
-    sidecars = [FileRef(label=p.name, path=str(p.resolve()), kind=classify_file(p)) for p in candidates if p != path]
-    return primary, sidecars
 
 
 def _enrich_params_path(params_path: Path, record: EntryRecord | None = None) -> EntryInfo:
@@ -152,7 +66,7 @@ def _enrich_params_path(params_path: Path, record: EntryRecord | None = None) ->
 
     object_type = record.object_type if record else None
 
-    primary_file, sidecar_files = _find_primary_and_sidecar_files(resolver, class_name, object_type)
+    primary_file, sidecar_files = find_primary_and_sidecar_files(resolver.directory, class_name, object_type)
 
     warnings: list[str] = []
     if not state_hash:
@@ -184,101 +98,113 @@ def _enrich_params_path(params_path: Path, record: EntryRecord | None = None) ->
     )
 
 
-def _enrich_with_cache(
-    params_path: Path,
-    cached_results: dict[str, dict],
-    cached_mtimes: dict[str, float],
-    record: EntryRecord | None = None,
-) -> tuple[EntryInfo, bool]:
-    """Return (entry, from_cache). Uses display cache if mtimes match."""
-    key = str(params_path.resolve())
-    current_mtime = _cache_mtime_key(params_path)
-    if key in cached_results and cached_mtimes.get(key) == current_mtime:
-        try:
-            return EntryInfo.from_dict(dict(cached_results[key])), True
-        except (KeyError, TypeError):
-            pass
-    entry = _enrich_params_path(params_path, record)
-    return entry, False
-
-
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
+
+
+def _spec_info(crs_hash: str | None, transform_hash: str | None, shape_hash: str | None) -> SpecInfo:
+    """Build the spec display from dimension rows, memoized per distinct spec triple.
+
+    The reconstructed SpatialSpec covers bounds, resolution and their display
+    strings, so only distinct (crs, transform, shape) triples reproject.
+    """
+    return _spec_info_cached(crs_hash, transform_hash, shape_hash)
+
+
+@cache
+def _spec_info_cached(crs_hash: str | None, transform_hash: str | None, shape_hash: str | None) -> SpecInfo:
+    engine = store.get_engine(str(get_config().path_registry.resolve()))
+    with Session(engine) as session:
+        crs_row = session.get(models.Crs, crs_hash) if crs_hash is not None else None
+        res_row = session.get(models.Resolution, transform_hash) if transform_hash is not None else None
+        shape_row = session.get(models.Shape, shape_hash) if shape_hash is not None else None
+
+    spec = None
+    if crs_row is not None and res_row is not None and shape_row is not None:
+        spec = SpatialSpec(
+            crs=_crs_from_string(crs_row.crs),
+            transform=Affine(res_row.a, res_row.b, res_row.c, res_row.d, res_row.e, res_row.f),
+            shape=ast.literal_eval(shape_row.shape),
+        )
+    return SpecInfo.from_spec(spec) if spec is not None else SpecInfo()
+
+
+def _load_display_from_catalog() -> dict[str, dict] | None:
+    """Per-state_hash display payload from the catalog; None when the catalog is unusable."""
+    if not catalog_db_path().exists():
+        return None
+    source_root = get_config().path_registry
+    base = source_root.resolve().parent
+    engine = store.get_engine(str(source_root.resolve()))
+    display: dict[str, dict] = {}
+    with Session(engine) as session:
+        files_by_hash: dict[str, dict[FileRole, list[FileRef]]] = {}
+        for f in session.execute(select(models.EntryFile)).scalars():
+            ref = FileRef(label=f.label, path=str(base / f.relpath), kind=f.kind)
+            files_by_hash.setdefault(f.state_hash, {}).setdefault(f.role, []).append(ref)
+
+        for row in session.execute(select(models.Entry)).scalars():
+            entry_dir = store.entry_abs_path(source_root, row.dir_relpath)
+            files = files_by_hash.get(row.state_hash, {})
+            rows = [ParamRow(**{**r, 'row_type': ParamRowType(r['row_type'])}) for r in (row.rows or [])]
+            linked = [LinkedEntry(**le) for le in (row.linked_entries or [])]
+            display[row.state_hash] = {
+                'entry_dir': entry_dir,
+                'spec': _spec_info(row.crs_hash, row.transform_hash, row.shape_hash),
+                'rows': rows,
+                'linked_entries': linked,
+                'primary_file': files.get(FileRole.PRIMARY, [None])[0],
+                'sidecar_files': files.get(FileRole.SIDECAR, []),
+            }
+    return display or None
 
 
 def discover_entries(
     progress: dict | None = None,
     version_registry: VersionRegistry | None = None,
 ) -> tuple[dict[str, EntryInfo], EntryRegistry, dict]:
-    """Enrich EntryRegistry records with display-layer data.
+    """Assemble the browser-enriched view of all cache entries.
 
-    Uses EntryRegistry as the single source of params paths (no second rglob).
-    The display cache (.dashboard_cache.json) is keyed by params_path and
-    covers only the browser-specific fields (spec, rows, linked_entries, etc.).
+    Display data comes from the catalog DB when it has entries — import reads no
+    per-entry files. Records missing from the catalog (fresh cache, post-wipe) fall
+    back to per-entry disk enrichment, which also repopulates the catalog via the
+    write path on the next render or via `catalog build`.
     """
     if version_registry is None:
         version_registry = VersionRegistry()
 
     entry_registry = EntryRegistry()
-    # params_path → EntryRecord, for co_output_hashes
-    record_by_params = {
-        str(rec.params_path.resolve()): rec for rec in entry_registry.records.values() if rec.params_path is not None
-    }
-    params_paths = sorted(Path(p) for p in record_by_params)
+    display_by_hash = _load_display_from_catalog()
 
+    records = sorted(entry_registry.records.values(), key=lambda r: r.state_hash or '')
     if progress is not None:
         progress['done'] = 0
-        progress['total'] = len(params_paths)
-
-    cached_results, cached_mtimes = _load_disk_cache()
-
-    partial_entries: list[EntryInfo] = []
-    new_results: dict[str, dict] = {}
-    new_mtimes: dict[str, float] = {}
-
-    any_miss = False
-    for p in params_paths:
-        key = str(p.resolve())
-        entry, from_cache = _enrich_with_cache(p, cached_results, cached_mtimes, record_by_params.get(key))
-        if from_cache:
-            new_results[key] = cached_results[key]
-            new_mtimes[key] = cached_mtimes[key]
-        else:
-            any_miss = True
-            if entry.error is None:
-                new_results[key] = entry.to_dict()
-                new_mtimes[key] = _cache_mtime_key(p)
-        partial_entries.append(entry)
-        if progress is not None:
-            progress['done'] += 1
-
-    dirty = any_miss or new_results.keys() != cached_results.keys() or not dashboard_cache_path().exists()
-    _save_disk_cache(new_results, new_mtimes, dirty=dirty)
+        progress['total'] = len(records)
 
     entries: dict[str, EntryInfo] = {}
     diagnostics = dict(entry_registry.diagnostics())
     diagnostics['created_entries'] = 0
 
-    for entry in partial_entries:
-        if entry.error is not None:
+    for rec in records:
+        if rec.state_hash is None:
             continue
-
-        rec = record_by_params.get(str(Path(entry.params_path).resolve()) if entry.params_path else '')
-        if rec is None:
-            continue
-
-        # record_id == state_hash (the key in EntryRegistry.records)
-        record_id = rec.state_hash or entry.params_path
-        entry.record_id = record_id
+        disp = display_by_hash.get(rec.state_hash) if display_by_hash is not None else None
+        entry = (
+            _entry_info_from_display(rec, disp)
+            if disp is not None
+            else _enrich_params_path(CachePathConstructor.from_path(Path(rec.hash_path)).params_path, rec)
+        )
+        entry.record_id = rec.state_hash
         if entry.dep_hash:
             obj_cls = TrackedObject.find_object_class(entry.class_name)
             if obj_cls is not None:
                 entry.dep_hash_stale = obj_cls.get_dependency_tree_hash() != entry.dep_hash
-            elif version_registry is not None:
+            else:
                 entry.dep_hash_stale = version_registry.is_dependency_hash_stale(entry.dep_hash)
-
-        entries[record_id] = entry
+        entries[entry.record_id] = entry
+        if progress is not None:
+            progress['done'] += 1
 
     # Second pass — resolve co_output_hashes to EntryInfo references
     for entry in entries.values():
@@ -286,3 +212,29 @@ def discover_entries(
 
     diagnostics['created_entries'] = len(entries)
     return entries, entry_registry, diagnostics
+
+
+def _entry_info_from_display(rec: EntryRecord, disp: dict) -> EntryInfo:
+    entry_dir = disp['entry_dir']
+    resolver = CachePathConstructor(entry_dir)
+    return EntryInfo(
+        class_name=rec.class_name or entry_dir.name,
+        object_type=rec.object_type,
+        params_path=str(resolver.params_path),
+        spec_path=str(resolver.spec_path),
+        state_hash_path=str(resolver.state_hash_path),
+        execution_graph_path=str(resolver.execution_graph_path),
+        state_hash=rec.state_hash,
+        instance_hash=rec.instance_hash,
+        params_hash=rec.params_hash,
+        spec_hash=rec.spec_hash,
+        params={},
+        spec=disp['spec'],
+        rows=disp['rows'],
+        linked_entries=disp['linked_entries'],
+        co_output_hashes=rec.co_output_hashes,
+        primary_file=disp['primary_file'],
+        sidecar_files=disp['sidecar_files'],
+        format_version=rec.format_version or FORMAT_VERSION,
+        dep_hash=rec.dependency_tree_hash,
+    )

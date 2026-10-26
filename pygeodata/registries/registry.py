@@ -9,18 +9,20 @@ Three registries, all keyed by resolved root path:
 
 from __future__ import annotations
 
-import dataclasses
 import json
 from collections.abc import Iterable
 from pathlib import Path
 
-from pygeodata.config import entry_registry_cache_path, get_config
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from pygeodata.catalog import models, store
+from pygeodata.config import FORMAT_VERSION, catalog_db_path, get_config
 from pygeodata.paths import (
     CachePathResolver,
     CodeRegistryPathConstructor,
     RegistryResolver,
     TreeRegistryPathConstructor,
-    write_json_atomic,
 )
 from pygeodata.registries.registry_types import CodeState, EntryRecord, TreeSnapshot
 
@@ -207,9 +209,9 @@ class TreeRegistry:
 class EntryRegistry:
     """Per-root registry of cache entries, keyed by state_hash.
 
-    The single place that scans for meta.json files.  Reads each via
-    :meth:`EntryRecord.from_file`, builds a hash index and class index,
-    and owns the lightweight disk cache ('.entry_registry_cache.json').
+    Hydrates from the catalog DB (``.source/catalog.db``) when it has entries;
+    scans cache roots for meta.json files otherwise.  Builds a hash index and
+    class index; the catalog replaces the old mtime-keyed disk cache.
 
     state_hash is the unique key.  On collision:
     - If all identity fields match → silently deduplicate (same entry in two locations).
@@ -231,9 +233,6 @@ class EntryRegistry:
         self._missing: int
         self._paths = paths
         self.reload()
-
-    def _cache_path(self) -> Path:
-        return entry_registry_cache_path()
 
     def _cache_resolver(self) -> CachePathResolver:
         if self._paths is not None:
@@ -272,51 +271,14 @@ class EntryRegistry:
         return _resolve_prefix(self._hash_index, prefix)
 
     def reload(self) -> None:
-        cache_path = self._cache_path()
-        try:
-            cached = json.loads(cache_path.read_text(encoding='utf-8'))
-            cached_records, cached_mtimes = cached.get('records', {}), cached.get('mtimes', {})
-        except (OSError, json.JSONDecodeError):
-            cached_records, cached_mtimes = {}, {}
-
-        new_cache_records: dict[str, dict] = {}
-        new_cache_mtimes: dict[str, float] = {}
-
-        def _process(p: Path, key: str) -> EntryRecord | None:
-            mtime = p.stat().st_mtime
-            if key in cached_records and cached_mtimes.get(key) == mtime:
-                try:
-                    return EntryRecord(**cached_records[key])
-                except (KeyError, TypeError):
-                    pass
-            try:
-                record = EntryRecord.from_file(p)
-            except (OSError, json.JSONDecodeError, KeyError):
-                return None
-            new_cache_records[key] = dataclasses.asdict(record)
-            new_cache_mtimes[key] = mtime
-            return record
-
-        scanned = 0
-        any_miss = False
-        records: list[EntryRecord | None] = []
-        for p in self._cache_resolver().glob_meta_paths():
-            scanned += 1
-            key = str(p.resolve())
-            rec = _process(p, key)
-            records.append(rec)
-            if key in new_cache_records:
-                any_miss = True
-            elif rec is not None and key in cached_records:
-                new_cache_records[key] = cached_records[key]
-                new_cache_mtimes[key] = cached_mtimes[key]
-
-        if any_miss or new_cache_records.keys() != cached_records.keys() or not cache_path.exists():
-            write_json_atomic(cache_path, {'records': new_cache_records, 'mtimes': new_cache_mtimes})
+        """Hydrate from the catalog DB when it has entries; scan disk otherwise."""
+        records = self._load_from_catalog()
+        if records is None:
+            records = self._scan_disk()
 
         self._hash_index: dict[str, EntryRecord] = {}
         self._class_index: dict[str, list[str]] = {}
-        self._scanned = scanned
+        self._scanned = len(records)
         self._missing = sum(1 for r in records if r is None or r.state_hash is None)
         for rec in records:
             if rec is None or rec.state_hash is None:
@@ -327,3 +289,53 @@ class EntryRegistry:
                 continue
             self._hash_index[rec.state_hash] = rec
             self._class_index.setdefault(rec.class_name, []).append(rec.state_hash)
+
+    def _load_from_catalog(self) -> list[EntryRecord] | None:
+        if not catalog_db_path().exists():
+            return None
+        source_root = get_config().path_registry
+        engine = store.get_engine(str(source_root.resolve()), format_version=FORMAT_VERSION)
+        columns = (
+            models.Entry.state_hash,
+            models.Entry.class_name,
+            models.Entry.object_type,
+            models.Entry.source_hash,
+            models.Entry.dependency_tree_hash,
+            models.Entry.instance_hash,
+            models.Entry.params_hash,
+            models.Entry.spec_hash,
+            models.Entry.co_output_hashes,
+            models.Entry.dir_relpath,
+        )
+        with Session(engine) as session:
+            rows = session.execute(select(*columns)).all()
+        if not rows:
+            return None
+        records = []
+        for row in rows:
+            entry_dir = store.entry_abs_path(source_root, row.dir_relpath)
+            records.append(
+                EntryRecord(
+                    class_name=row.class_name,
+                    source_hash=row.source_hash,
+                    dependency_tree_hash=row.dependency_tree_hash,
+                    instance_hash=row.instance_hash,
+                    params_hash=row.params_hash,
+                    spec_hash=row.spec_hash,
+                    state_hash=row.state_hash,
+                    object_type=row.object_type,
+                    hash_path=str(entry_dir / 'meta.json'),
+                    co_output_hashes=json.loads(row.co_output_hashes) if row.co_output_hashes else [],
+                    format_version=FORMAT_VERSION,
+                ),
+            )
+        return records
+
+    def _scan_disk(self) -> list[EntryRecord]:
+        records: list[EntryRecord | None] = []
+        for path in self._cache_resolver().glob_meta_paths():
+            try:
+                records.append(EntryRecord.from_file(path))
+            except (OSError, json.JSONDecodeError, KeyError):  # noqa: PERF203 — disk fallback, rare path
+                records.append(None)
+        return records

@@ -56,3 +56,10 @@ def test_catalog_build_prunes_missing_rows(tmp_path: Path, sample_spatial_spec: 
     engine = store.get_engine(str((tmp_path / '.source').resolve()), format_version=FORMAT_VERSION)
     with Session(engine) as session:
         assert session.scalar(select(func.count()).select_from(models.Entry)) == 1
+
+
+def test_browse_flags_available() -> None:
+    result = CliRunner().invoke(cli, ['browse', '--help'])
+    assert result.exit_code == 0
+    for flag in ('--fast', '--reconcile-interval', '--reimport-on-reconcile'):
+        assert flag in result.output

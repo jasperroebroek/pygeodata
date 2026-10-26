@@ -714,3 +714,19 @@ def test_api_export_status_not_found(client) -> None:
 def test_api_export_download_not_found(client) -> None:
     resp = client.get('/api/export/download/doesnotexist')
     assert resp.status_code == 404
+
+
+def test_api_status_reports_fast_flag(client) -> None:
+    resp = client.get('/api/status')
+    assert resp.status_code == 200
+    assert 'fast' in resp.get_json()
+
+
+def test_dashboard_loading_payload_reports_fast(app, monkeypatch) -> None:
+    from pygeodata.registry_browser import web
+    from pygeodata.registry_browser.state import AppContext
+
+    monkeypatch.setattr(web, '_ctx', AppContext())  # never started — permanently loading
+    resp = app.test_client().post('/api/dashboard', json={})
+    assert resp.status_code == 202
+    assert isinstance(resp.get_json().get('fast'), bool)

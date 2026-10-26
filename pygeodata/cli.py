@@ -147,8 +147,28 @@ def _import_project_modules(root: Path, verbose: bool = False) -> int:
 
 @cli.command('browse')
 @click.option('--port', default=0, show_default=True, help='Port to listen on (0 = random free port).')
+@click.option(
+    '--fast/--no-fast',
+    'fast',
+    default=False,
+    help='Serve the UI immediately from the catalog bootstrap while the full state builds (default: block until ready).',
+)
+@click.option(
+    '--reconcile-interval',
+    default=5.0,
+    show_default=True,
+    type=float,
+    help='Minutes between automatic catalog reconciles (0 disables).',
+)
+@click.option(
+    '--reimport-on-reconcile/--no-reimport-on-reconcile',
+    default=True,
+    help='Also reimport project modules on the periodic reconcile.',
+)
 @_import_options
-def browse(port: int, do_import: bool, verbose_import: bool) -> None:
+def browse(
+    port: int, fast: bool, reconcile_interval: float, reimport_on_reconcile: bool, do_import: bool, verbose_import: bool
+) -> None:
     """Launch the registry browser."""
     from pygeodata.registry_browser.serve import open_registry_browser
 
@@ -157,7 +177,9 @@ def browse(port: int, do_import: bool, verbose_import: bool) -> None:
         n = _import_project_modules(root, verbose=verbose_import)
         click.echo(f'Imported {n} module(s) from {root}')
 
-    open_registry_browser(port)
+    open_registry_browser(
+        port, fast=fast, reconcile_interval=reconcile_interval * 60, reimport_on_reconcile=reimport_on_reconcile
+    )
 
 
 @cli.group('catalog')

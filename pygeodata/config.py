@@ -48,14 +48,6 @@ def get_config() -> Config:
     return CONFIG
 
 
-def entry_registry_cache_path() -> Path:
-    return CONFIG.path_registry / '.entry_registry_cache.json'
-
-
-def dashboard_cache_path() -> Path:
-    return CONFIG.path_registry / '.dashboard_cache.json'
-
-
 def catalog_db_path() -> Path:
     return CONFIG.path_registry / 'catalog.db'
 

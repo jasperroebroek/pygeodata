@@ -1,4 +1,3 @@
-import contextlib
 import importlib.util
 import logging
 import sys
@@ -12,9 +11,10 @@ from pygeodata.catalog.class_catalog import (
     discover_loaded_classes,
     merge_unloaded_classes,
 )
-from pygeodata.catalog.entry_catalog import discover_entries
+from pygeodata.catalog import store
+from pygeodata.config import FORMAT_VERSION, get_config
+from pygeodata.catalog.entry_catalog import _spec_info_cached, discover_entries
 from pygeodata.catalog.types import ClassInfo, EntryInfo
-from pygeodata.config import dashboard_cache_path, entry_registry_cache_path
 from pygeodata.registries.registry import EntryRegistry
 from pygeodata.registries.versioning import VersionRegistry
 from pygeodata.spec import SpecKeys
@@ -57,6 +57,8 @@ class AppContext:
     def start_load(self) -> None:
         def _load() -> None:
             try:
+                _reconcile()
+                _reconcile()
                 self.state = build_state(progress=self.progress)
                 self.load_error = None
             except Exception:
@@ -73,7 +75,6 @@ class AppContext:
         def _reload() -> None:
             try:
                 if reimport:
-                    _purge_caches()
                     root = Path.cwd()
                     py_files = _collect_reimport_files(root)
                     total = len(py_files)
@@ -83,6 +84,7 @@ class AppContext:
                     for done in _reimport_modules(py_files, root):
                         self.progress['reimport_done'] = done
                     self.progress['reimport_done'] = total
+                _reconcile()
                 self.state = build_state(progress=self.progress)
                 self.load_error = None
             except Exception:
@@ -96,12 +98,10 @@ class AppContext:
         return not self.ready.is_set()
 
 
-def _purge_caches() -> None:
-    """Delete the two tmp JSONs so the next scan starts clean."""
-    with contextlib.suppress(OSError):
-        dashboard_cache_path().unlink(missing_ok=True)
-    with contextlib.suppress(OSError):
-        entry_registry_cache_path().unlink(missing_ok=True)
+def _reconcile() -> None:
+    """Backfill new cache entries into the catalog and prune rows whose entry is gone."""
+    config = get_config()
+    store.refresh(config.path_registry, config.cache_roots, FORMAT_VERSION)
 
 
 def _collect_reimport_files(root: Path) -> list[Path]:
@@ -169,6 +169,7 @@ def _reimport_modules(py_files: list[Path], root: Path):
 
 
 def build_state(progress: dict | None = None) -> AppState:
+    _spec_info_cached.cache_clear()
     version_registry = VersionRegistry()
     entries, entry_registry, diagnostics = discover_entries(progress=progress, version_registry=version_registry)
     classes = merge_unloaded_classes(

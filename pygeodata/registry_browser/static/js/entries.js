@@ -102,6 +102,56 @@ function hideLoadingOverlay() {
   $("#loading-overlay").classList.add("hidden");
 }
 
+// Fast mode — UI stays usable; a slim progress bar sits in the top row and the
+// class list shows the catalog bootstrap (most recent entry per class) until
+// the full state is ready.
+let _fastLoadActive = false;
+
+function _startFastLoad() {
+  if (_fastLoadActive) return;
+  _fastLoadActive = true;
+  $("#fast-progress").classList.remove("hidden");
+  $("#fast-progress-fill").style.width = "0%";
+  fetch("/api/bootstrap")
+    .then((r) => r.json())
+    .then((rows) => {
+      const list = $("#class-list");
+      if (!list || list.children.length || !rows?.length) return;
+      list.innerHTML = rows
+        .map(
+          (r) =>
+            `<div class="class-card" title="Latest entry (full state still loading): ${esc(r.state_hash ?? "")}">${esc(r.class_name)}</div>`,
+        )
+        .join("");
+    })
+    .catch(() => {});
+  _pollFastUntilReady();
+}
+
+async function _pollFastUntilReady() {
+  while (_fastLoadActive) {
+    try {
+      const status = await (await fetch("/api/status")).json();
+      const p = status.progress ?? {};
+      const reimportTotal = p.reimport_total ?? 0;
+      const reimportDone = p.reimport_done ?? 0;
+      const scanTotal = p.total ?? 0;
+      const scanDone = p.done ?? 0;
+      const denom = Math.max(reimportTotal + scanTotal, 1);
+      $("#fast-progress-fill").style.width = `${Math.round(((reimportDone + scanDone) / denom) * 100)}%`;
+      if (status.ready) {
+        _fastLoadActive = false;
+        $("#fast-progress").classList.add("hidden");
+        loadEntriesOnly();
+        return;
+      }
+    } catch {
+      // server not up yet — keep polling
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  }
+}
+
 async function _pollUntilReady() {
   while (_loadingOverlayActive) {
     try {
@@ -190,7 +240,7 @@ export function selectEntry(id, className = null) {
 
 export async function loadDetail() {
   const data = await fetchDashboard({ ...buildPayload(), row_display: "none" });
-  if (data.loading) { showLoadingOverlay(); return; }
+  if (data.loading) { if (data.fast) _startFastLoad(); else showLoadingOverlay(); return; }
   setLastDashboard({ ...lastDashboard, ...data });
   state.selected_entry = data.selected_entry ?? null;
   renderDetail(data.detail);
@@ -214,7 +264,7 @@ export async function loadEntriesOnly() {
   const data = await fetchDashboard(buildPayload());
   if (seq !== _loadSeq) return;  // superseded by a newer request
   if (data.loading) {
-    showLoadingOverlay();
+    if (data.fast) _startFastLoad(); else showLoadingOverlay();
     return;
   }
   setLastDashboard(data);

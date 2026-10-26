@@ -11,6 +11,7 @@ concurrent writers producing the same hash converge on identical rows.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import warnings
@@ -23,15 +24,19 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
+from sqlalchemy.schema import CreateTable
 
 from pygeodata.catalog import models
 from pygeodata.catalog.dimensions import dimension_rows
+from pygeodata.catalog.types import FileRole
 from pygeodata.paths import CachePathResolver
 from pygeodata.registries.registry_types import EntryRecord
 from pygeodata.spec import SpatialSpec
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
+
+    from pygeodata.catalog.display import EntryDisplay
 
 logger = logging.getLogger(__name__)
 
@@ -50,12 +55,15 @@ _ENTRY_UPDATE_COLUMNS = (
     'bounds_hash',
     'shape_hash',
     'co_output_hashes',
+    'rows',
+    'linked_entries',
     'dir_relpath',
     'created_at',
     'updated_at',
 )
 
 _META_FORMAT_VERSION = 'format_version'
+_META_SCHEMA_VERSION = 'schema_fingerprint'
 
 
 def catalog_path(source_root: Path) -> Path:
@@ -78,32 +86,48 @@ def create_catalog_engine(source_root: Path) -> Engine:
     return engine
 
 
+def schema_fingerprint(engine: Engine) -> str:
+    """Fingerprint of the current table DDL — any model change changes it.
+
+    No schema version numbers: the catalog is disposable, so a fingerprint
+    mismatch wipes it and the next backfill rebuilds.
+    """
+    ddl = '\n'.join(
+        str(CreateTable(table).compile(dialect=engine.dialect)).strip()
+        for table in sorted(models.Base.metadata.tables.values(), key=lambda t: t.name)
+    )
+    return hashlib.sha256(ddl.encode()).hexdigest()
+
+
 def sync_schema(engine: Engine, format_version: int) -> None:
     """Create tables and enforce the one-version contract.
 
-    If the catalog was built under a different ``FORMAT_VERSION``, every row
-    is wiped: a version bump invalidates all entries by definition, and the
-    catalog rebuilds from disk on the next backfill.
+    Wipes the catalog when ``FORMAT_VERSION`` changed or when the table DDL
+    no longer matches the stored fingerprint; the next backfill rebuilds it.
     """
     models.Base.metadata.create_all(engine)
     with Session(engine) as session:
-        row = session.get(models.CatalogMeta, _META_FORMAT_VERSION)
-        stored = row.value if row is not None else None
-        if stored != str(format_version):
-            if stored is not None:
+        format_row = session.get(models.CatalogMeta, _META_FORMAT_VERSION)
+        schema_row = session.get(models.CatalogMeta, _META_SCHEMA_VERSION)
+        stored_format = format_row.value if format_row is not None else None
+        stored_fingerprint = schema_row.value if schema_row is not None else None
+        fingerprint = schema_fingerprint(engine)
+        if stored_format != str(format_version) or stored_fingerprint != fingerprint:
+            if stored_format is not None or stored_fingerprint is not None:
                 logger.info(
-                    'Catalog built under format version %s, current is %s — wiping and rebuilding',
-                    stored,
+                    'Catalog built under format %s / schema %s, current is %s / %s — wiping and rebuilding',
+                    stored_format,
+                    stored_fingerprint[:12] if stored_fingerprint else None,
                     format_version,
+                    fingerprint[:12],
                 )
-            session.query(models.Entry).delete()
-            session.query(models.Crs).delete()
-            session.query(models.Resolution).delete()
-            session.query(models.Bounds).delete()
-            session.query(models.Shape).delete()
-            session.query(models.CatalogMeta).delete()
-            session.add(models.CatalogMeta(key=_META_FORMAT_VERSION, value=str(format_version)))
             session.commit()
+            models.Base.metadata.drop_all(engine)
+            models.Base.metadata.create_all(engine)
+            with Session(engine) as fresh:
+                fresh.add(models.CatalogMeta(key=_META_FORMAT_VERSION, value=str(format_version)))
+                fresh.add(models.CatalogMeta(key=_META_SCHEMA_VERSION, value=str(fingerprint)))
+                fresh.commit()
 
 
 @cache
@@ -131,7 +155,13 @@ def entry_abs_path(source_root: Path, dir_relpath: str) -> Path:
     return Path(source_root).parent / path
 
 
-def _entry_row(source_root: Path, entry_dir: Path, record: EntryRecord, dims: dict[str, Any]) -> dict[str, Any]:
+def _entry_row(
+    source_root: Path,
+    entry_dir: Path,
+    record: EntryRecord,
+    dims: dict[str, Any],
+    display: EntryDisplay | None,
+) -> dict[str, Any]:
     try:
         created_at = (Path(entry_dir) / 'meta.json').stat().st_mtime
     except OSError:
@@ -150,6 +180,8 @@ def _entry_row(source_root: Path, entry_dir: Path, record: EntryRecord, dims: di
         'bounds_hash': dims['bounds_hash'],
         'shape_hash': dims['shape_hash'],
         'co_output_hashes': json.dumps(record.co_output_hashes or []),
+        'rows': display.rows if display is not None else None,
+        'linked_entries': display.linked_entries if display is not None else None,
         'dir_relpath': _relpath(entry_dir, source_root),
         'created_at': created_at,
         'updated_at': created_at,
@@ -170,27 +202,29 @@ def _upsert_dims(session: Session, dims: dict[str, Any]) -> None:
             )
 
 
-def upsert_entry(
+def upsert_entry(  # noqa: PLR0913
     session: Session,
     source_root: Path,
     entry_dir: Path,
     record: EntryRecord,
     spec: SpatialSpec | None,
+    display: EntryDisplay | None = None,
 ) -> None:
     """Insert or update one entry and its dimension rows."""
-    _upsert_entry(session, source_root, entry_dir, record, spec)
+    _upsert_entry(session, source_root, entry_dir, record, spec, display)
     session.commit()
 
 
-def _upsert_entry(
+def _upsert_entry(  # noqa: PLR0913
     session: Session,
     source_root: Path,
     entry_dir: Path,
     record: EntryRecord,
     spec: SpatialSpec | None,
+    display: EntryDisplay | None,
 ) -> None:
     dims = dimension_rows(spec)
-    row = _entry_row(source_root, entry_dir, record, dims)
+    row = _entry_row(source_root, entry_dir, record, dims, display)
     if row['state_hash'] is None:
         return
     _upsert_dims(session, dims)
@@ -198,10 +232,38 @@ def _upsert_entry(
     session.execute(
         sqlite_insert(models.Entry).values(**row).on_conflict_do_update(index_elements=['state_hash'], set_=updates),
     )
+    if display is not None:
+        _upsert_files(session, row['state_hash'], display)
+
+
+def _upsert_files(session: Session, state_hash: str, display: EntryDisplay) -> None:
+    """Replace the file rows for one entry — role per file, no sidecar lists."""
+    session.execute(delete(models.EntryFile).where(models.EntryFile.state_hash == state_hash))
+    refs: list[tuple[dict, FileRole]] = []
+    if display.primary is not None:
+        refs.append((display.primary, FileRole.PRIMARY))
+    refs.extend((sidecar, FileRole.SIDECAR) for sidecar in display.sidecars)
+    if not refs:
+        return
+    session.execute(
+        sqlite_insert(models.EntryFile),
+        [
+            {
+                'state_hash': state_hash,
+                'relpath': ref['relpath'],
+                'label': ref['label'],
+                'kind': ref['kind'],
+                'role': role,
+            }
+            for ref, role in refs
+        ],
+    )
 
 
 def delete_entries(session: Session, state_hashes: Iterable[str]) -> None:
-    session.execute(delete(models.Entry).where(models.Entry.state_hash.in_(list(state_hashes))))
+    hashes = list(state_hashes)
+    session.execute(delete(models.EntryFile).where(models.EntryFile.state_hash.in_(hashes)))
+    session.execute(delete(models.Entry).where(models.Entry.state_hash.in_(hashes)))
     session.commit()
 
 
@@ -225,17 +287,24 @@ def prune_missing(session: Session, source_root: Path) -> int:
 def iter_cache_records(
     cache_roots: Iterable[Path],
     format_version: int | None = None,
+    skip_hashes: set[str] | None = None,
 ) -> Iterator[tuple[Path, EntryRecord, SpatialSpec | None]]:
-    """Yield ``(entry_dir, record, spec_dict)`` for every readable cache entry on disk.
+    """Yield ``(entry_dir, record, spec)`` for every readable cache entry on disk.
 
     Skips entries written by a different ``format_version``: those are stale
-    by definition and are handled by clean-cache.
+    by definition and are handled by clean-cache. ``skip_hashes`` skips
+    already-indexed entries — entry dirs are named by their state hash, so
+    the common flat layout skips without reading ``meta.json`` at all.
     """
     resolver = CachePathResolver(roots=tuple(cache_roots))
     for meta_path in resolver.glob_meta_paths():
+        if skip_hashes is not None and meta_path.parent.name in skip_hashes:
+            continue
         try:
             record = EntryRecord.from_file(meta_path)
         except (OSError, json.JSONDecodeError, KeyError):
+            continue
+        if skip_hashes is not None and record.state_hash in skip_hashes:
             continue
         if record.state_hash is None or record.class_name is None:
             continue
@@ -260,10 +329,20 @@ def backfill(
     cache_roots: Iterable[Path],
     format_version: int | None = None,
 ) -> int:
-    """Index every cache entry on disk; returns the number of rows written."""
+    from pygeodata.catalog.display import entry_display  # noqa: PLC0415 — display imports the artifact families
+
+    known = set(session.scalars(select(models.Entry.state_hash)))
     count = 0
-    for entry_dir, record, spec in iter_cache_records(cache_roots, format_version=format_version):
-        _upsert_entry(session, source_root, entry_dir, record, spec)
+    for entry_dir, record, spec in iter_cache_records(cache_roots, format_version=format_version, skip_hashes=known):
+        display = None
+        params_path = entry_dir / 'parameters.json'
+        if params_path.exists():
+            try:
+                params_json = json.loads(params_path.read_text(encoding='utf-8'))
+                display = entry_display(params_json, entry_dir, source_root, record.class_name, record.object_type)
+            except (OSError, json.JSONDecodeError):
+                display = None
+        _upsert_entry(session, source_root, entry_dir, record, spec, display)
         count += 1
         if count % BACKFILL_BATCH_SIZE == 0:
             session.commit()
@@ -291,12 +370,27 @@ def bootstrap_rows(engine: Engine) -> list[dict[str, Any]]:
         return [dict(row) for row in rows]
 
 
-def index_entry(source_root: Path, entry_dir: Path, record: EntryRecord, spec: SpatialSpec | None) -> None:
-    """Upsert one entry and its dimensions; a failed write warns and never fails the render."""
+def index_entry(
+    source_root: Path,
+    entry_dir: Path,
+    record: EntryRecord,
+    spec: SpatialSpec | None,
+    params_json: dict[str, Any] | None = None,
+) -> None:
+    """Upsert one entry and its dimensions; a failed write warns and never fails the render.
+
+    The display payload is derived inside the catalog from ``params_json`` —
+    callers pass data only.
+    """
+    display = None
+    if params_json is not None:
+        from pygeodata.catalog.display import entry_display  # noqa: PLC0415 — display imports the artifact families
+
+        display = entry_display(params_json, entry_dir, source_root, record.class_name, record.object_type)
     try:
         engine = get_engine(str(Path(source_root).resolve()), format_version=record.format_version)
         with Session(engine) as session:
-            upsert_entry(session, source_root, entry_dir, record, spec)
+            upsert_entry(session, source_root, entry_dir, record, spec, display)
     except (SQLAlchemyError, OSError) as exc:
         warnings.warn(f'Catalog write failed for {record.state_hash}: {exc}', stacklevel=2)
 
@@ -310,3 +404,19 @@ def reconcile(source_root: Path, format_version: int | None = None) -> int:
     except (SQLAlchemyError, OSError) as exc:
         warnings.warn(f'Catalog prune failed: {exc}', stacklevel=2)
         return 0
+
+
+def refresh(
+    source_root: Path,
+    cache_roots: Iterable[Path],
+    format_version: int | None = None,
+) -> tuple[int, int]:
+    """Backfill new entries and prune rows whose entry is gone; returns (indexed, pruned).
+
+    The reconcile pass the browser runs on open and `catalog build` shares.
+    """
+    engine = get_engine(str(Path(source_root).resolve()), format_version=format_version)
+    with Session(engine) as session:
+        indexed = backfill(session, source_root, cache_roots, format_version=format_version)
+        pruned = prune_missing(session, source_root)
+    return indexed, pruned

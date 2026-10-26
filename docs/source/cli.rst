@@ -14,8 +14,18 @@ clear error listing the candidates.
     pygeodata
     │
     ├── browse
-    │     Launch the registry browser web UI.
+    │     Launch the registry browser web UI. Blocks until the first full
+    │     state is ready by default.
     │     --port INTEGER          Port to listen on (0 = random free port)
+    │     --fast / --no-fast      Serve the UI immediately from the catalog
+    │                             bootstrap while the full state builds
+    │                             (default: block until ready)
+    │     --reconcile-interval FLOAT
+    │                             Minutes between automatic catalog reconciles
+    │                             (0 disables; default: 5)
+    │     --reimport-on-reconcile / --no-reimport-on-reconcile
+    │                             Also reimport project modules on the
+    │                             periodic reconcile (default: on)
     │     --import-all            Import all .py files from cwd before starting
     │     --verbose-import        Print each module imported (with --import-all)
     │

@@ -189,7 +189,13 @@ class Artifact(TrackedObject, ABC):
             format_version=FORMAT_VERSION,
         )
         record.dump(hash_path)
-        index_entry(get_config().path_registry, hash_path.parent, record, self.resolve_spec(spec))
+        index_entry(
+            get_config().path_registry,
+            hash_path.parent,
+            record,
+            self.resolve_spec(spec),
+            self.get_params_as_json(spec=spec),
+        )
 
     def read_state_hash(self, spec: SpatialSpec) -> str | None:
         """

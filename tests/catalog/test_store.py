@@ -7,11 +7,12 @@ from pathlib import Path
 
 import pytest
 from pyproj import CRS
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from pygeodata.catalog import models, store
 from pygeodata.catalog.dimensions import dimension_rows
+from pygeodata.catalog.types import FileRole
 from pygeodata.config import FORMAT_VERSION, JSONKeys
 from pygeodata.registries.registry_types import EntryRecord
 from pygeodata.spec import SpatialSpec, SpecKeys
@@ -262,3 +263,88 @@ def test_write_hook_warns_and_continues(
     monkeypatch.setattr(store, 'get_engine', broken_engine)
     SimpleLoader().write_cache_metadata(sample_spatial_spec)
     assert any('Catalog write failed' in str(w.message) for w in recwarn.list)
+
+
+def test_backfill_populates_display_and_files(
+    session: Session,
+    source_root: Path,
+    tmp_path: Path,
+    sample_spatial_spec: SpatialSpec,
+) -> None:
+    entry_dir = write_entry_dir(tmp_path / 'data_processed', 's1', spec_dict=sample_spatial_spec.to_dict())
+    (entry_dir / 'parameters.json').write_text(json.dumps({'a': {'b': 1}}), encoding='utf-8')
+    (entry_dir / 'out.html').write_text('<html/>', encoding='utf-8')
+    (entry_dir / 'sidecar.csv').write_text('x', encoding='utf-8')
+
+    store.backfill(session, source_root, [tmp_path / 'data_processed'], format_version=FORMAT_VERSION)
+
+    entry = session.get(models.Entry, 's1')
+    assert entry.rows is not None
+    assert entry.rows[0]['path'] == 'a.b'
+    assert entry.rows[0]['value_text'] == '1'
+
+    file_rows = (
+        session.execute(
+            select(models.EntryFile).where(models.EntryFile.state_hash == 's1').order_by(models.EntryFile.relpath),
+        )
+        .scalars()
+        .all()
+    )
+    assert [(f.label, f.kind, f.role) for f in file_rows] == [
+        ('out.html', 'table', FileRole.PRIMARY),
+        ('sidecar.csv', 'file', FileRole.SIDECAR),
+    ]
+
+
+def test_write_hook_stores_display_and_files(sample_spatial_spec: SpatialSpec, source_root: Path) -> None:
+    artifact = SimpleLoader()
+    entry_dir = artifact.resolve_cache_paths(sample_spatial_spec).directory
+    entry_dir.mkdir(parents=True, exist_ok=True)
+    (entry_dir / 'dummy.tif').write_bytes(b'x')
+    artifact.write_cache_metadata(sample_spatial_spec)
+
+    engine = store.get_engine(str(source_root.resolve()), format_version=FORMAT_VERSION)
+    state_hash = artifact.get_state_hash(sample_spatial_spec)
+    with Session(engine) as session:
+        entry = session.get(models.Entry, state_hash)
+        assert entry.rows is not None
+        assert (
+            session.scalar(
+                select(func.count()).select_from(models.EntryFile).where(models.EntryFile.state_hash == state_hash),
+            )
+            >= 1
+        )
+
+
+def test_schema_fingerprint_mismatch_wipes(source_root: Path, tmp_path: Path) -> None:
+    engine = store.create_catalog_engine(source_root)
+    store.sync_schema(engine, FORMAT_VERSION)
+    with Session(engine) as session:
+        write_entry_dir(tmp_path / 'data_processed', 's1')
+        record = make_record('s1')
+        store.upsert_entry(session, source_root, tmp_path / 'data_processed' / 's1', record, None)
+        session.execute(
+            update(models.CatalogMeta).where(models.CatalogMeta.key == 'schema_fingerprint').values(value='stale'),
+        )
+        session.commit()
+
+    store.sync_schema(engine, FORMAT_VERSION)
+    with Session(engine) as session:
+        assert session.get(models.CatalogMeta, 'schema_fingerprint').value == store.schema_fingerprint(engine)
+        assert session.get(models.Entry, 's1') is None
+
+
+def test_backfill_is_incremental(
+    session: Session,
+    source_root: Path,
+    tmp_path: Path,
+    sample_spatial_spec: SpatialSpec,
+) -> None:
+    spec_dict = sample_spatial_spec.to_dict()
+    write_entry_dir(tmp_path / 'data_processed', 's1', spec_dict=spec_dict)
+    assert store.backfill(session, source_root, [tmp_path / 'data_processed'], format_version=FORMAT_VERSION) == 1
+
+    write_entry_dir(tmp_path / 'data_processed', 's2', 'OtherTable', spec_dict=spec_dict)
+    assert store.backfill(session, source_root, [tmp_path / 'data_processed'], format_version=FORMAT_VERSION) == 1
+    assert session.get(models.Entry, 's1') is not None
+    assert session.get(models.Entry, 's2') is not None

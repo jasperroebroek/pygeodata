@@ -11,8 +11,9 @@ from pathlib import Path
 
 import pytest
 
+from pygeodata.catalog import store
 from pygeodata.catalog.types import EntryInfo, FileRef, SpecInfo
-from pygeodata.config import FORMAT_VERSION, JSONKeys, set_config
+from pygeodata.config import FORMAT_VERSION, JSONKeys, catalog_db_path, get_config, set_config
 from pygeodata.registries.registry import EntryRegistry
 from pygeodata.registries.registry_types import EntryRecord
 from pygeodata.tracked_object import TrackedObject
@@ -300,36 +301,30 @@ def test_entry_registry_collision_divergent_raises(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Disk cache hit/miss by mtime
+# Catalog hydration and disk fallback
 # ---------------------------------------------------------------------------
 
 
-def test_entry_registry_disk_cache_hit(tmp_path):
+def test_entry_registry_hydrates_from_catalog(tmp_path):
     d = tmp_path / 'data_processed' / 'MyLoader'
     write_hash_file(d, 'abc', state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'})
     (tmp_path / '.source').mkdir(parents=True, exist_ok=True)
 
-    # First scan — populates disk cache
-    EntryRegistry._instance = None
-    EntryRegistry()
-    cache_file = tmp_path / '.source' / '.entry_registry_cache.json'
-    assert cache_file.exists()
+    store.refresh(get_config().path_registry, get_config().cache_roots, FORMAT_VERSION)
 
-    # Second scan — should use disk cache (mtime unchanged)
-    EntryRegistry._instance = None
-    reg2 = EntryRegistry()
-    assert 'abc' in reg2.records
+    reg = EntryRegistry()
+    assert 'abc' in reg.records
+    assert catalog_db_path().exists()
 
 
-def test_entry_registry_disk_cache_invalidated_on_mtime_change(tmp_path):
+def test_entry_registry_disk_scan_without_catalog(tmp_path):
     d = tmp_path / 'data_processed' / 'MyLoader'
     (tmp_path / '.source').mkdir(parents=True, exist_ok=True)
     hash_path = write_hash_file(d, 'abc', state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'})
 
-    EntryRegistry._instance = None
-    EntryRegistry()
+    reg = EntryRegistry()
+    assert 'abc' in reg.records
 
-    # Touch the hash file — mtime changes
     hash_path.write_text(
         json.dumps(
             {
@@ -339,12 +334,6 @@ def test_entry_registry_disk_cache_invalidated_on_mtime_change(tmp_path):
         ),
     )
 
-    EntryRegistry._instance = None
     reg2 = EntryRegistry()
     assert 'abc_new' in reg2.records
     assert 'abc' not in reg2.records
-
-
-# ---------------------------------------------------------------------------
-# discover_entries uses EntryRegistry (no duplicate rglob)
-# ---------------------------------------------------------------------------

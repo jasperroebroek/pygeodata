@@ -51,7 +51,17 @@ def dimension_rows(spec: SpatialSpec | None) -> dict[str, Any]:
         transform_hash = calculate_dict_hash(transform)
         res_x, res_y = spec.resolution
         dims['transform_hash'] = transform_hash
-        dims['resolution_row'] = {'transform_hash': transform_hash, 'res_x': res_x, 'res_y': res_y}
+        dims['resolution_row'] = {
+            'transform_hash': transform_hash,
+            'a': transform['a'],
+            'b': transform['b'],
+            'c': transform['c'],
+            'd': transform['d'],
+            'e': transform['e'],
+            'f': transform['f'],
+            'res_x': res_x,
+            'res_y': res_y,
+        }
 
     if transform is not None and shape is not None:
         bounds = spec.bounds
