@@ -7,6 +7,7 @@ from typing import Any, ClassVar
 
 from filelock import FileLock
 
+from pygeodata.catalog.store import index_entry
 from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config
 from pygeodata.extraction import extract_instances
 from pygeodata.graph_types import RuntimeDependencyGraph, RuntimeNode, RuntimeParamEdge
@@ -174,7 +175,7 @@ class Artifact(TrackedObject, ABC):
         """
         hash_path = self.resolve_cache_paths(spec).state_hash_path
         hash_path.parent.mkdir(parents=True, exist_ok=True)
-        EntryRecord(
+        record = EntryRecord(
             class_name=self.get_class_name(),
             source_hash=calculate_cls_source_hash(self.__class__),
             dependency_tree_hash=self.get_dependency_tree_hash(),
@@ -186,7 +187,9 @@ class Artifact(TrackedObject, ABC):
             hash_path=str(hash_path),
             co_output_hashes=list(co_outputs),
             format_version=FORMAT_VERSION,
-        ).dump(hash_path)
+        )
+        record.dump(hash_path)
+        index_entry(get_config().path_registry, hash_path.parent, record, self.resolve_spec(spec))
 
     def read_state_hash(self, spec: SpatialSpec) -> str | None:
         """

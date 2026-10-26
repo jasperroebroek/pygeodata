@@ -19,6 +19,13 @@ clear error listing the candidates.
     │     --import-all            Import all .py files from cwd before starting
     │     --verbose-import        Print each module imported (with --import-all)
     │
+    ├── catalog build
+    │     Index every cache entry into .source/catalog.db.
+    │     --cache-root TEXT       Cache root to index (repeatable); defaults to
+    │                             the configured cache roots
+    │     --prune / --no-prune    Also drop rows whose cache entry no longer
+    │                             exists (default: prune)
+    │
     ├── classes
     │     Show staleness for all loaded and known classes, grouped by type.
     │     --import-all            Import all .py files from cwd first

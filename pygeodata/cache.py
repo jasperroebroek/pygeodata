@@ -5,6 +5,7 @@ import shutil
 from collections.abc import Iterator
 from pathlib import Path
 
+from pygeodata.catalog.store import reconcile
 from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config
 from pygeodata.paths import CachePathConstructor
 from pygeodata.registries.registry_types import EntryRecord
@@ -216,6 +217,15 @@ def clean_cache(
 
         if not dry_run:
             prune_empty_dirs(root)
+
+    if not dry_run:
+        prune_catalog()
+
+
+def prune_catalog() -> None:
+    deleted = reconcile(get_config().path_registry, FORMAT_VERSION)
+    if deleted:
+        print(f'[Catalog] Pruned {deleted} row(s)')
 
 
 def rebuild_registry() -> None:

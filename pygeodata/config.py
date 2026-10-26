@@ -56,6 +56,10 @@ def dashboard_cache_path() -> Path:
     return CONFIG.path_registry / '.dashboard_cache.json'
 
 
+def catalog_db_path() -> Path:
+    return CONFIG.path_registry / 'catalog.db'
+
+
 @contextmanager
 def set_config(**overrides: Any) -> Iterator[Config]:
     old_values = {k.name: getattr(CONFIG, k.name) for k in fields(CONFIG)}

@@ -10,14 +10,16 @@ from difflib import unified_diff
 from pathlib import Path
 
 import click
+from sqlalchemy.orm import Session
 
 from pygeodata.cache import clean_cache, clean_source_registry
 from pygeodata.catalog.class_catalog import discover_loaded_classes, merge_unloaded_classes
 from pygeodata.catalog.entry_catalog import _enrich_params_path, discover_entries
 from pygeodata.catalog.export import collect_export_files, write_export_tar
 from pygeodata.catalog.filters import Filter, FilterOperator, FilterTarget, prescan_text
+from pygeodata.catalog.store import backfill, get_engine, prune_missing
 from pygeodata.catalog.types import ParamRowType, SpecInfo
-from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config
+from pygeodata.config import FORMAT_VERSION, JSONKeys, catalog_db_path, get_config
 from pygeodata.data import Data
 from pygeodata.figure import Figure
 from pygeodata.paths import CachePathConstructor
@@ -156,6 +158,36 @@ def browse(port: int, do_import: bool, verbose_import: bool) -> None:
         click.echo(f'Imported {n} module(s) from {root}')
 
     open_registry_browser(port)
+
+
+@cli.group('catalog')
+def catalog_group() -> None:
+    """Inspect and rebuild the .source/catalog.db cache catalog."""
+
+
+@catalog_group.command('build')
+@click.option(
+    '--cache-root',
+    'cache_roots',
+    multiple=True,
+    type=click.Path(),
+    help='Cache root to index (repeatable). Defaults to the configured cache roots.',
+)
+@click.option(
+    '--prune/--no-prune',
+    default=True,
+    help='Also drop rows whose cache entry no longer exists (default: prune).',
+)
+def catalog_build_cmd(cache_roots: tuple[str, ...], prune: bool) -> None:
+    """Index every cache entry into .source/catalog.db."""
+    config = get_config()
+    roots = [Path(r) for r in cache_roots] if cache_roots else config.cache_roots
+    engine = get_engine(str(config.path_registry.resolve()), format_version=FORMAT_VERSION)
+    with Session(engine) as session:
+        indexed = backfill(session, config.path_registry, roots, format_version=FORMAT_VERSION)
+        dropped = prune_missing(session, config.path_registry) if prune else 0
+    click.echo(f'Indexed {indexed} entry(ies); pruned {dropped} row(s)')
+    click.echo(f'Catalog: {catalog_db_path()}')
 
 
 @cli.command('clean-cache')
