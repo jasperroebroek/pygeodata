@@ -9,6 +9,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # setuptools-scm reads the version from git tags
 
       - name: Setup micromamba and install dependencies
         uses: mamba-org/setup-micromamba@v2

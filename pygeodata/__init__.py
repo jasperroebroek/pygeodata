@@ -1,4 +1,9 @@
-__version__ = '0.3.0'
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version('pygeodata')
+except PackageNotFoundError:  # imported from a source tree that is not installed
+    __version__ = '0+unknown'
 
 from pygeodata.api import load, load_from_hash, process
 from pygeodata.artifact import Artifact

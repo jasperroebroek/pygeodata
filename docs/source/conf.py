@@ -28,8 +28,8 @@ copyright = '2026, Jasper Roebroek'
 author = 'Jasper Roebroek'
 
 # The full version, including alpha/beta/rc tags.
-# Single source of truth is pygeodata.__version__ (see pyproject.toml
-# [tool.setuptools.dynamic]); read it from the installed metadata.
+# Single source of truth is the git tag (setuptools-scm); read it from the
+# installed metadata.
 from importlib.metadata import PackageNotFoundError, version as _version
 
 try:

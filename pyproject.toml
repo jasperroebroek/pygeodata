@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=77", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,13 +8,15 @@ description = "Lightweight framework for geospatial data access and processing"
 authors = [
     { name = "Jasper Roebroek", email = "roebroek.jasper@gmail.com" }
 ]
-dynamic = ["version"]
-license = { text = "MIT" }
+dynamic = ["version"]  # from the git tag (setuptools-scm)
+license = "MIT"
+license-files = ["LICENSE"]
 readme = "README.md"
 requires-python = ">=3.10"
 keywords = []
 classifiers = [
-    "Programming Language :: Python :: 3"
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
 ]
 dependencies = [
     "numpy",
@@ -28,11 +30,14 @@ dependencies = [
     "click",
 ]
 
+[project.urls]
+Repository = "https://github.com/jasperroebroek/pygeodata"
+Issues = "https://github.com/jasperroebroek/pygeodata/issues"
+
 [project.scripts]
 pygeodata = "pygeodata.cli:cli"
 
-[tool.setuptools.dynamic]
-version = { attr = "pygeodata.__version__" }
+[tool.setuptools_scm]
 
 [tool.setuptools.packages.find]
 include = ["pygeodata*"]
@@ -46,7 +51,7 @@ parallel = [
     "distributed",
 ]
 browser = [
-    "pygeodata-browser",
+    "pygeodata-browser>=0.1.0",
 ]
 test = [
     "pytest",
