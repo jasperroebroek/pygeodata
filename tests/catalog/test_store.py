@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from pygeodata.catalog import models, store
 from pygeodata.catalog.dimensions import dimension_rows
+from pygeodata.catalog.entry_catalog import _spec_info_cached
 from pygeodata.catalog.types import FileRole
 from pygeodata.config import FORMAT_VERSION, JSONKeys
 from pygeodata.registries.registry_types import EntryRecord
@@ -157,6 +158,25 @@ def test_partial_spec_leaves_nullable_keys(session: Session, source_root: Path, 
     assert entry.transform_hash is None
     assert entry.bounds_hash is None
     assert entry.shape_hash is None
+
+
+def test_spec_info_keeps_crs_of_partial_spec(
+    session: Session,
+    source_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entry_dir = write_entry_dir(tmp_path / 'data_processed', 's1')
+    store.upsert_entry(session, source_root, entry_dir, make_record(), SpatialSpec(crs=CRS.from_string('ESRI:54012')))
+    session.commit()
+    entry = session.get(models.Entry, 's1')
+    monkeypatch.setattr(store, 'get_engine', lambda _path: session.get_bind())
+
+    info = _spec_info_cached.__wrapped__(entry.crs_hash, entry.transform_hash, entry.shape_hash)
+
+    assert info.crs == 'ESRI:54012'
+    assert info.resolution is None
+    assert info.shape is None
 
 
 def test_format_version_mismatch_wipes(source_root: Path, tmp_path: Path, sample_spatial_spec: SpatialSpec) -> None:
@@ -348,3 +368,15 @@ def test_backfill_is_incremental(
     assert store.backfill(session, source_root, [tmp_path / 'data_processed'], format_version=FORMAT_VERSION) == 1
     assert session.get(models.Entry, 's1') is not None
     assert session.get(models.Entry, 's2') is not None
+
+
+def test_pins_keep_order_and_are_idempotent(session: Session) -> None:
+    engine = session.get_bind()
+    store.set_pinned(engine, 'b', pinned=True)
+    store.set_pinned(engine, 'a', pinned=True)
+    store.set_pinned(engine, 'b', pinned=True)
+    assert store.pinned_hashes(engine) == ['b', 'a']
+
+    store.set_pinned(engine, 'b', pinned=False)
+    store.set_pinned(engine, 'missing', pinned=False)
+    assert store.pinned_hashes(engine) == ['a']

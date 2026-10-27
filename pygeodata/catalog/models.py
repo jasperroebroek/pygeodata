@@ -96,3 +96,16 @@ class EntryFile(Base):
     label: Mapped[str] = mapped_column(Text)
     kind: Mapped[str] = mapped_column(Text)
     role: Mapped[FileRole] = mapped_column(Enum(FileRole))
+
+
+class Pin(Base):
+    """An entry pinned by a user (in the browser).
+
+    Not keyed to ``entries``: rows there come and go with reindexing (e.g. an
+    unmounted cache drive), a pin outlives that. Wiped with the rest of the catalog.
+    """
+
+    __tablename__ = 'pins'
+
+    state_hash: Mapped[str] = mapped_column(String, primary_key=True)
+    pinned_at: Mapped[float] = mapped_column(Float)

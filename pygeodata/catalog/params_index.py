@@ -38,8 +38,6 @@ def _flatten(
     if _is_data_ref(value):
         class_name = value[JSONKeys.CLASS_NAME]
         inner = value.get(JSONKeys.PARAMS, {})
-        # Emit the ref row itself
-        search_blob = f'{scope} {key} {class_name} data_ref'.lower()
         rows.append(
             ParamRow(
                 path=f'{scope}.{key}' if scope else key,
@@ -48,7 +46,6 @@ def _flatten(
                 value_text=class_name,
                 value_type=type(value).__name__,
                 row_type=ParamRowType.DATA_REF,
-                search_blob=search_blob,
                 depth=depth,
             ),
         )
@@ -58,7 +55,6 @@ def _flatten(
                     param_name=key,
                     class_name=class_name,
                     state_hash=value.get(JSONKeys.STATE_HASH),
-                    params_summary={k: _format_scalar(v) for k, v in inner.items()},
                 ),
             )
         child_scope = f'{scope} › {key}' if scope else key
@@ -70,7 +66,6 @@ def _flatten(
 
     if _is_class_ref(value):
         class_name = value[JSONKeys.CLASS_NAME]
-        dep_hash = value.get(JSONKeys.DEPENDENCY_TREE_HASH) or ''
         rows.append(
             ParamRow(
                 path=f'{scope}.{key}' if scope else key,
@@ -79,7 +74,6 @@ def _flatten(
                 value_text=class_name,
                 value_type=type(value).__name__,
                 row_type=ParamRowType.CLASS_REF,
-                search_blob=f'{scope} {key} {class_name} {dep_hash} class_ref'.lower(),
                 depth=depth,
             ),
         )
@@ -109,7 +103,6 @@ def _flatten(
                 else:
                     val_str = _format_scalar(item)
                     path = f'{scope}.{indexed_key}' if scope else indexed_key
-                    search_blob = f'{scope} {indexed_key} {val_str}'.lower()
                     rows.append(
                         ParamRow(
                             path=path,
@@ -118,7 +111,6 @@ def _flatten(
                             value_text=val_str,
                             value_type=type(item).__name__,
                             row_type=ParamRowType.VALUE,
-                            search_blob=search_blob,
                             depth=depth,
                         ),
                     )
@@ -128,7 +120,6 @@ def _flatten(
             for item in value:
                 val_str = _format_scalar(item)
                 path = f'{scope}.{list_key}' if scope else list_key
-                search_blob = f'{scope} {list_key} {val_str}'.lower()
                 rows.append(
                     ParamRow(
                         path=path,
@@ -137,7 +128,6 @@ def _flatten(
                         value_text=val_str,
                         value_type=type(item).__name__,
                         row_type=ParamRowType.LIST_MEMBER,
-                        search_blob=search_blob,
                         depth=depth,
                     ),
                 )
@@ -146,7 +136,6 @@ def _flatten(
     # Scalar leaf
     val_str = _format_scalar(value)
     path = f'{scope}.{key}' if scope else key
-    search_blob = f'{scope} {key} {val_str}'.lower()
     rows.append(
         ParamRow(
             path=path,
@@ -155,7 +144,6 @@ def _flatten(
             value_text=val_str,
             value_type=type(value).__name__,
             row_type=ParamRowType.VALUE,
-            search_blob=search_blob,
             depth=depth,
         ),
     )

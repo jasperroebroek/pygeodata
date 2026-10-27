@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import time
 import warnings
 from functools import cache
 from pathlib import Path
@@ -282,6 +283,26 @@ def prune_missing(session: Session, source_root: Path) -> int:
     if stale:
         delete_entries(session, stale)
     return len(stale)
+
+
+def pinned_hashes(engine: Engine) -> list[str]:
+    """Pinned state hashes, oldest pin first."""
+    with Session(engine) as session:
+        return list(session.scalars(select(models.Pin.state_hash).order_by(models.Pin.pinned_at)))
+
+
+def set_pinned(engine: Engine, state_hash: str, pinned: bool) -> None:
+    """Pin or unpin one entry; pinning an already pinned entry keeps its original time."""
+    with Session(engine) as session:
+        if pinned:
+            session.execute(
+                sqlite_insert(models.Pin)
+                .values(state_hash=state_hash, pinned_at=time.time())
+                .on_conflict_do_nothing(index_elements=['state_hash']),
+            )
+        else:
+            session.execute(delete(models.Pin).where(models.Pin.state_hash == state_hash))
+        session.commit()
 
 
 def iter_cache_records(

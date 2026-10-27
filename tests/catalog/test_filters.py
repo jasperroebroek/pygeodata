@@ -18,7 +18,6 @@ def make_row(
     final_key: str = 'year',
     value_text: str = '2020',
     path: str = 'params.year',
-    search_blob: str = 'params year 2020',
 ) -> ParamRow:
     return ParamRow(
         path=path,
@@ -26,7 +25,6 @@ def make_row(
         final_key=final_key,
         value_text=value_text,
         value_type='int',
-        search_blob=search_blob,
         depth=0,
     )
 
@@ -146,7 +144,7 @@ def test_row_matches_path() -> None:
 
 
 def test_row_matches_all_uses_search_blob() -> None:
-    row = make_row(search_blob='inputs scenario ssp126')
+    row = make_row(key_group='inputs', final_key='scenario', value_text='ssp126')
     assert row_matches_filter(row, Filter(target=FilterTarget.ALL, value='ssp'))
     assert not row_matches_filter(row, Filter(target=FilterTarget.ALL, value='rcp'))
 
@@ -200,14 +198,14 @@ def test_entry_header_all_matches_class_name() -> None:
 
 
 def test_entry_header_all_falls_through_to_rows() -> None:
-    row = make_row(search_blob='inputs scenario ssp126')
+    row = make_row(key_group='inputs', final_key='scenario', value_text='ssp126')
     cls, entry = make_entry(class_name='ClimateLoader', rows=[row])
     flt = Filter(target=FilterTarget.ALL, value='ssp126')
     assert entry_header_matches(cls, entry, flt)
 
 
 def test_entry_header_all_no_match() -> None:
-    cls, entry = make_entry(class_name='ClimateLoader', rows=[make_row(search_blob='year 2020')])
+    cls, entry = make_entry(class_name='ClimateLoader', rows=[make_row()])
     flt = Filter(target=FilterTarget.ALL, value='ocean')
     assert not entry_header_matches(cls, entry, flt)
 
@@ -281,8 +279,8 @@ def test_matching_rows_no_row_filters_returns_all() -> None:
 
 def test_matching_rows_and_filters_all_must_match() -> None:
     rows = [
-        make_row(final_key='year', value_text='2020', search_blob='year 2020'),
-        make_row(final_key='region', value_text='europe', search_blob='region europe'),
+        make_row(final_key='year', value_text='2020'),
+        make_row(final_key='region', value_text='europe'),
     ]
     cls, entry = make_entry(rows=rows)
     filters = [
@@ -296,8 +294,8 @@ def test_matching_rows_and_filters_all_must_match() -> None:
 
 def test_matching_rows_or_any_matches() -> None:
     rows = [
-        make_row(final_key='year', search_blob='year 2020'),
-        make_row(final_key='region', search_blob='region europe'),
+        make_row(final_key='year'),
+        make_row(final_key='region'),
     ]
     cls, entry = make_entry(rows=rows)
     filters = [
@@ -310,8 +308,8 @@ def test_matching_rows_or_any_matches() -> None:
 
 def test_matching_rows_not_excludes_matches() -> None:
     rows = [
-        make_row(final_key='year', search_blob='year 2020'),
-        make_row(final_key='region', search_blob='region europe'),
+        make_row(final_key='year'),
+        make_row(final_key='region'),
     ]
     cls, entry = make_entry(rows=rows)
     filters = [Filter(target=FilterTarget.KEY, value='year')]

@@ -120,14 +120,15 @@ def _spec_info_cached(crs_hash: str | None, transform_hash: str | None, shape_ha
         res_row = session.get(models.Resolution, transform_hash) if transform_hash is not None else None
         shape_row = session.get(models.Shape, shape_hash) if shape_hash is not None else None
 
-    spec = None
-    if crs_row is not None and res_row is not None and shape_row is not None:
-        spec = SpatialSpec(
-            crs=_crs_from_string(crs_row.crs),
-            transform=Affine(res_row.a, res_row.b, res_row.c, res_row.d, res_row.e, res_row.f),
-            shape=ast.literal_eval(shape_row.shape),
-        )
-    return SpecInfo.from_spec(spec) if spec is not None else SpecInfo()
+    if crs_row is None:
+        return SpecInfo()
+    # Partial specs are common (figures and tables usually carry only a CRS): keep what is there.
+    spec = SpatialSpec(
+        crs=_crs_from_string(crs_row.crs),
+        transform=Affine(res_row.a, res_row.b, res_row.c, res_row.d, res_row.e, res_row.f) if res_row else None,
+        shape=ast.literal_eval(shape_row.shape) if shape_row else None,
+    )
+    return SpecInfo.from_spec(spec)
 
 
 def _load_display_from_catalog() -> dict[str, dict] | None:

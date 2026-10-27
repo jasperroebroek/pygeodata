@@ -111,10 +111,10 @@ def test_data_ref_emits_row_and_linked_entry() -> None:
     assert ref_rows[0].value_text == 'MyLoader'
     assert ref_rows[0].final_key == 'loader'
 
-    # Linked entry captured
+    # Linked entry captured (no params_summary — derived at display time)
     assert len(linked) == 1
     assert linked[0].class_name == 'MyLoader'
-    assert linked[0].params_summary.get('year') == '2020'
+    assert linked[0].param_name == 'loader'
 
 
 def test_data_ref_child_params_also_flattened() -> None:
@@ -210,7 +210,7 @@ def test_class_ref_nested_in_data_ref() -> None:
     assert {r.value_text for r in result} == {'FeatureSpec', 'MLFeatureBioclim', '1'}
 
 
-def test_class_ref_search_blob_includes_class_and_hash() -> None:
+def test_class_ref_search_blob_includes_class_name() -> None:
     params = {
         'loader': {
             JSONKeys.CLASS_NAME: 'BioclimEnsemble',
@@ -219,7 +219,6 @@ def test_class_ref_search_blob_includes_class_and_hash() -> None:
     }
     blob = rows(params)[0].search_blob
     assert 'bioclimensemble' in blob
-    assert 'deadbeef' in blob
     assert 'class_ref' in blob
 
 

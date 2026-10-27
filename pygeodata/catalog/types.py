@@ -62,19 +62,39 @@ class ParamRow:
     final_key: str
     value_text: str
     value_type: str  # Python type name of the leaf value; informational only
-    search_blob: str
     depth: int
     row_type: ParamRowType = ParamRowType.VALUE
+
+    @property
+    def search_blob(self) -> str:
+        """Search text for the ``all`` filter — derived, never stored.
+
+        Fully determined by the other columns, so the catalog stores none of it
+        (it used to cost ~25% of the display JSON). Ref rows keep their
+        row-type token; the class-ref dep hash is no longer searchable through
+        the ``all`` target (Key/Value filters cover it).
+        """
+        blob = f'{self.key_group} {self.final_key} {self.value_text}'.lower()
+        if self.row_type is ParamRowType.DATA_REF:
+            return f'{blob} data_ref'
+        if self.row_type is ParamRowType.CLASS_REF:
+            return f'{blob} class_ref'
+        return blob
 
 
 @dataclass(slots=True)
 class LinkedEntry:
-    """A Data/TrackedObject reference embedded in another entry's params."""
+    """A Data/TrackedObject reference embedded in another entry's params.
+
+    The referenced entry's params are already flattened into the parent's
+    rows (under this param's scope), so no summary is stored — the display
+    layer derives it on demand. This used to duplicate the linked loader's
+    full params repr in every referencing entry (~90% of linked_entries bytes).
+    """
 
     param_name: str
     class_name: str
     state_hash: str | None
-    params_summary: dict[str, str]
 
 
 @dataclass
