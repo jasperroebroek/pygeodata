@@ -366,6 +366,21 @@ def test_backfill_is_incremental(
     assert 's2' in catalog['entries']
 
 
+def test_save_catalog_follows_symlinks(tmp_path: Path) -> None:
+    """A symlinked catalog (e.g. into a synced tree) stays a symlink; writes land on its target."""
+    target = tmp_path / 'synced' / '.catalog.json'
+    target.parent.mkdir()
+    link = tmp_path / '.catalog.json'
+    link.symlink_to(target)
+
+    with set_config(path_catalog=link):
+        store.save_catalog(store.load_catalog())
+
+    assert link.is_symlink()
+    assert target.is_file()
+    assert store.load_catalog() is not None
+
+
 def test_pins_keep_order_and_are_idempotent() -> None:
     store.set_pinned('b', pinned=True)
     store.set_pinned('a', pinned=True)

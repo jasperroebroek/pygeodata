@@ -119,7 +119,7 @@ def load_catalog() -> dict[str, Any]:
 
 def save_catalog(catalog: dict[str, Any]) -> None:
     """Write the catalog atomically — a temp file in the same directory, then rename."""
-    path = catalog_path()
+    path = catalog_path().resolve()  # a symlinked catalog stays a symlink: write its target
     path.parent.mkdir(parents=True, exist_ok=True)
     catalog[_META_FORMAT_VERSION] = FORMAT_VERSION
     catalog[_META_SCHEMA_VERSION] = schema_fingerprint()
@@ -436,7 +436,7 @@ def _load_pins() -> list[dict[str, Any]]:
 
 
 def _save_pins(pins: list[dict[str, Any]]) -> None:
-    path = pins_path()
+    path = pins_path().resolve()  # follow a symlinked pins file to its target
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f'{path.name}.tmp')
     tmp.write_text(json.dumps(pins), encoding='utf-8')
