@@ -90,7 +90,9 @@ def _rel_file(ref: FileRef | None, entry_dir: Path) -> dict[str, str] | None:
     if ref is None:
         return None
     try:
-        relpath = str(Path(ref.path).relative_to(entry_dir))
+        # Both sides resolved: file paths are realpath'd, and entry dirs reached
+        # through a symlinked home (e.g. eos_user_home) must relativize against them.
+        relpath = str(Path(ref.path).resolve().relative_to(Path(entry_dir).resolve()))
     except ValueError:
         relpath = ref.path
     return {'label': ref.label, 'relpath': relpath, 'kind': ref.kind}

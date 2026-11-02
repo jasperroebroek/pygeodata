@@ -381,6 +381,29 @@ def test_save_catalog_follows_symlinks(tmp_path: Path) -> None:
     assert store.load_catalog() is not None
 
 
+def test_entry_display_relpath_survives_symlinked_entry_dir(tmp_path: Path) -> None:
+    """File refs must relativize even when entry dirs are reached through a symlinked
+    home (e.g. eos_user_home → /mnt), which resolves differently than the raw path.
+    """
+    import os
+
+    from pygeodata.catalog.display import entry_display
+
+    real = tmp_path / 'real' / 'data_processed'
+    real.mkdir(parents=True)
+    entry_dir = real / 's1'
+    entry_dir.mkdir()
+    (entry_dir / 'out.tif').write_bytes(b'x')
+
+    alias_root = tmp_path / 'alias' / 'data_processed'
+    alias_root.parent.mkdir()
+    os.symlink(real, alias_root)
+
+    display = entry_display({'a': 1}, alias_root / 's1', 'MyLoader', 'Data')
+    assert display.primary is not None
+    assert display.primary['relpath'] == 'out.tif'
+
+
 def test_pins_keep_order_and_are_idempotent() -> None:
     store.set_pinned('b', pinned=True)
     store.set_pinned('a', pinned=True)
