@@ -13,7 +13,7 @@ import pytest
 
 from pygeodata.catalog import store
 from pygeodata.catalog.types import EntryInfo, FileRef, SpecInfo
-from pygeodata.config import FORMAT_VERSION, JSONKeys, catalog_db_path, get_config, set_config
+from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config, set_config
 from pygeodata.registries.registry import EntryRegistry
 from pygeodata.registries.registry_types import EntryRecord
 from pygeodata.tracked_object import TrackedObject
@@ -310,11 +310,11 @@ def test_entry_registry_hydrates_from_catalog(tmp_path):
     write_hash_file(d, 'abc', state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'})
     (tmp_path / '.source').mkdir(parents=True, exist_ok=True)
 
-    store.refresh(get_config().path_registry, get_config().cache_roots, FORMAT_VERSION)
+    store.refresh(get_config().cache_roots, FORMAT_VERSION)
 
     reg = EntryRegistry()
     assert 'abc' in reg.records
-    assert catalog_db_path().exists()
+    assert get_config().path_catalog.exists()
 
 
 def test_entry_registry_disk_scan_without_catalog(tmp_path):

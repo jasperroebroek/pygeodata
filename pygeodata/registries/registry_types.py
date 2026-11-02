@@ -70,7 +70,7 @@ class EntryRecord:
 
     Mirrors CodeState / TreeSnapshot — keyed by state_hash in EntryRegistry.
     Browser display fields (rows, spec strings, linked entries, primary file)
-    live in EntryInfo in catalog/models.py.
+    live in EntryInfo in catalog/entry_catalog.py.
 
     """
 

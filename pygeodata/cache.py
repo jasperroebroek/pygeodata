@@ -5,6 +5,8 @@ import shutil
 from collections.abc import Iterator
 from pathlib import Path
 
+from filelock import FileLock, Timeout
+
 from pygeodata.catalog.store import reconcile
 from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config
 from pygeodata.paths import CachePathConstructor
@@ -222,8 +224,41 @@ def clean_cache(
         prune_catalog()
 
 
+def clean_lock_files(dry_run: bool = True) -> None:
+    """Remove ``process.lock`` files stranded by terminated runs.
+
+    A lock currently held by a running process is skipped; a dry run cannot
+    detect held locks and lists every lock file found.
+    """
+    for root in get_config().cache_roots:
+        if not root.exists():
+            continue
+
+        for dirpath_str, dirs, files in os.walk(root, topdown=True, followlinks=True):
+            dirpath = Path(dirpath_str)
+            dirs[:] = [d for d in dirs if not is_zarr_root(dirpath / d)]
+
+            if 'process.lock' not in files:
+                continue
+
+            lock_path = dirpath / 'process.lock'
+            if dry_run:
+                print(f'[dry_run] process.lock: {lock_path}')
+                continue
+
+            lock = FileLock(lock_path, timeout=0)
+            try:
+                lock.acquire()
+            except Timeout:
+                print(f'[Skipping] process.lock in use: {lock_path}')
+                continue
+            lock_path.unlink(missing_ok=True)
+            lock.release()
+            print(f'[Deleting] process.lock: {lock_path}')
+
+
 def prune_catalog() -> None:
-    deleted = reconcile(get_config().path_registry, FORMAT_VERSION)
+    deleted = reconcile()
     if deleted:
         print(f'[Catalog] Pruned {deleted} row(s)')
 

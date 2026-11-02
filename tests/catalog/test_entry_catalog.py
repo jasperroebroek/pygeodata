@@ -284,7 +284,7 @@ def test_discover_entries_absolute_paths_from_catalog(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     with set_config(path_cache=Path('data_processed'), path_figures=Path('figures'), path_registry=Path('.source')):
         EntryRegistry._instance = None
-        store.refresh(get_config().path_registry, get_config().cache_roots, FORMAT_VERSION)
+        store.refresh(get_config().cache_roots, FORMAT_VERSION)
         entries, _, diag = discover_entries()
     assert diag['created_entries'] == 1
     entry = entries['abc']

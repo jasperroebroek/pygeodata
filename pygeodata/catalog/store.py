@@ -1,12 +1,22 @@
-"""SQLAlchemy access layer for ``.source/catalog.db``.
+"""JSON file access layer for the catalog (:attr:`~pygeodata.config.Config.path_catalog`).
 
-The catalog is an index of cache entries, never a source of truth: a row only
-exists because the entry's ``meta.json`` was written successfully, and entry
-validity stays defined by the JSON files on disk (see :mod:`pygeodata.cache`).
-The active ``FORMAT_VERSION`` is recorded once in the ``meta`` table — a
-catalog built by a different version is wiped and rebuilt lazily, never
-migrated. Entries are keyed by their content-addressed ``state_hash``, so
-concurrent writers producing the same hash converge on identical rows.
+The catalog is an index of cache entries, never a source of truth: an entry only
+exists because its ``meta.json`` was written successfully, and entry validity stays
+defined by the JSON files on disk (see :mod:`pygeodata.cache`). The active
+``FORMAT_VERSION`` and a schema fingerprint are recorded in the file — a catalog
+written by a different version is treated as empty and rebuilt, never migrated.
+Entries are keyed by their content-addressed ``state_hash``, so concurrent writers
+producing the same hash converge on identical rows.
+
+All write paths are no-ops while ``catalog_enabled`` is False on the config —
+e.g. on shared filesystems. Incremental writes take a ``filelock`` and rewrite the
+file atomically (temp file + rename), which is safe on any local filesystem and
+needs no database locking protocol.
+
+Paths are stored relative to the cache root that contains the entry, so a catalog
+built on one machine resolves correctly on another that mounts the same cache at
+a different absolute location; entries outside every configured cache root fall
+back to absolute paths.
 """
 
 from __future__ import annotations
@@ -16,34 +26,32 @@ import json
 import logging
 import time
 import warnings
-from functools import cache
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import create_engine, delete, event, select, text
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlalchemy.engine import Engine
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
-from sqlalchemy.schema import CreateTable
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Iterator
 
-from pygeodata.catalog import models
+from filelock import FileLock
+
 from pygeodata.catalog.dimensions import dimension_rows
 from pygeodata.catalog.types import FileRole
+from pygeodata.config import FORMAT_VERSION, get_config
 from pygeodata.paths import CachePathResolver
 from pygeodata.registries.registry_types import EntryRecord
 from pygeodata.spec import SpatialSpec
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
-
     from pygeodata.catalog.display import EntryDisplay
 
 logger = logging.getLogger(__name__)
 
-CATALOG_FILENAME = 'catalog.db'
+BACKFILL_LOG_INTERVAL = 2000
 
-_ENTRY_UPDATE_COLUMNS = (
+_META_FORMAT_VERSION = 'format_version'
+_META_SCHEMA_VERSION = 'schema_fingerprint'
+_ENTRY_KEYS = (
     'class_name',
     'object_type',
     'source_hash',
@@ -63,101 +71,104 @@ _ENTRY_UPDATE_COLUMNS = (
     'updated_at',
 )
 
-_META_FORMAT_VERSION = 'format_version'
-_META_SCHEMA_VERSION = 'schema_fingerprint'
 
+def schema_fingerprint() -> str:
+    """Fingerprint of the catalog's JSON structure — any layout change changes it.
 
-def catalog_path(source_root: Path) -> Path:
-    return Path(source_root) / CATALOG_FILENAME
-
-
-def create_catalog_engine(source_root: Path) -> Engine:
-    path = catalog_path(source_root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    engine = create_engine(f'sqlite:///{path}')
-
-    @event.listens_for(engine, 'connect')
-    def _set_pragmas(dbapi_connection: Any, _record: Any) -> None:
-        cursor = dbapi_connection.cursor()
-        cursor.execute('PRAGMA journal_mode=WAL')
-        cursor.execute('PRAGMA busy_timeout=30000')
-        cursor.execute('PRAGMA synchronous=NORMAL')
-        cursor.close()
-
-    return engine
-
-
-def schema_fingerprint(engine: Engine) -> str:
-    """Fingerprint of the current table DDL — any model change changes it.
-
-    No schema version numbers: the catalog is disposable, so a fingerprint
-    mismatch wipes it and the next backfill rebuilds.
+    No schema version numbers: the catalog is disposable, so a fingerprint mismatch
+    makes every load treat it as empty and the next backfill rebuilds it.
     """
-    ddl = '\n'.join(
-        str(CreateTable(table).compile(dialect=engine.dialect)).strip()
-        for table in sorted(models.Base.metadata.tables.values(), key=lambda t: t.name)
-    )
-    return hashlib.sha256(ddl.encode()).hexdigest()
+    template = {
+        _META_FORMAT_VERSION: 0,
+        _META_SCHEMA_VERSION: '',
+        'entries': dict.fromkeys(_ENTRY_KEYS),
+        'files': [{'relpath': '', 'label': '', 'kind': '', 'role': ''}],
+        'dimensions': {'crs': {}, 'transforms': {}, 'bounds': {}, 'shapes': {}},
+    }
+    return hashlib.sha256(json.dumps(template, sort_keys=True).encode()).hexdigest()
 
 
-def sync_schema(engine: Engine, format_version: int) -> None:
-    """Create tables and enforce the one-version contract.
-
-    Wipes the catalog when ``FORMAT_VERSION`` changed or when the table DDL
-    no longer matches the stored fingerprint; the next backfill rebuilds it.
-    """
-    models.Base.metadata.create_all(engine)
-    with Session(engine) as session:
-        format_row = session.get(models.CatalogMeta, _META_FORMAT_VERSION)
-        schema_row = session.get(models.CatalogMeta, _META_SCHEMA_VERSION)
-        stored_format = format_row.value if format_row is not None else None
-        stored_fingerprint = schema_row.value if schema_row is not None else None
-        fingerprint = schema_fingerprint(engine)
-        if stored_format != str(format_version) or stored_fingerprint != fingerprint:
-            if stored_format is not None or stored_fingerprint is not None:
-                logger.info(
-                    'Catalog built under format %s / schema %s, current is %s / %s — wiping and rebuilding',
-                    stored_format,
-                    stored_fingerprint[:12] if stored_fingerprint else None,
-                    format_version,
-                    fingerprint[:12],
-                )
-            session.commit()
-            models.Base.metadata.drop_all(engine)
-            models.Base.metadata.create_all(engine)
-            with Session(engine) as fresh:
-                fresh.add(models.CatalogMeta(key=_META_FORMAT_VERSION, value=str(format_version)))
-                fresh.add(models.CatalogMeta(key=_META_SCHEMA_VERSION, value=str(fingerprint)))
-                fresh.commit()
+def catalog_path() -> Path:
+    return get_config().path_catalog
 
 
-@cache
-def get_engine(source_root: str, format_version: int | None = None) -> Engine:
-    """Process-wide engine for one resolved ``.source`` path."""
-    engine = create_catalog_engine(Path(source_root))
-    if format_version is not None:
-        sync_schema(engine, format_version)
-    return engine
+def _empty_catalog() -> dict[str, Any]:
+    return {
+        _META_FORMAT_VERSION: None,
+        _META_SCHEMA_VERSION: schema_fingerprint(),
+        'entries': {},
+        'files': {},
+        'dimensions': {'crs': {}, 'transforms': {}, 'bounds': {}, 'shapes': {}},
+    }
 
 
-def _relpath(entry_dir: Path, source_root: Path) -> str:
-    """Relative to the project base — the parent of ``.source``."""
-    base = Path(source_root).parent
+def load_catalog() -> dict[str, Any]:
+    """The catalog as a plain dict; a missing or outdated file yields an empty one."""
+    path = catalog_path()
+    if not path.is_file():
+        return _empty_catalog()
     try:
-        return str(entry_dir.relative_to(base))
-    except ValueError:
-        return str(entry_dir.resolve())
+        catalog = json.loads(path.read_text(encoding='utf-8'))
+    except (json.JSONDecodeError, OSError) as exc:
+        warnings.warn(f'Catalog unreadable, starting empty: {exc}', stacklevel=2)
+        return _empty_catalog()
+    if catalog.get(_META_FORMAT_VERSION) != FORMAT_VERSION or catalog.get(_META_SCHEMA_VERSION) != schema_fingerprint():
+        return _empty_catalog()
+    return catalog
 
 
-def entry_abs_path(source_root: Path, dir_relpath: str) -> Path:
+def save_catalog(catalog: dict[str, Any]) -> None:
+    """Write the catalog atomically — a temp file in the same directory, then rename."""
+    path = catalog_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    catalog[_META_FORMAT_VERSION] = FORMAT_VERSION
+    catalog[_META_SCHEMA_VERSION] = schema_fingerprint()
+    tmp = path.with_name(f'{path.name}.tmp')
+    tmp.write_text(json.dumps(catalog), encoding='utf-8')
+    tmp.replace(path)
+
+
+@contextmanager
+def _catalog_lock() -> Iterator[None]:
+    path = catalog_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with FileLock(path.with_name(f'{path.name}.lock')):
+        yield
+
+
+# ---------------------------------------------------------------------------
+# Paths — cache-root relative, resolved against the local config
+# ---------------------------------------------------------------------------
+
+
+def _relpath(entry_dir: Path) -> str:
+    """Relative to the cache root containing the entry; absolute when outside all roots."""
+    for root in get_config().cache_roots:
+        try:
+            return str(Path(entry_dir).resolve().relative_to(Path(root).resolve()))
+        except ValueError:  # noqa: PERF203 — a handful of roots; exception cost is irrelevant
+            continue
+    return str(Path(entry_dir).resolve())
+
+
+def entry_abs_path(dir_relpath: str, cache_roots: Iterable[Path] | None = None) -> Path:
+    """Resolve a stored relpath against the configured cache roots of this machine."""
     path = Path(dir_relpath)
     if path.is_absolute():
-        return path
-    return Path(source_root).parent / path
+        return path.resolve()
+    roots = tuple(get_config().cache_roots if cache_roots is None else cache_roots)
+    for root in roots:
+        if (root / path).exists():
+            return (root / path).resolve()
+    return (roots[0] / path).resolve() if roots else path
+
+
+# ---------------------------------------------------------------------------
+# Entry rows
+# ---------------------------------------------------------------------------
 
 
 def _entry_row(
-    source_root: Path,
     entry_dir: Path,
     record: EntryRecord,
     dims: dict[str, Any],
@@ -180,129 +191,63 @@ def _entry_row(
         'transform_hash': dims['transform_hash'],
         'bounds_hash': dims['bounds_hash'],
         'shape_hash': dims['shape_hash'],
-        'co_output_hashes': json.dumps(record.co_output_hashes or []),
+        'co_output_hashes': list(record.co_output_hashes or []),
         'rows': display.rows if display is not None else None,
         'linked_entries': display.linked_entries if display is not None else None,
-        'dir_relpath': _relpath(entry_dir, source_root),
+        'dir_relpath': _relpath(entry_dir),
         'created_at': created_at,
         'updated_at': created_at,
     }
 
 
-def _upsert_dims(session: Session, dims: dict[str, Any]) -> None:
-    for table, row_key in (
-        (models.Crs, 'crs_row'),
-        (models.Resolution, 'resolution_row'),
-        (models.Bounds, 'bounds_row'),
-        (models.Shape, 'shape_row'),
-    ):
-        row = dims[row_key]
-        if row is not None:
-            session.execute(
-                sqlite_insert(table).values(**row).on_conflict_do_nothing(),
-            )
+def _upsert_dims(catalog: dict[str, Any], dims: dict[str, Any]) -> None:
+    crs_row = dims['crs_row']
+    if crs_row is not None:
+        catalog['dimensions']['crs'][crs_row['crs_hash']] = crs_row['crs']
+    res_row = dims['resolution_row']
+    if res_row is not None:
+        catalog['dimensions']['transforms'][res_row['transform_hash']] = {
+            k: v for k, v in res_row.items() if k != 'transform_hash'
+        }
+    bounds_row = dims['bounds_row']
+    if bounds_row is not None:
+        catalog['dimensions']['bounds'][bounds_row['bounds_hash']] = {
+            k: v for k, v in bounds_row.items() if k != 'bounds_hash'
+        }
+    shape_row = dims['shape_row']
+    if shape_row is not None:
+        catalog['dimensions']['shapes'][shape_row['shape_hash']] = shape_row['shape']
 
 
-def upsert_entry(  # noqa: PLR0913
-    session: Session,
-    source_root: Path,
+def _upsert_files(catalog: dict[str, Any], state_hash: str, display: EntryDisplay) -> None:
+    refs: list[dict[str, str]] = []
+    if display.primary is not None:
+        refs.append({**display.primary, 'role': FileRole.PRIMARY.value})
+    refs.extend({**sidecar, 'role': FileRole.SIDECAR.value} for sidecar in display.sidecars)
+    if refs:
+        catalog['files'][state_hash] = refs
+    else:
+        catalog['files'].pop(state_hash, None)
+
+
+def upsert_entry(
+    catalog: dict[str, Any],
     entry_dir: Path,
     record: EntryRecord,
     spec: SpatialSpec | None,
     display: EntryDisplay | None = None,
 ) -> None:
-    """Insert or update one entry and its dimension rows."""
-    _upsert_entry(session, source_root, entry_dir, record, spec, display)
-    session.commit()
-
-
-def _upsert_entry(  # noqa: PLR0913
-    session: Session,
-    source_root: Path,
-    entry_dir: Path,
-    record: EntryRecord,
-    spec: SpatialSpec | None,
-    display: EntryDisplay | None,
-) -> None:
+    """Insert or update one entry, its dimension rows, and its file refs — in memory."""
     dims = dimension_rows(spec)
-    row = _entry_row(source_root, entry_dir, record, dims, display)
+    row = _entry_row(entry_dir, record, dims, display)
     if row['state_hash'] is None:
         return
-    _upsert_dims(session, dims)
-    updates = {c: row[c] for c in _ENTRY_UPDATE_COLUMNS}
-    session.execute(
-        sqlite_insert(models.Entry).values(**row).on_conflict_do_update(index_elements=['state_hash'], set_=updates),
-    )
+    _upsert_dims(catalog, dims)
+    existing = catalog['entries'].get(row['state_hash'], {'state_hash': row['state_hash']})
+    existing.update({key: row[key] for key in _ENTRY_KEYS})
+    catalog['entries'][row['state_hash']] = existing
     if display is not None:
-        _upsert_files(session, row['state_hash'], display)
-
-
-def _upsert_files(session: Session, state_hash: str, display: EntryDisplay) -> None:
-    """Replace the file rows for one entry — role per file, no sidecar lists."""
-    session.execute(delete(models.EntryFile).where(models.EntryFile.state_hash == state_hash))
-    refs: list[tuple[dict, FileRole]] = []
-    if display.primary is not None:
-        refs.append((display.primary, FileRole.PRIMARY))
-    refs.extend((sidecar, FileRole.SIDECAR) for sidecar in display.sidecars)
-    if not refs:
-        return
-    session.execute(
-        sqlite_insert(models.EntryFile),
-        [
-            {
-                'state_hash': state_hash,
-                'relpath': ref['relpath'],
-                'label': ref['label'],
-                'kind': ref['kind'],
-                'role': role,
-            }
-            for ref, role in refs
-        ],
-    )
-
-
-def delete_entries(session: Session, state_hashes: Iterable[str]) -> None:
-    hashes = list(state_hashes)
-    session.execute(delete(models.EntryFile).where(models.EntryFile.state_hash.in_(hashes)))
-    session.execute(delete(models.Entry).where(models.Entry.state_hash.in_(hashes)))
-    session.commit()
-
-
-def prune_missing(session: Session, source_root: Path) -> int:
-    """Delete rows whose entry dir (or its ``meta.json``) no longer exists.
-
-    The DB lives in ``.source`` and survives cache deletion, so this
-    reconcile keeps the index honest after cleaning or manual deletion.
-    """
-    rows = session.execute(select(models.Entry.state_hash, models.Entry.dir_relpath)).all()
-    stale = [
-        state_hash
-        for state_hash, dir_relpath in rows
-        if not (entry_abs_path(source_root, dir_relpath) / 'meta.json').exists()
-    ]
-    if stale:
-        delete_entries(session, stale)
-    return len(stale)
-
-
-def pinned_hashes(engine: Engine) -> list[str]:
-    """Pinned state hashes, oldest pin first."""
-    with Session(engine) as session:
-        return list(session.scalars(select(models.Pin.state_hash).order_by(models.Pin.pinned_at)))
-
-
-def set_pinned(engine: Engine, state_hash: str, pinned: bool) -> None:
-    """Pin or unpin one entry; pinning an already pinned entry keeps its original time."""
-    with Session(engine) as session:
-        if pinned:
-            session.execute(
-                sqlite_insert(models.Pin)
-                .values(state_hash=state_hash, pinned_at=time.time())
-                .on_conflict_do_nothing(index_elements=['state_hash']),
-            )
-        else:
-            session.execute(delete(models.Pin).where(models.Pin.state_hash == state_hash))
-        session.commit()
+        _upsert_files(catalog, row['state_hash'], display)
 
 
 def iter_cache_records(
@@ -313,7 +258,7 @@ def iter_cache_records(
     """Yield ``(entry_dir, record, spec)`` for every readable cache entry on disk.
 
     Skips entries written by a different ``format_version``: those are stale
-    by definition and are handled by clean-cache. ``skip_hashes`` skips
+    by definition and are handled by clean-cache. ``skip_hashes`` skips the
     already-indexed entries — entry dirs are named by their state hash, so
     the common flat layout skips without reading ``meta.json`` at all.
     """
@@ -341,18 +286,16 @@ def iter_cache_records(
         yield meta_path.parent, record, spec
 
 
-BACKFILL_BATCH_SIZE = 2000
-
-
 def backfill(
-    session: Session,
-    source_root: Path,
+    catalog: dict[str, Any],
     cache_roots: Iterable[Path],
     format_version: int | None = None,
+    log_interval: int = BACKFILL_LOG_INTERVAL,
 ) -> int:
+    """Index every cache entry missing from the catalog; returns the count indexed."""
     from pygeodata.catalog.display import entry_display  # noqa: PLC0415 — display imports the artifact families
 
-    known = set(session.scalars(select(models.Entry.state_hash)))
+    known = set(catalog['entries'])
     count = 0
     for entry_dir, record, spec in iter_cache_records(cache_roots, format_version=format_version, skip_hashes=known):
         display = None
@@ -360,39 +303,48 @@ def backfill(
         if params_path.exists():
             try:
                 params_json = json.loads(params_path.read_text(encoding='utf-8'))
-                display = entry_display(params_json, entry_dir, source_root, record.class_name, record.object_type)
+                display = entry_display(params_json, entry_dir, record.class_name, record.object_type)
             except (OSError, json.JSONDecodeError):
                 display = None
-        _upsert_entry(session, source_root, entry_dir, record, spec, display)
+        upsert_entry(catalog, entry_dir, record, spec, display)
         count += 1
-        if count % BACKFILL_BATCH_SIZE == 0:
-            session.commit()
-    session.commit()
+        if log_interval and count % log_interval == 0:
+            logger.info('Backfilled %d entries into the catalog', count)
     return count
 
 
-def bootstrap_rows(engine: Engine) -> list[dict[str, Any]]:
+def prune_missing(catalog: dict[str, Any]) -> int:
+    """Delete entries whose entry dir (or its ``meta.json``) no longer exists."""
+    stale = [
+        state_hash
+        for state_hash, row in catalog['entries'].items()
+        if not (entry_abs_path(row['dir_relpath']) / 'meta.json').exists()
+    ]
+    for state_hash in stale:
+        catalog['entries'].pop(state_hash, None)
+        catalog['files'].pop(state_hash, None)
+    return len(stale)
+
+
+def bootstrap_rows(catalog: dict[str, Any]) -> list[dict[str, Any]]:
     """Most recent entry per class — the browser's instant first payload.
 
     ``created_at`` is the ``meta.json`` mtime, used for ordering only.
     """
-    with engine.connect() as conn:
-        rows = conn.execute(
-            text(
-                'SELECT * FROM entries WHERE rowid IN ('
-                '  SELECT rowid FROM ('
-                '    SELECT rowid, ROW_NUMBER() OVER ('
-                '      PARTITION BY class_name ORDER BY created_at DESC, rowid DESC'
-                '    ) AS rn FROM entries'
-                '  ) WHERE rn = 1'
-                ') ORDER BY class_name',
-            ),
-        ).mappings()
-        return [dict(row) for row in rows]
+    latest: dict[str, dict[str, Any]] = {}
+    for row in catalog['entries'].values():
+        current = latest.get(row['class_name'])
+        if current is None or (row['created_at'] or 0) >= (current['created_at'] or 0):
+            latest[row['class_name']] = row
+    return [latest[class_name] for class_name in sorted(latest)]
+
+
+# ---------------------------------------------------------------------------
+# Public write paths
+# ---------------------------------------------------------------------------
 
 
 def index_entry(
-    source_root: Path,
     entry_dir: Path,
     record: EntryRecord,
     spec: SpatialSpec | None,
@@ -403,41 +355,106 @@ def index_entry(
     The display payload is derived inside the catalog from ``params_json`` —
     callers pass data only.
     """
+    if not get_config().catalog_enabled:
+        return
     display = None
     if params_json is not None:
         from pygeodata.catalog.display import entry_display  # noqa: PLC0415 — display imports the artifact families
 
-        display = entry_display(params_json, entry_dir, source_root, record.class_name, record.object_type)
+        try:
+            display = entry_display(params_json, entry_dir, record.class_name, record.object_type)
+        except OSError as exc:
+            warnings.warn(f'Catalog write failed for {record.state_hash}: {exc}', stacklevel=2)
+            return
     try:
-        engine = get_engine(str(Path(source_root).resolve()), format_version=record.format_version)
-        with Session(engine) as session:
-            upsert_entry(session, source_root, entry_dir, record, spec, display)
-    except (SQLAlchemyError, OSError) as exc:
+        with _catalog_lock():
+            catalog = load_catalog()
+            upsert_entry(catalog, entry_dir, record, spec, display)
+            save_catalog(catalog)
+    except OSError as exc:
         warnings.warn(f'Catalog write failed for {record.state_hash}: {exc}', stacklevel=2)
 
 
-def reconcile(source_root: Path, format_version: int | None = None) -> int:
-    """Prune rows whose cache entry no longer exists; warns and returns 0 on failure."""
+def reconcile() -> int:
+    """Prune entries whose cache entry no longer exists; warns and returns 0 on failure."""
+    if not get_config().catalog_enabled:
+        return 0
     try:
-        engine = get_engine(str(Path(source_root).resolve()), format_version=format_version)
-        with Session(engine) as session:
-            return prune_missing(session, source_root)
-    except (SQLAlchemyError, OSError) as exc:
+        with _catalog_lock():
+            catalog = load_catalog()
+            pruned = prune_missing(catalog)
+            if pruned:
+                save_catalog(catalog)
+    except OSError as exc:
         warnings.warn(f'Catalog prune failed: {exc}', stacklevel=2)
         return 0
+    return pruned
 
 
 def refresh(
-    source_root: Path,
     cache_roots: Iterable[Path],
     format_version: int | None = None,
+    prune: bool = True,
 ) -> tuple[int, int]:
-    """Backfill new entries and prune rows whose entry is gone; returns (indexed, pruned).
+    """Backfill new entries and prune entries whose entry is gone; returns (indexed, pruned).
 
     The reconcile pass the browser runs on open and `catalog build` shares.
     """
-    engine = get_engine(str(Path(source_root).resolve()), format_version=format_version)
-    with Session(engine) as session:
-        indexed = backfill(session, source_root, cache_roots, format_version=format_version)
-        pruned = prune_missing(session, source_root)
+    if not get_config().catalog_enabled:
+        return 0, 0
+    with _catalog_lock():
+        catalog = load_catalog()
+        indexed = backfill(catalog, cache_roots, format_version=format_version)
+        pruned = prune_missing(catalog) if prune else 0
+        save_catalog(catalog)
     return indexed, pruned
+
+
+# ---------------------------------------------------------------------------
+# Pins — machine-local, next to the catalog
+# ---------------------------------------------------------------------------
+
+
+def pins_path() -> Path:
+    """Pins are the only human-authored catalog data; they live in their own file so a
+    catalog built or synced by another machine never overwrites them.
+    """
+    catalog = catalog_path()
+    return catalog.with_name(f'{catalog.stem}.pins.json')
+
+
+def _load_pins() -> list[dict[str, Any]]:
+    path = pins_path()
+    if not path.is_file():
+        return []
+    try:
+        pins = json.loads(path.read_text(encoding='utf-8'))
+    except (json.JSONDecodeError, OSError) as exc:
+        warnings.warn(f'Pins file unreadable, starting empty: {exc}', stacklevel=2)
+        return []
+    return pins if isinstance(pins, list) else []
+
+
+def _save_pins(pins: list[dict[str, Any]]) -> None:
+    path = pins_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f'{path.name}.tmp')
+    tmp.write_text(json.dumps(pins), encoding='utf-8')
+    tmp.replace(path)
+
+
+def pinned_hashes() -> list[str]:
+    """Pinned state hashes, oldest pin first."""
+    return [pin['state_hash'] for pin in sorted(_load_pins(), key=lambda pin: pin['pinned_at'])]
+
+
+def set_pinned(state_hash: str, pinned: bool) -> None:
+    """Pin or unpin one entry; pinning an already pinned entry keeps its original time."""
+    with FileLock(pins_path().with_suffix('.lock')):
+        pins = _load_pins()
+        if pinned:
+            if not any(pin['state_hash'] == state_hash for pin in pins):
+                pins.append({'state_hash': state_hash, 'pinned_at': time.time()})
+        else:
+            pins = [pin for pin in pins if pin['state_hash'] != state_hash]
+        _save_pins(pins)

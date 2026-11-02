@@ -113,8 +113,9 @@ class TrackedObject:
         """
         Build the state dict that identifies this instance, prior to hashing.
 
-        Covers the dependency tree hash and the instance params. Subclasses that carry
-        identity beyond their own source and params override this and extend the result
+        Covers the class name, the dependency tree hash and the instance params. The class name
+        disambiguates co-output siblings that share an identical dependency tree. Subclasses that
+        carry identity beyond their own source and params override this and extend the result
         — see :meth:`~pygeodata.artifact.Artifact.get_instance_state`, which adds the
         processor source hash.
 
@@ -126,6 +127,7 @@ class TrackedObject:
         from pygeodata.formatting.json import format_json
 
         return {
+            JSONKeys.CLASS_NAME: self.get_class_name(),
             JSONKeys.DEPENDENCY_TREE_HASH: self.get_dependency_tree_hash(),
             JSONKeys.PARAMS: {k: format_json(v) for k, v in self.get_params().items()},
         }

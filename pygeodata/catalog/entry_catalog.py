@@ -4,10 +4,8 @@ from functools import cache
 from pathlib import Path
 
 from affine import Affine
-from sqlalchemy import select
-from sqlalchemy.orm import Session
 
-from pygeodata.catalog import models, store
+from pygeodata.catalog import store
 from pygeodata.catalog.display import find_primary_and_sidecar_files
 from pygeodata.catalog.params_index import flatten_params
 from pygeodata.catalog.types import (
@@ -19,7 +17,7 @@ from pygeodata.catalog.types import (
     ParamRowType,
     SpecInfo,
 )
-from pygeodata.config import FORMAT_VERSION, catalog_db_path, get_config
+from pygeodata.config import FORMAT_VERSION, get_config
 from pygeodata.paths import CachePathConstructor
 from pygeodata.registries.registry import EntryRegistry
 from pygeodata.registries.registry_types import EntryRecord
@@ -114,50 +112,53 @@ def _spec_info(crs_hash: str | None, transform_hash: str | None, shape_hash: str
 
 @cache
 def _spec_info_cached(crs_hash: str | None, transform_hash: str | None, shape_hash: str | None) -> SpecInfo:
-    engine = store.get_engine(str(get_config().path_registry.resolve()))
-    with Session(engine) as session:
-        crs_row = session.get(models.Crs, crs_hash) if crs_hash is not None else None
-        res_row = session.get(models.Resolution, transform_hash) if transform_hash is not None else None
-        shape_row = session.get(models.Shape, shape_hash) if shape_hash is not None else None
+    catalog = store.load_catalog()
+    dims = catalog['dimensions']
+    crs = dims['crs'].get(crs_hash) if crs_hash is not None else None
+    transform = dims['transforms'].get(transform_hash) if transform_hash is not None else None
+    shape = dims['shapes'].get(shape_hash) if shape_hash is not None else None
 
-    if crs_row is None:
+    if crs is None:
         return SpecInfo()
     # Partial specs are common (figures and tables usually carry only a CRS): keep what is there.
     spec = SpatialSpec(
-        crs=_crs_from_string(crs_row.crs),
-        transform=Affine(res_row.a, res_row.b, res_row.c, res_row.d, res_row.e, res_row.f) if res_row else None,
-        shape=ast.literal_eval(shape_row.shape) if shape_row else None,
+        crs=_crs_from_string(crs),
+        transform=Affine(transform['a'], transform['b'], transform['c'], transform['d'], transform['e'], transform['f'])
+        if transform
+        else None,
+        shape=ast.literal_eval(shape) if shape else None,
     )
     return SpecInfo.from_spec(spec)
 
 
 def _load_display_from_catalog() -> dict[str, dict] | None:
     """Per-state_hash display payload from the catalog; None when the catalog is unusable."""
-    if not catalog_db_path().exists():
+    if not get_config().path_catalog.is_file():
         return None
-    source_root = get_config().path_registry
-    base = source_root.resolve().parent
-    engine = store.get_engine(str(source_root.resolve()))
+    catalog = store.load_catalog()
+    if not catalog['entries']:
+        return None
     display: dict[str, dict] = {}
-    with Session(engine) as session:
-        files_by_hash: dict[str, dict[FileRole, list[FileRef]]] = {}
-        for f in session.execute(select(models.EntryFile)).scalars():
-            ref = FileRef(label=f.label, path=str(base / f.relpath), kind=f.kind)
-            files_by_hash.setdefault(f.state_hash, {}).setdefault(f.role, []).append(ref)
+    files_by_hash: dict[str, dict[FileRole, list[FileRef]]] = {}
+    for state_hash, file_rows in catalog['files'].items():
+        for f in file_rows:
+            entry_dir = store.entry_abs_path(catalog['entries'][state_hash]['dir_relpath'])
+            ref = FileRef(label=f['label'], path=str(entry_dir / f['relpath']), kind=f['kind'])
+            files_by_hash.setdefault(state_hash, {}).setdefault(FileRole(f['role']), []).append(ref)
 
-        for row in session.execute(select(models.Entry)).scalars():
-            entry_dir = store.entry_abs_path(source_root, row.dir_relpath)
-            files = files_by_hash.get(row.state_hash, {})
-            rows = [ParamRow(**{**r, 'row_type': ParamRowType(r['row_type'])}) for r in (row.rows or [])]
-            linked = [LinkedEntry(**le) for le in (row.linked_entries or [])]
-            display[row.state_hash] = {
-                'entry_dir': entry_dir,
-                'spec': _spec_info(row.crs_hash, row.transform_hash, row.shape_hash),
-                'rows': rows,
-                'linked_entries': linked,
-                'primary_file': files.get(FileRole.PRIMARY, [None])[0],
-                'sidecar_files': files.get(FileRole.SIDECAR, []),
-            }
+    for state_hash, row in catalog['entries'].items():
+        entry_dir = store.entry_abs_path(row['dir_relpath'])
+        files = files_by_hash.get(state_hash, {})
+        rows = [ParamRow(**{**r, 'row_type': ParamRowType(r['row_type'])}) for r in (row['rows'] or [])]
+        linked = [LinkedEntry(**le) for le in (row['linked_entries'] or [])]
+        display[state_hash] = {
+            'entry_dir': entry_dir,
+            'spec': _spec_info(row['crs_hash'], row['transform_hash'], row['shape_hash']),
+            'rows': rows,
+            'linked_entries': linked,
+            'primary_file': files.get(FileRole.PRIMARY, [None])[0],
+            'sidecar_files': files.get(FileRole.SIDECAR, []),
+        }
     return display or None
 
 

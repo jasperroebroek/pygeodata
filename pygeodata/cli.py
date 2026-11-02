@@ -7,19 +7,19 @@ import sys
 import tarfile
 from datetime import datetime
 from difflib import unified_diff
+from os import scandir
 from pathlib import Path
 
 import click
-from sqlalchemy.orm import Session
 
-from pygeodata.cache import clean_cache, clean_source_registry
+from pygeodata.cache import clean_cache, clean_lock_files, clean_source_registry
 from pygeodata.catalog.class_catalog import discover_loaded_classes, merge_unloaded_classes
 from pygeodata.catalog.entry_catalog import _enrich_params_path, discover_entries
 from pygeodata.catalog.export import collect_export_files, write_export_tar
 from pygeodata.catalog.filters import Filter, FilterOperator, FilterTarget, prescan_text
-from pygeodata.catalog.store import backfill, get_engine, prune_missing
+from pygeodata.catalog.store import BACKFILL_LOG_INTERVAL, refresh
 from pygeodata.catalog.types import ParamRowType, SpecInfo
-from pygeodata.config import FORMAT_VERSION, JSONKeys, catalog_db_path, get_config
+from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config, load_project_settings
 from pygeodata.data import Data
 from pygeodata.figure import Figure
 from pygeodata.paths import CachePathConstructor
@@ -55,8 +55,29 @@ def _import_options(f):
 
 
 @click.group()
-def cli():
-    pass
+@click.option(
+    '--settings',
+    'settings_path',
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help=(
+        'Import this settings module before running the command, alongside any '
+        'pygeodata_settings.py and src/pygeodata_settings.py in the current directory.'
+    ),
+)
+def cli(settings_path: Path | None) -> None:
+    """Pygeodata command-line interface.
+
+    Every command first imports the settings modules — from ``--settings`` when given,
+    plus ``pygeodata_settings.py`` and ``src/pygeodata_settings.py`` in the working
+    directory — so the CLI and Python code share one configuration point.
+    """
+    try:
+        loaded = load_project_settings(settings_path=settings_path)
+    except Exception as exc:
+        raise click.ClickException(f'settings module failed: {exc}') from exc
+    for path in loaded:
+        click.echo(f'Loaded settings: {path}')
 
 
 def _cache_root_from_tar(tar: tarfile.TarFile, hash_dir: str) -> Path | None:
@@ -124,7 +145,10 @@ def _import_project_modules(root: Path, verbose: bool = False) -> int:
         parts = py_file.relative_to(root).parts
         if any(p.startswith(('.', '__pycache__')) or p in _skip_dirs for p in parts):
             continue
-        if parts[-1].startswith(('test_', 'conftest', 'setup', 'manage')):
+        # Settings files are imported by the cli group callback, honouring the
+        # --settings > pygeodata_settings.py > src/pygeodata_settings.py priority;
+        # --import-all must never import a second settings file.
+        if parts[-1].startswith(('test_', 'conftest', 'setup', 'manage')) or parts[-1] == 'pygeodata_settings.py':
             continue
         stem = '.'.join(py_file.relative_to(root).with_suffix('').parts)
         module_name = f'pygeodata_project_{stem}'
@@ -143,6 +167,29 @@ def _import_project_modules(root: Path, verbose: bool = False) -> int:
             if verbose:
                 click.echo(f'  skip {module_name}: {e}')
     return count
+
+
+def _check_roots_readable(roots: tuple[Path, ...]) -> None:
+    """Error on roots that exist but cannot be read; warn about roots that do not exist yet."""
+    unreadable: list[tuple[Path, str]] = []
+    missing: list[Path] = []
+    for root in dict.fromkeys(roots):
+        try:
+            with scandir(root):
+                pass
+        except PermissionError as err:  # noqa: PERF203
+            unreadable.append((root, str(err.strerror)))
+        except OSError:
+            missing.append(root)
+
+    if unreadable:
+        lines = '\n'.join(f'  {root} ({reason})' for root, reason in unreadable)
+        raise click.ClickException(
+            f'Cache root is not readable:\n{lines}\nCheck the mount and privacy settings (network volumes) '
+            'before continuing.',
+        )
+    for root in missing:
+        click.echo(f'Warning: {root} does not exist yet; nothing is indexed from it.')
 
 
 @cli.command('browse')
@@ -167,7 +214,12 @@ def _import_project_modules(root: Path, verbose: bool = False) -> int:
 )
 @_import_options
 def browse(
-    port: int, fast: bool, reconcile_interval: float, reimport_on_reconcile: bool, do_import: bool, verbose_import: bool
+    port: int,
+    fast: bool,
+    reconcile_interval: float,
+    reimport_on_reconcile: bool,
+    do_import: bool,
+    verbose_import: bool,
 ) -> None:
     """Launch the registry browser."""
     try:
@@ -175,7 +227,7 @@ def browse(
     except ImportError as err:
         raise click.ClickException(
             f'The registry browser lives in the pygeodata-browser package: pip install pygeodata[browser]. '
-            f'Original error: {err}'
+            f'Original error: {err}',
         ) from err
 
     if do_import:
@@ -183,14 +235,22 @@ def browse(
         n = _import_project_modules(root, verbose=verbose_import)
         click.echo(f'Imported {n} module(s) from {root}')
 
+    if not get_config().catalog_enabled:
+        click.echo('Note: catalog_enabled is False — the browser shows nothing until a catalog is built.')
+
+    _check_roots_readable((*get_config().cache_roots, get_config().path_registry))
+
     open_registry_browser(
-        port, fast=fast, reconcile_interval=reconcile_interval * 60, reimport_on_reconcile=reimport_on_reconcile
+        port,
+        fast=fast,
+        reconcile_interval=reconcile_interval * 60,
+        reimport_on_reconcile=reimport_on_reconcile,
     )
 
 
 @cli.group('catalog')
 def catalog_group() -> None:
-    """Inspect and rebuild the .source/catalog.db cache catalog."""
+    """Inspect and rebuild the .catalog.db cache catalog."""
 
 
 @catalog_group.command('build')
@@ -204,18 +264,37 @@ def catalog_group() -> None:
 @click.option(
     '--prune/--no-prune',
     default=True,
-    help='Also drop rows whose cache entry no longer exists (default: prune).',
+    help='Also drop entries whose cache entry no longer exists (default: prune).',
 )
-def catalog_build_cmd(cache_roots: tuple[str, ...], prune: bool) -> None:
-    """Index every cache entry into .source/catalog.db."""
+@click.option(
+    '--log-interval',
+    default=BACKFILL_LOG_INTERVAL,
+    show_default=True,
+    type=int,
+    help='Log progress every N indexed entries; with many slow-to-read entries a smaller value makes progress visible.',
+)
+@_import_options
+def catalog_build_cmd(
+    cache_roots: tuple[str, ...],
+    prune: bool,
+    log_interval: int,
+    do_import: bool,
+    verbose_import: bool,
+) -> None:
+    """Index every cache entry into the catalog JSON."""
     config = get_config()
-    roots = [Path(r) for r in cache_roots] if cache_roots else config.cache_roots
-    engine = get_engine(str(config.path_registry.resolve()), format_version=FORMAT_VERSION)
-    with Session(engine) as session:
-        indexed = backfill(session, config.path_registry, roots, format_version=FORMAT_VERSION)
-        dropped = prune_missing(session, config.path_registry) if prune else 0
-    click.echo(f'Indexed {indexed} entry(ies); pruned {dropped} row(s)')
-    click.echo(f'Catalog: {catalog_db_path()}')
+    if do_import:
+        n = _import_project_modules(Path.cwd(), verbose=verbose_import)
+        click.echo(f'Imported {n} module(s) from {Path.cwd()}')
+    if not config.catalog_enabled:
+        raise click.ClickException('Catalog writes are disabled: catalog_enabled is False.')
+    roots = [Path(r) for r in cache_roots] if cache_roots else list(config.cache_roots)
+    _check_roots_readable((*roots, config.path_registry))
+    indexed, pruned = refresh(roots, format_version=FORMAT_VERSION, prune=prune)
+    click.echo(
+        f'Indexed {indexed} entr{"y" if indexed == 1 else "ies"}; pruned {pruned} entr{"y" if pruned == 1 else "ies"}',
+    )
+    click.echo(f'Catalog: {config.path_catalog}')
 
 
 @cli.command('clean-cache')
@@ -255,6 +334,21 @@ def clean_cache_cmd(
         delete_unregistered=delete_unregistered,
         check_class_params=check_class_params,
     )
+
+
+@cli.command('clean-locks')
+@click.option(
+    '--dry-run/--no-dry-run',
+    default=True,
+    help='Actually delete files with --no-dry-run (default is dry run).',
+)
+def clean_locks_cmd(dry_run: bool) -> None:
+    """Remove process.lock files left behind by terminated runs.
+
+    Locks held by a running process are skipped.  A dry run cannot detect
+    held locks and lists every lock file found.
+    """
+    clean_lock_files(dry_run=dry_run)
 
 
 @cli.command('clean-source')

@@ -159,5 +159,6 @@ def registry_tmp_path(tmp_path):
         path_cache=tmp_path / 'data_processed',
         path_tables=tmp_path / 'tables',
         path_figures=tmp_path / 'figures',
+        path_catalog=tmp_path / '.catalog.json',
     ):
         yield

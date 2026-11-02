@@ -88,6 +88,7 @@ def test_state_hash_stable_without_class_valued_params(sample_spatial_spec) -> N
         {
             JSONKeys.INSTANCE_HASH: calculate_dict_hash(
                 {
+                    JSONKeys.CLASS_NAME: LoaderA.get_class_name(),
                     JSONKeys.DEPENDENCY_TREE_HASH: LoaderA.get_dependency_tree_hash(),
                     JSONKeys.PARAMS: {'year': 2000},
                 },

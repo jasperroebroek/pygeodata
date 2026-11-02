@@ -4,7 +4,7 @@ from typing import Any
 from pygeodata.protocols import T
 
 
-def extract_instances(value: Any, target_type: type[T]) -> Generator[T]:
+def extract_instances(value: Any, target_type: type[T]) -> Generator[T, None, None]:
     """
     Recursively yield all instances of `target_type` found in a nested structure.
 

@@ -110,6 +110,7 @@ Config
 
    pygeodata.config.Config
    pygeodata.config.get_config
+   pygeodata.config.load_project_settings
    pygeodata.config.set_config
 
 .. autoclass:: pygeodata.config.Config
@@ -119,6 +120,9 @@ Config
    :no-index:
 
 .. autofunction:: pygeodata.config.get_config
+   :no-index:
+
+.. autofunction:: pygeodata.config.load_project_settings
    :no-index:
 
 .. autofunction:: pygeodata.config.set_config

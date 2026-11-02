@@ -13,11 +13,8 @@ import json
 from collections.abc import Iterable
 from pathlib import Path
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
-
-from pygeodata.catalog import models, store
-from pygeodata.config import FORMAT_VERSION, catalog_db_path, get_config
+from pygeodata.catalog import store
+from pygeodata.config import FORMAT_VERSION, get_config
 from pygeodata.paths import (
     CachePathResolver,
     CodeRegistryPathConstructor,
@@ -209,7 +206,7 @@ class TreeRegistry:
 class EntryRegistry:
     """Per-root registry of cache entries, keyed by state_hash.
 
-    Hydrates from the catalog DB (``.source/catalog.db``) when it has entries;
+    Hydrates from the catalog DB (``.catalog.db``) when it has entries;
     scans cache roots for meta.json files otherwise.  Builds a hash index and
     class index; the catalog replaces the old mtime-keyed disk cache.
 
@@ -291,41 +288,26 @@ class EntryRegistry:
             self._class_index.setdefault(rec.class_name, []).append(rec.state_hash)
 
     def _load_from_catalog(self) -> list[EntryRecord] | None:
-        if not catalog_db_path().exists():
+        if not get_config().path_catalog.is_file():
             return None
-        source_root = get_config().path_registry
-        engine = store.get_engine(str(source_root.resolve()), format_version=FORMAT_VERSION)
-        columns = (
-            models.Entry.state_hash,
-            models.Entry.class_name,
-            models.Entry.object_type,
-            models.Entry.source_hash,
-            models.Entry.dependency_tree_hash,
-            models.Entry.instance_hash,
-            models.Entry.params_hash,
-            models.Entry.spec_hash,
-            models.Entry.co_output_hashes,
-            models.Entry.dir_relpath,
-        )
-        with Session(engine) as session:
-            rows = session.execute(select(*columns)).all()
-        if not rows:
+        catalog = store.load_catalog()
+        if not catalog['entries']:
             return None
         records = []
-        for row in rows:
-            entry_dir = store.entry_abs_path(source_root, row.dir_relpath)
+        for row in catalog['entries'].values():
+            entry_dir = store.entry_abs_path(row['dir_relpath'])
             records.append(
                 EntryRecord(
-                    class_name=row.class_name,
-                    source_hash=row.source_hash,
-                    dependency_tree_hash=row.dependency_tree_hash,
-                    instance_hash=row.instance_hash,
-                    params_hash=row.params_hash,
-                    spec_hash=row.spec_hash,
-                    state_hash=row.state_hash,
-                    object_type=row.object_type,
+                    class_name=row['class_name'],
+                    source_hash=row['source_hash'],
+                    dependency_tree_hash=row['dependency_tree_hash'],
+                    instance_hash=row['instance_hash'],
+                    params_hash=row['params_hash'],
+                    spec_hash=row['spec_hash'],
+                    state_hash=row['state_hash'],
+                    object_type=row['object_type'],
                     hash_path=str(entry_dir / 'meta.json'),
-                    co_output_hashes=json.loads(row.co_output_hashes) if row.co_output_hashes else [],
+                    co_output_hashes=row['co_output_hashes'] or [],
                     format_version=FORMAT_VERSION,
                 ),
             )

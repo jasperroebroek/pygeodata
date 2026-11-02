@@ -166,7 +166,7 @@ After processing, each output directory contains a ``meta.json``:
 .. code:: json
 
    {
-       "format_version": 1,
+       "format_version": 2,
        "class_name": "SlopeLoader",
        "object_type": "Data",
        "source_hash": "a3f8…",
@@ -189,9 +189,11 @@ rooted at ``SlopeLoader``. This includes the source hashes of
 Changing ``ElevationLoader``\ ’s code changes this hash even if
 ``SlopeLoader`` is untouched.
 
-**``instance_hash``** — SHA-256 of ``{dependency_tree_hash, params}``.
+**``instance_hash``** — SHA-256 of ``{class_name, dependency_tree_hash, params}``.
 Two ``SlopeLoader`` instances with different ``elevation`` values have
-different instance hashes. Spec-independent.
+different instance hashes. Co-output sibling classes that share an identical
+dependency tree are distinct too, because the class name is part of the state.
+Spec-independent.
 
 **``state_hash``** — SHA-256 of ``{instance_hash, spec}``. This is the
 directory name under ``data_processed/``. It is unique per (loader

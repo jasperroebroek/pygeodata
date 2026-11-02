@@ -190,7 +190,6 @@ class Artifact(TrackedObject, ABC):
         )
         record.dump(hash_path)
         index_entry(
-            get_config().path_registry,
             hash_path.parent,
             record,
             self.resolve_spec(spec),

@@ -5,10 +5,12 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from filelock import FileLock
 
 from pygeodata import ast as ast_module
 from pygeodata.cache import (
     clean_cache,
+    clean_lock_files,
     clean_registry,
     clean_source_registry,
     format_version_matches,
@@ -167,6 +169,55 @@ def test_clean_cache_zarr_missing_hash_reported(
     make_zarr_archive(entry_dir, 'simple_loader')
     clean_cache(dry_run=True)
     assert 'Hash missing' in capsys.readouterr().out
+
+
+# --- clean_lock_files ---
+
+
+def make_stale_lock(sample_spatial_spec: SpatialSpec) -> Path:
+    entry_dir = SimpleLoader().resolve_cache_paths(sample_spatial_spec).directory
+    entry_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = entry_dir / 'process.lock'
+    lock_path.touch()
+    return lock_path
+
+
+def test_clean_lock_files_dry_run_keeps_lock(
+    sample_spatial_spec: SpatialSpec,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    lock_path = make_stale_lock(sample_spatial_spec)
+    clean_lock_files(dry_run=True)
+    assert lock_path.exists()
+    assert str(lock_path) in capsys.readouterr().out
+
+
+def test_clean_lock_files_deletes_stale_lock(
+    sample_spatial_spec: SpatialSpec,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    lock_path = make_stale_lock(sample_spatial_spec)
+    clean_lock_files(dry_run=False)
+    assert not lock_path.exists()
+    assert '[Deleting]' in capsys.readouterr().out
+
+
+def test_clean_lock_files_skips_held_lock(
+    sample_spatial_spec: SpatialSpec,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    lock_path = make_stale_lock(sample_spatial_spec)
+
+    with FileLock(lock_path, timeout=5):
+        clean_lock_files(dry_run=False)
+        out = capsys.readouterr().out
+        assert lock_path.exists()
+        assert '[Skipping]' in out
+
+    # The lock was released, so a repeat run now removes it
+    lock_path.touch()
+    clean_lock_files(dry_run=False)
+    assert not lock_path.exists()
 
 
 # --- read_cache_class_name ---

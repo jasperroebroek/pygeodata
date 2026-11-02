@@ -8,7 +8,7 @@ except PackageNotFoundError:  # imported from a source tree that is not installe
 from pygeodata.api import load, load_from_hash, process
 from pygeodata.artifact import Artifact
 from pygeodata.cache import clean_cache, clean_registry
-from pygeodata.config import get_config, set_config
+from pygeodata.config import get_config, load_project_settings, set_config
 from pygeodata.data import Data
 from pygeodata.figure import Figure
 from pygeodata.spec import SpatialSpec
@@ -28,6 +28,7 @@ __all__ = [
     'get_config',
     'load',
     'load_from_hash',
+    'load_project_settings',
     'process',
     'set_config',
 ]

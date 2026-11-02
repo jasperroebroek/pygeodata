@@ -20,6 +20,44 @@ want a setting to apply temporarily:
    with pgd.set_config(num_threads=4):
        pgd.process(loader, spec)
 
+Configuration lives in one place: a ``pygeodata_settings.py`` file in your
+project root. It is plain Python, so it can compute paths, read environment
+variables of its own, or branch per machine:
+
+.. code-block:: python
+
+   # pygeodata_settings.py
+   from pathlib import Path
+
+   from pygeodata.config import get_config
+
+   get_config().update(
+       path_cache=Path(__file__).parent / 'data' / 'processed',
+       num_threads=4,
+   )
+
+The CLI imports the settings automatically before running any command.  It loads
+``pygeodata_settings.py`` and ``src/pygeodata_settings.py`` — both, when both
+exist — plus any file given by the global ``--settings`` option, and prints
+where each was loaded from.  The modules must not set the same config key: an
+overlap is a hard error, so a split configuration stays unambiguous.  Run the
+CLI from the project root, or point it at a settings file explicitly:
+
+.. code-block:: console
+
+   pygeodata --settings confs/my_settings.py catalog build
+
+A settings module that exists but fails to import aborts the command, so a
+broken configuration never silently falls back to the defaults.
+
+For per-call overrides in Python code, use :func:`~pygeodata.config.set_config`
+as a context manager:
+
+.. code-block:: python
+
+   with pgd.set_config(num_threads=4):
+       pgd.process(loader, spec)
+
 Define a loader
 ---------------
 

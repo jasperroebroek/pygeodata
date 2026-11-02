@@ -7,7 +7,17 @@ from pygeodata.config import JSONKeys
 from pygeodata.hash import calculate_cls_source_hash
 from pygeodata.paths import CodeRegistryPathConstructor, TreeRegistryPathConstructor
 from pygeodata.tracked_object import TrackedObject
-from tests.fixtures.tracked_objects import Bar, C, D, Foo, SimpleTrackedObject, TrackedBase, TrackedChild
+from tests.fixtures.tracked_objects import (
+    Bar,
+    C,
+    D,
+    Foo,
+    SiblingOne,
+    SiblingTwo,
+    SimpleTrackedObject,
+    TrackedBase,
+    TrackedChild,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -79,3 +89,26 @@ def test_dependency_tree_no_self_inheritance() -> None:
     base_name = TrackedBase.get_class_name()
     assert [child_name, base_name] in result.inheritance_edges
     assert [child_name, child_name] not in result.inheritance_edges
+
+
+def test_sibling_classes_get_distinct_instance_hashes() -> None:
+    """Co-output siblings with identical dependency trees and params must not share an instance hash."""
+    one = SiblingOne(value=1)
+    two = SiblingTwo(value=1)
+    assert one.get_dependency_tree_hash() == two.get_dependency_tree_hash()
+    assert one.get_instance_hash() != two.get_instance_hash()
+
+
+def test_mutual_call_cycle_gets_distinct_instance_hashes() -> None:
+    assert C().get_dependency_tree_hash() == D().get_dependency_tree_hash()
+    assert C().get_instance_hash() != D().get_instance_hash()
+
+
+def test_same_class_same_params_equal_instance_hash() -> None:
+    assert SiblingOne(value=1).get_instance_hash() == SiblingOne(value=1).get_instance_hash()
+    assert SiblingOne(value=1).get_instance_hash() != SiblingOne(value=2).get_instance_hash()
+
+
+def test_instance_state_contains_class_name() -> None:
+    assert SiblingOne(value=1).get_instance_state()[JSONKeys.CLASS_NAME] == 'SiblingOne'
+    assert SiblingTwo(value=1).get_instance_state()[JSONKeys.CLASS_NAME] == 'SiblingTwo'

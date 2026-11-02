@@ -86,11 +86,11 @@ class EntryDisplay:
     sidecars: list[dict[str, str]]
 
 
-def _rel_file(ref: FileRef | None, source_root: Path) -> dict[str, str] | None:
+def _rel_file(ref: FileRef | None, entry_dir: Path) -> dict[str, str] | None:
     if ref is None:
         return None
     try:
-        relpath = str(Path(ref.path).relative_to(source_root.parent))
+        relpath = str(Path(ref.path).relative_to(entry_dir))
     except ValueError:
         relpath = ref.path
     return {'label': ref.label, 'relpath': relpath, 'kind': ref.kind}
@@ -99,7 +99,6 @@ def _rel_file(ref: FileRef | None, source_root: Path) -> dict[str, str] | None:
 def entry_display(
     params_json: dict[str, Any],
     entry_dir: Path,
-    source_root: Path,
     class_name: str | None = None,
     object_type: str | None = None,
 ) -> EntryDisplay:
@@ -110,6 +109,6 @@ def entry_display(
     return EntryDisplay(
         rows=rows,
         linked_entries=[asdict(le) for le in linked],
-        primary=_rel_file(primary, source_root),
-        sidecars=[_rel_file(r, source_root) for r in sidecar_refs],
+        primary=_rel_file(primary, entry_dir),
+        sidecars=[_rel_file(r, entry_dir) for r in sidecar_refs],
     )

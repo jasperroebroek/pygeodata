@@ -5,6 +5,17 @@ The ``pygeodata`` command-line interface gives you direct access to the code
 registry, dep-tree snapshots, cache entries, and version history without
 starting the browser.
 
+Before running any command, the CLI imports the settings modules and prints
+where each was loaded from:  the file given by the global ``--settings`` option
+(``pygeodata --settings <path> <command>``), plus ``pygeodata_settings.py`` and
+``src/pygeodata_settings.py`` in the current directory — all of them, so
+configuration can be split across files.  The settings modules are plain Python
+and typically call ``get_config().update(...)``, so the CLI sees exactly the
+configuration your Python code uses.  Without a settings module the built-in
+defaults apply; a module that fails to import aborts the command, and so do two
+modules that set the same config key — an ambiguous configuration is never
+resolved silently.
+
 All commands that accept a hash value also accept a **truncated prefix** —
 any unique prefix is resolved automatically.  An ambiguous prefix produces a
 clear error listing the candidates.
@@ -30,11 +41,17 @@ clear error listing the candidates.
     │     --verbose-import        Print each module imported (with --import-all)
     │
     ├── catalog build
-    │     Index every cache entry into .source/catalog.db.
+    │     Index every cache entry into the catalog JSON.
     │     --cache-root TEXT       Cache root to index (repeatable); defaults to
     │                             the configured cache roots
-    │     --prune / --no-prune    Also drop rows whose cache entry no longer
+    │     --prune / --no-prune    Also drop entries whose cache entry no longer
     │                             exists (default: prune)
+    │     --log-interval INTEGER  Log progress every N indexed entries; with
+    │                             many slow-to-read entries a smaller value
+    │                             makes progress visible (default: 2000)
+    │     --import-all            Import all .py files from cwd first, so
+    │                             project settings propagate to the config
+    │     --verbose-import        Print each module imported (with --import-all)
     │
     ├── classes
     │     Show staleness for all loaded and known classes, grouped by type.
@@ -55,6 +72,13 @@ clear error listing the candidates.
     │                               registry with --no-delete-unregistered
     │     --check-class-params      Also validate TrackedObject subclasses held as
     │                               parameters (see below).  Off by default.
+    │
+    ├── clean-locks
+    │     Remove process.lock files left behind by terminated runs.  Locks
+    │     held by a running process are skipped; a dry run lists every lock
+    │     file found, including any in use.
+    │     --dry-run / --no-dry-run  Actually delete files with --no-dry-run
+    │                               (default is a dry run)
     │
     ├── clean-source
     │     Remove orphaned code snapshots and dependency trees from .source/.
