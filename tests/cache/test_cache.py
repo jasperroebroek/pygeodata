@@ -17,9 +17,11 @@ from pygeodata.cache import (
     read_cache_class_name,
     rebuild_registry,
 )
+from pygeodata.cache_entry import write_entry
 from pygeodata.config import FORMAT_VERSION
 from pygeodata.enums import JSONKeys
 from pygeodata.hash import calculate_cls_source_hash
+from pygeodata.registries.writer import is_registry_valid
 from pygeodata.spec import SpatialSpec
 from tests.fixtures.data import Child, ClassParamLoader, LoaderA, Parent, SimpleLoader
 
@@ -45,7 +47,7 @@ def process_touch(artifact: SimpleLoader, spec: SpatialSpec, stale: bool = False
     if stale:
         write_stale_hash(artifact, spec)
     else:
-        artifact.write_entry(spec)
+        write_entry(artifact, spec)
 
 
 def make_zarr_archive(parent: Path, stem: str, hash_value: str | None = None) -> Path:
@@ -225,7 +227,7 @@ def test_clean_lock_files_skips_held_lock(
 
 def test_read_cache_class_name_returns_name(sample_spatial_spec: SpatialSpec) -> None:
     loader = SimpleLoader()
-    loader.write_entry(sample_spatial_spec)
+    write_entry(loader, sample_spatial_spec)
     hash_path = loader.resolve_cache_paths(sample_spatial_spec).state_hash_path
     assert read_cache_class_name(hash_path) == 'SimpleLoader'
 
@@ -245,7 +247,7 @@ def test_read_cache_class_name_none_when_key_absent(tmp_path: Path) -> None:
 
 def test_hash_matches_live_true(sample_spatial_spec: SpatialSpec) -> None:
     loader = SimpleLoader()
-    loader.write_entry(sample_spatial_spec)
+    write_entry(loader, sample_spatial_spec)
     hash_path = loader.resolve_cache_paths(sample_spatial_spec).state_hash_path
     assert hash_matches_live(hash_path) is True
 
@@ -309,7 +311,7 @@ def _patch_loader_a_source(mock_ast_tree: MagicMock, body: str) -> None:
 def _write_class_param_entry(spec: SpatialSpec) -> Path:
     """Write a full cache entry for an artifact holding ``LoaderA`` as a param."""
     artifact = ClassParamLoader(loader_cls=LoaderA)
-    artifact.write_entry(spec)
+    write_entry(artifact, spec)
     return artifact.resolve_cache_paths(spec).state_hash_path
 
 
@@ -346,7 +348,7 @@ def test_class_param_change_invisible_when_disabled(
 
 def test_entry_without_class_params_unaffected(sample_spatial_spec: SpatialSpec) -> None:
     loader = SimpleLoader()
-    loader.write_entry(sample_spatial_spec)
+    write_entry(loader, sample_spatial_spec)
     hash_path = loader.resolve_cache_paths(sample_spatial_spec).state_hash_path
     assert hash_matches_live(hash_path, check_class_params=True) is True
 
@@ -354,7 +356,7 @@ def test_entry_without_class_params_unaffected(sample_spatial_spec: SpatialSpec)
 def test_missing_parameters_file_is_stale(sample_spatial_spec: SpatialSpec) -> None:
     """Every entry this version writes has a parameters.json; its absence means broken."""
     loader = SimpleLoader()
-    loader.write_entry(sample_spatial_spec)
+    write_entry(loader, sample_spatial_spec)
     resolver = loader.resolve_cache_paths(sample_spatial_spec)
     resolver.params_path.unlink(missing_ok=True)
 
@@ -364,7 +366,7 @@ def test_missing_parameters_file_is_stale(sample_spatial_spec: SpatialSpec) -> N
 
 def test_class_param_unresolvable_returns_none(sample_spatial_spec: SpatialSpec) -> None:
     loader = SimpleLoader()
-    loader.write_entry(sample_spatial_spec)
+    write_entry(loader, sample_spatial_spec)
     resolver = loader.resolve_cache_paths(sample_spatial_spec)
     resolver.params_path.parent.mkdir(parents=True, exist_ok=True)
     resolver.params_path.write_text(
@@ -385,7 +387,7 @@ def test_class_param_unresolvable_returns_none(sample_spatial_spec: SpatialSpec)
 def test_tracked_instance_params_are_not_treated_as_classes(sample_spatial_spec: SpatialSpec) -> None:
     """An instance serialises as {class_name, params, instance_hash} and carries no tree hash."""
     loader = SimpleLoader()
-    loader.write_entry(sample_spatial_spec)
+    write_entry(loader, sample_spatial_spec)
     resolver = loader.resolve_cache_paths(sample_spatial_spec)
     resolver.params_path.parent.mkdir(parents=True, exist_ok=True)
     resolver.params_path.write_text(
@@ -484,15 +486,15 @@ def test_clean_registry_dry_run_keeps_stale(tmp_path: Path, capsys: pytest.Captu
 
 def test_rebuild_registry_writes_registry_for_all_tracked_objects() -> None:
     rebuild_registry()
-    assert SimpleLoader.is_registry_valid()
-    assert Child.is_registry_valid()
-    assert Parent.is_registry_valid()
+    assert is_registry_valid(SimpleLoader)
+    assert is_registry_valid(Child)
+    assert is_registry_valid(Parent)
 
 
 def test_rebuild_registry_clears_and_rewrites() -> None:
     rebuild_registry()
     rebuild_registry()
-    assert SimpleLoader.is_registry_valid()
+    assert is_registry_valid(SimpleLoader)
 
 
 # ===========================================================================
@@ -645,7 +647,7 @@ def test_clean_source_keeps_referenced_tree(src_setup) -> None:
 
 def test_clean_cache_keeps_subfolder_of_valid_entry(sample_spatial_spec: SpatialSpec) -> None:
     loader = SimpleLoader()
-    loader.write_entry(sample_spatial_spec)
+    write_entry(loader, sample_spatial_spec)
     sidecars = loader.resolve_cache_paths(sample_spatial_spec).directory / 'sidecars'
     sidecars.mkdir()
     (sidecars / 'extra.csv').write_text('a,b')

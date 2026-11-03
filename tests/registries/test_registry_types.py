@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from pygeodata.cache_entry import write_entry
 from pygeodata.config import FORMAT_VERSION
 from pygeodata.enums import JSONKeys
 from pygeodata.registries.registry_types import CodeState, EntryRecord, TreeSnapshot, is_current_format
@@ -12,7 +13,7 @@ from tests.fixtures.data import SimpleLoader
 
 def test_is_current_format_true(sample_spatial_spec: SpatialSpec) -> None:
     loader = SimpleLoader()
-    loader.write_entry(sample_spatial_spec)
+    write_entry(loader, sample_spatial_spec)
     hash_path = loader.resolve_cache_paths(sample_spatial_spec).state_hash_path
     assert is_current_format(hash_path) is True
 

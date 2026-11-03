@@ -14,6 +14,7 @@ from pygeodata.hash import calculate_cls_source_hash as _hash
 from pygeodata.paths import CodeRegistryPathConstructor, TreeRegistryPathConstructor
 from pygeodata.registries.registry import SourceRegistry
 from pygeodata.registries.registry_types import CodeState
+from pygeodata.registries.writer import is_registry_valid, update_registry, write_registry
 from tests.fixtures.data import Child, CircularLoader, HardcodedDependencyLoader, LoaderA, LoaderB, LoaderD, Parent
 
 
@@ -105,34 +106,34 @@ def test_get_source_metadata_raises_on_repl_source(mock_getsource: MagicMock) ->
 
 def test_save_and_validate_code_state() -> None:
     LoaderA.clear_function_caches()
-    LoaderA.write_registry()
-    assert LoaderA.is_registry_valid()
+    write_registry(LoaderA)
+    assert is_registry_valid(LoaderA)
 
 
 def test_code_state_invalid_when_no_file() -> None:
-    assert not LoaderA.is_registry_valid()
+    assert not is_registry_valid(LoaderA)
 
 
 def test_code_state_invalid_when_tree_file_deleted() -> None:
-    LoaderA.write_registry()
+    write_registry(LoaderA)
     tree_resolver = TreeRegistryPathConstructor.from_dep_tree_hash(LoaderA.get_dependency_tree_hash())
     tree_resolver.tree_path.unlink()
-    assert not LoaderA.is_registry_valid()
+    assert not is_registry_valid(LoaderA)
 
 
 def test_initialize_class_code_state_heals_missing_tree_file() -> None:
-    LoaderA.write_registry()
+    write_registry(LoaderA)
     tree_resolver = TreeRegistryPathConstructor.from_dep_tree_hash(LoaderA.get_dependency_tree_hash())
     tree_resolver.tree_path.unlink()
 
-    assert not LoaderA.is_registry_valid()
+    assert not is_registry_valid(LoaderA)
 
-    LoaderA.write_registry()
-    assert LoaderA.is_registry_valid()
+    write_registry(LoaderA)
+    assert is_registry_valid(LoaderA)
 
 
 def test_update_registry_records_revert() -> None:
-    LoaderA.update_registry()
+    update_registry(LoaderA)
     current = calculate_cls_source_hash(LoaderA)
     newer = CodeState(source_hash='otherhash', class_name='LoaderA', object_type='Data')
     other = CodeRegistryPathConstructor.from_source_hash(newer.source_hash)
@@ -140,12 +141,12 @@ def test_update_registry_records_revert() -> None:
     newer.dump(other.meta_path)
 
     assert SourceRegistry().get_latest_state_for_class('LoaderA').source_hash == 'otherhash'
-    assert not LoaderA.is_registry_valid()
+    assert not is_registry_valid(LoaderA)
 
-    LoaderA.update_registry()
+    update_registry(LoaderA)
 
     assert SourceRegistry().get_latest_state_for_class('LoaderA').source_hash == current
-    assert LoaderA.is_registry_valid()
+    assert is_registry_valid(LoaderA)
 
 
 def test_initialize_class_code_state_cascades_to_all_dependencies() -> None:
@@ -153,13 +154,13 @@ def test_initialize_class_code_state_cascades_to_all_dependencies() -> None:
     If HardcodedDependencyLoader initializes its state, it must also initialize
     the state of the hidden 'LoaderA'.
     """
-    assert not HardcodedDependencyLoader.is_registry_valid()
-    assert not LoaderA.is_registry_valid()
+    assert not is_registry_valid(HardcodedDependencyLoader)
+    assert not is_registry_valid(LoaderA)
 
-    HardcodedDependencyLoader.update_registry()
+    update_registry(HardcodedDependencyLoader)
 
-    assert HardcodedDependencyLoader.is_registry_valid()
-    assert LoaderA.is_registry_valid()
+    assert is_registry_valid(HardcodedDependencyLoader)
+    assert is_registry_valid(LoaderA)
 
 
 def test_state_hash_deterministic() -> None:
@@ -253,7 +254,7 @@ def test_dependency_tree_hash_same_across_instances_with_different_params() -> N
 
 def test_write_registry_content() -> None:
     LoaderA.clear_function_caches()
-    LoaderA.write_registry()
+    write_registry(LoaderA)
 
     code_resolver = CodeRegistryPathConstructor.from_source_hash(_hash(LoaderA))
     data = json.loads(code_resolver.meta_path.read_text())
@@ -268,7 +269,7 @@ def test_write_registry_content() -> None:
 
 def test_write_registry_writes_code_file() -> None:
     LoaderA.clear_function_caches()
-    LoaderA.write_registry()
+    write_registry(LoaderA)
 
     code_resolver = CodeRegistryPathConstructor.from_source_hash(_hash(LoaderA))
     assert code_resolver.source_path.exists()

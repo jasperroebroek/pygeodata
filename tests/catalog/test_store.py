@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from pyproj import CRS
 
+from pygeodata.cache_entry import write_entry
 from pygeodata.catalog import store
 from pygeodata.catalog.dimensions import dimension_rows
 from pygeodata.catalog.entry_catalog import _spec_info_cached
@@ -227,7 +228,7 @@ def test_bootstrap_rows_latest_per_class(tmp_path: Path, sample_spatial_spec: Sp
 
 def test_write_entry_hooks_catalog(sample_spatial_spec: SpatialSpec) -> None:
     artifact = SimpleLoader()
-    artifact.write_entry(sample_spatial_spec)
+    write_entry(artifact, sample_spatial_spec)
 
     catalog = store.load_catalog()
     state_hash = artifact.get_state_hash(sample_spatial_spec)
@@ -258,7 +259,7 @@ def test_write_hook_warns_and_continues(
         raise OSError('disk full')
 
     monkeypatch.setattr(store, 'save_catalog', broken_save)
-    SimpleLoader().write_entry(sample_spatial_spec)
+    write_entry(SimpleLoader(), sample_spatial_spec)
     assert any('Catalog write failed' in str(w.message) for w in recwarn.list)
 
 
@@ -267,7 +268,7 @@ def test_catalog_disabled_makes_writes_noops(
     recwarn: pytest.WarningsChecker,
 ) -> None:
     with set_config(catalog_enabled=False):
-        SimpleLoader().write_entry(sample_spatial_spec)
+        write_entry(SimpleLoader(), sample_spatial_spec)
         assert store.reconcile() == 0
         assert store.refresh([get_config().path_cache]) == (0, 0)
     assert not get_config().path_catalog.exists()
@@ -328,7 +329,7 @@ def test_write_hook_stores_display_and_files(sample_spatial_spec: SpatialSpec) -
     entry_dir = artifact.resolve_cache_paths(sample_spatial_spec).directory
     entry_dir.mkdir(parents=True, exist_ok=True)
     (entry_dir / 'dummy.tif').write_bytes(b'x')
-    artifact.write_entry(sample_spatial_spec)
+    write_entry(artifact, sample_spatial_spec)
 
     catalog = store.load_catalog()
     state_hash = artifact.get_state_hash(sample_spatial_spec)

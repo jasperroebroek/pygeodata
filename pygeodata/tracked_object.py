@@ -1,25 +1,23 @@
 from __future__ import annotations
 
-import ast
 import functools
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from pygeodata.ast import (
     build_symbol_tables,
     find_names_in_ast_tree,
     get_module_ast_tree,
     get_source_ast_tree,
-    get_source_code,
 )
 from pygeodata.enums import JSONKeys
-from pygeodata.fileio import write_bytes_atomic
 from pygeodata.graph_types import ClassNode, DependencyGraph
-from pygeodata.graphs import plot_class_dependency_graph
 from pygeodata.hash import calculate_cls_source_hash, calculate_dict_hash
-from pygeodata.paths import CodeRegistryPathConstructor, TreeRegistryPathConstructor
-from pygeodata.registries.registry import SourceRegistry
 from pygeodata.registries.registry_types import CodeState, TreeSnapshot
-from pygeodata.spec import SpatialSpec
+
+if TYPE_CHECKING:
+    import ast
+
+    from pygeodata.spec import SpatialSpec
 
 
 class TrackedObject:
@@ -262,77 +260,6 @@ class TrackedObject:
             class_name=cls.get_class_name(),
             object_type=cls.object_type.get_class_name(),
         )
-
-    @classmethod
-    def _is_code_registry_current(cls, registry: SourceRegistry) -> bool:
-        """``source.py`` exists and this source hash is the latest registered state of the class.
-
-        The second condition also catches a revert: an older hash that exists on disk but is not
-        the latest registration.
-        """
-        source_hash = calculate_cls_source_hash(cls)
-        latest = registry.get_latest_state_for_class(cls.get_class_name())
-        return (
-            CodeRegistryPathConstructor.from_source_hash(source_hash).source_path.exists()
-            and latest is not None
-            and latest.source_hash == source_hash
-        )
-
-    @classmethod
-    def _is_tree_registry_complete(cls) -> bool:
-        resolver = TreeRegistryPathConstructor.from_dep_tree_hash(cls.get_dependency_tree_hash())
-        return resolver.tree_path.exists() and (not cls.has_dependencies() or resolver.graph_path.exists())
-
-    @classmethod
-    def _write_code_registry(cls, registry: SourceRegistry) -> None:
-        """Write ``source.py`` once and (re-)register ``source.json`` when this hash is not the latest."""
-        if cls._is_code_registry_current(registry):
-            return
-        state = cls.to_code_state()
-        resolver = CodeRegistryPathConstructor.from_source_hash(state.source_hash)
-        resolver.directory.mkdir(parents=True, exist_ok=True)
-        if not resolver.source_path.exists():
-            write_bytes_atomic(resolver.source_path, get_source_code(cls).encode('utf-8'))
-        state.dump(resolver.meta_path)
-
-    @classmethod
-    def _write_tree_registry(cls) -> None:
-        if cls._is_tree_registry_complete():
-            return
-        resolver = TreeRegistryPathConstructor.from_dep_tree_hash(cls.get_dependency_tree_hash())
-        resolver.directory.mkdir(parents=True, exist_ok=True)
-        cls.get_dependency_tree().dump(resolver.tree_path)
-        if cls.has_dependencies():
-            plot_class_dependency_graph(
-                cls_name=cls.get_class_name(),
-                graph_data=cls.get_dependency_graph(),
-                path=resolver.graph_path,
-                view=False,
-            )
-
-    @classmethod
-    def write_registry(cls, registry: SourceRegistry | None = None) -> None:
-        cls._write_code_registry(registry if registry is not None else SourceRegistry())
-        cls._write_tree_registry()
-
-    @classmethod
-    def is_registry_valid(cls, registry: SourceRegistry | None = None) -> bool:
-        registry = registry if registry is not None else SourceRegistry()
-        return cls._is_code_registry_current(registry) and cls._is_tree_registry_complete()
-
-    @classmethod
-    def update_registry(cls) -> None:
-        """Ensure this class and all its dependencies have a current registry on disk."""
-        registry = SourceRegistry()
-        done: set[type[TrackedObject]] = set()
-        pending: list[type[TrackedObject]] = [cls]
-        while pending:
-            tracked_cls = pending.pop()
-            if tracked_cls in done:
-                continue
-            done.add(tracked_cls)
-            tracked_cls.write_registry(registry)
-            pending.extend(tracked_cls.get_all_dependencies())
 
     @classmethod
     def clear_function_caches(cls) -> None:

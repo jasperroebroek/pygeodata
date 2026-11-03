@@ -6,6 +6,7 @@ import pytest
 from pygeodata.enums import JSONKeys
 from pygeodata.hash import calculate_cls_source_hash
 from pygeodata.paths import CodeRegistryPathConstructor, TreeRegistryPathConstructor
+from pygeodata.registries.writer import update_registry
 from pygeodata.tracked_object import TrackedObject
 from tests.fixtures.tracked_objects import (
     Bar,
@@ -48,7 +49,7 @@ def test_dependency_graph_no_self_inheritance_edges() -> None:
 
 def test_initialize_registry_creates_files() -> None:
     """Basic sanity: update_registry writes source.py, source.json, and tree.json."""
-    SimpleTrackedObject.update_registry()
+    update_registry(SimpleTrackedObject)
 
     code_resolver = CodeRegistryPathConstructor.from_source_hash(calculate_cls_source_hash(SimpleTrackedObject))
     tree_resolver = TreeRegistryPathConstructor.from_dep_tree_hash(SimpleTrackedObject.get_dependency_tree_hash())
@@ -75,7 +76,7 @@ def test_initialize_registry_handles_real_call_cycle() -> None:
     """
     # This should not raise RecursionError if init_registry
     # correctly tracks visited classes.
-    C.update_registry()
+    update_registry(C)
 
     c_tree = TreeRegistryPathConstructor.from_dep_tree_hash(C.get_dependency_tree_hash())
     d_tree = TreeRegistryPathConstructor.from_dep_tree_hash(D.get_dependency_tree_hash())

@@ -1,6 +1,7 @@
 import pytest
 
 from pygeodata.cache import clean_cache
+from pygeodata.cache_entry import write_entry
 from pygeodata.enums import JSONKeys
 from pygeodata.spec import SpatialSpec
 from tests.fixtures.figures import SimpleFigure
@@ -14,7 +15,7 @@ def process_touch(artifact: SimpleFigure, spec: SpatialSpec, stale: bool = False
         hash_file = artifact.resolve_cache_paths(spec).state_hash_path
         hash_file.write_text('{"' + JSONKeys.DEPENDENCY_TREE_HASH + '": "stale"}')
     else:
-        artifact.write_entry(spec)
+        write_entry(artifact, spec)
 
 
 def test_clean_cache_stale_figure_reported(

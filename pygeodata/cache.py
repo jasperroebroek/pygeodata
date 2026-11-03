@@ -13,6 +13,7 @@ from pygeodata.enums import JSONKeys, Staleness
 from pygeodata.paths import CachePathConstructor, CachePathResolver, RegistryResolver
 from pygeodata.registries.registry import EntryRegistry, SourceRegistry, TreeRegistry
 from pygeodata.registries.registry_types import EntryRecord, is_current_format
+from pygeodata.registries.writer import write_registry
 from pygeodata.staleness import dependency_staleness
 from pygeodata.tracked_object import TrackedObject
 
@@ -230,7 +231,7 @@ def rebuild_registry() -> None:
 
     registry = SourceRegistry()
     for tracked_cls in TrackedObject.get_registered_objects():
-        tracked_cls.write_registry(registry)
+        write_registry(tracked_cls, registry)
 
 
 def clean_registry(dry_run: bool = True) -> None:

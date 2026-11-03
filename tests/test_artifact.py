@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from pygeodata.cache_entry import is_cache_valid, read_state_hash, write_entry
 from pygeodata.enums import JSONKeys
 from pygeodata.spec import SpatialSpec
 from tests.fixtures.data import (
@@ -108,7 +109,7 @@ def _setup_output_file(loader, spec):
         (
             lambda loader, spec: (
                 _setup_output_file(loader, spec),
-                loader.write_entry(spec),
+                write_entry(loader, spec),
             ),
             True,
         ),
@@ -128,7 +129,7 @@ def test_is_processed_symlinks(sample_spatial_spec: SpatialSpec, tmp_path: Path)
     target = tmp_path / 'target.tif'
     target.touch()
     path.symlink_to(target)
-    loader.write_entry(sample_spatial_spec)
+    write_entry(loader, sample_spatial_spec)
     assert loader.is_processed(sample_spatial_spec)
 
     path.unlink()
@@ -154,14 +155,14 @@ def test_process_fn_calls_processor(sample_spatial_spec: SpatialSpec) -> None:
 def test_write_and_read_state_hash(sample_spatial_spec: SpatialSpec) -> None:
     loader = SimpleLoader()
     loader.get_processed_path(sample_spatial_spec)
-    loader.write_entry(sample_spatial_spec)
-    assert loader.read_state_hash(sample_spatial_spec) == loader.get_state_hash(sample_spatial_spec)
+    write_entry(loader, sample_spatial_spec)
+    assert read_state_hash(loader, sample_spatial_spec) == loader.get_state_hash(sample_spatial_spec)
 
 
 def test_read_state_hash_none_if_missing(sample_spatial_spec: SpatialSpec) -> None:
     loader = SimpleLoader()
     loader.get_processed_path(sample_spatial_spec)
-    assert loader.read_state_hash(sample_spatial_spec) is None
+    assert read_state_hash(loader, sample_spatial_spec) is None
 
 
 def test_yielded_loaders_get_state_hash_written(
@@ -169,10 +170,12 @@ def test_yielded_loaders_get_state_hash_written(
     multi_output_data_loader: MultiOutputLoader,
 ) -> None:
     multi_output_data_loader.process(sample_spatial_spec)
-    assert multi_output_data_loader.loader_1.read_state_hash(
+    assert read_state_hash(
+        multi_output_data_loader.loader_1,
         sample_spatial_spec,
     ) == multi_output_data_loader.loader_1.get_state_hash(sample_spatial_spec)
-    assert multi_output_data_loader.loader_2.read_state_hash(
+    assert read_state_hash(
+        multi_output_data_loader.loader_2,
         sample_spatial_spec,
     ) == multi_output_data_loader.loader_2.get_state_hash(sample_spatial_spec)
 
@@ -192,7 +195,7 @@ def test_yielded_loader_is_processed(
 def test_none_return_writes_self_hash(sample_spatial_spec: SpatialSpec, sample_geotiff: Path) -> None:
     loader = SampleLoader(sample_geotiff)
     loader.process(sample_spatial_spec)
-    assert loader.read_state_hash(sample_spatial_spec) == loader.get_state_hash(sample_spatial_spec)
+    assert read_state_hash(loader, sample_spatial_spec) == loader.get_state_hash(sample_spatial_spec)
 
 
 def test_yielded_loaders_get_parameters_written(
@@ -239,7 +242,7 @@ def test_get_src_path_returns_path(sample_geotiff: Path) -> None:
 
 def test_write_entry_content(sample_spatial_spec: SpatialSpec) -> None:
     loader = SimpleLoader()
-    loader.write_entry(sample_spatial_spec)
+    write_entry(loader, sample_spatial_spec)
     data = json.loads(loader.resolve_cache_paths(sample_spatial_spec).state_hash_path.read_text())
     assert data[JSONKeys.STATE_HASH] == loader.get_state_hash(sample_spatial_spec)
     assert data[JSONKeys.DEPENDENCY_TREE_HASH] == loader.get_dependency_tree_hash()
@@ -250,7 +253,7 @@ def test_write_entry_content(sample_spatial_spec: SpatialSpec) -> None:
 
 def test_write_entry_co_outputs(sample_spatial_spec: SpatialSpec) -> None:
     loader = SimpleLoader()
-    loader.write_entry(sample_spatial_spec, co_outputs=('abc123', 'def456'))
+    write_entry(loader, sample_spatial_spec, co_outputs=('abc123', 'def456'))
     data = json.loads(loader.resolve_cache_paths(sample_spatial_spec).state_hash_path.read_text())
     assert data[JSONKeys.CO_OUTPUTS] == ['abc123', 'def456']
 
@@ -261,7 +264,7 @@ def test_is_cache_valid_false_when_hash_key_missing(sample_spatial_spec: Spatial
     loader.resolve_cache_paths(sample_spatial_spec).state_hash_path.write_text(
         json.dumps({JSONKeys.DEPENDENCY_TREE_HASH: 'something'}),
     )
-    assert not loader.is_cache_valid(sample_spatial_spec)
+    assert not is_cache_valid(loader, sample_spatial_spec)
 
 
 def test_process_skips_when_already_processed(sample_spatial_spec: SpatialSpec, sample_geotiff: Path) -> None:

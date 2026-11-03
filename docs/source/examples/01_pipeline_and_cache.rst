@@ -121,11 +121,11 @@ What happens:
 2. ``SlopeLoader._process(SPEC)`` calls ``load(self.elevation, SPEC)``.
    ``load`` calls ``ElevationLoader.process(SPEC)`` first — same cache
    check, same miss, so the DEM reprojection runs.
-3. ``ElevationLoader.write_entry(SPEC)`` writes its entry files.
+3. ``write_entry`` writes the entry files of ``ElevationLoader``.
 4. Back in ``SlopeLoader._process``, the slope raster is computed and
    written.
-5. ``SlopeLoader.write_entry(SPEC)`` writes its entry files.
-6. Both classes call ``update_registry()``, which writes their source
+5. ``write_entry`` writes the entry files of ``SlopeLoader``.
+6. ``update_registry`` runs for both classes and writes their source
    code and dependency tree snapshot to ``.source/``.
 
 What lands on disk
