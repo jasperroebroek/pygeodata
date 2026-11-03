@@ -3,10 +3,10 @@ import sys
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field, fields
-from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from pygeodata.enums import ObjectType
 from pygeodata.rasters import RasterCreationOptions
 from pygeodata.spec import SpatialSpec
 
@@ -36,9 +36,16 @@ class Config:
         '~',
     )
 
+    def get_cache_root(self, object_type: ObjectType) -> Path:
+        return {
+            ObjectType.DATA: self.path_cache,
+            ObjectType.TABLE: self.path_tables,
+            ObjectType.FIGURE: self.path_figures,
+        }[object_type]
+
     @property
     def cache_roots(self) -> tuple[Path, ...]:
-        return tuple({self.path_cache, self.path_tables, self.path_figures})
+        return tuple(dict.fromkeys(self.get_cache_root(t) for t in ObjectType))
 
     def update(self, **kwargs) -> None:
         for key, value in kwargs.items():
@@ -163,27 +170,3 @@ def set_config(**overrides: Any) -> Generator[Config, None, None]:
         yield CONFIG
     finally:
         CONFIG.update(**old_values)
-
-
-class JSONKeys(StrEnum):
-    CLASS_NAME = 'class_name'
-    FORMAT_VERSION = 'format_version'
-    OBJECT_TYPE = 'object_type'
-    PARAMS = 'params'
-    SOURCE_HASH = 'source_hash'
-    PROCESSOR_HASH = 'processor_hash'
-    INSTANCE_HASH = 'instance_hash'
-    PARAMS_HASH = 'params_hash'
-    SPEC_HASH = 'spec_hash'
-    STATE_HASH = 'state_hash'
-    DEPENDENCY_TREE_HASH = 'dependency_tree_hash'
-    CO_OUTPUTS = 'co_output_hashes'
-    NODES = 'nodes'
-    TREE = 'tree'
-    CALL_DEPENDENCIES = 'call_dependencies'
-    INHERITANCE_DEPENDENCIES = 'inheritance_dependencies'
-    CALL_EDGES = 'call_edges'
-    INHERITANCE_EDGES = 'inheritance_edges'
-    DEPENDENCIES = 'dependencies'
-    REGISTERED_AT = 'registered_at'
-    ROOT_CLASS = 'root_class'

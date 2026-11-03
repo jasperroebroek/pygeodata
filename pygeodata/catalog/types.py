@@ -6,7 +6,8 @@ from enum import StrEnum
 from typing import Any
 
 from pygeodata.config import FORMAT_VERSION
-from pygeodata.spec import SpatialSpec, SpecKeys, format_resolution
+from pygeodata.enums import SpecKeys
+from pygeodata.spec import SpatialSpec, format_resolution
 
 
 class FileRole(StrEnum):

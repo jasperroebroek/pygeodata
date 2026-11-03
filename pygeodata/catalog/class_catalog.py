@@ -1,8 +1,10 @@
 from pygeodata.catalog.types import ClassInfo, EntryInfo
+from pygeodata.enums import Staleness
 from pygeodata.hash import calculate_cls_source_hash
 from pygeodata.paths import CodeRegistryPathConstructor, TreeRegistryPathConstructor
 from pygeodata.registries.registry import EntryRegistry, SourceRegistry, TreeRegistry
 from pygeodata.registries.versioning import VersionRegistry
+from pygeodata.staleness import class_staleness
 from pygeodata.tracked_object import TrackedObject
 
 
@@ -39,7 +41,7 @@ def source_info_from_disk(
         call_dep_names = trees.get_call_dependencies(snapshot.dependency_tree_hash)
         inh_dep_names = trees.get_inheritance_dependencies(snapshot.dependency_tree_hash)
         tree_path = trees.get_tree_path(snapshot.dependency_tree_hash)
-        graph_path_candidate = tree_path.parent / 'graph.pdf'
+        graph_path_candidate = TreeRegistryPathConstructor(tree_path.parent).graph_path
         graph_path_str = str(graph_path_candidate.resolve()) if graph_path_candidate.exists() else None
         tree_path_str = str(tree_path.resolve())
 
@@ -112,21 +114,10 @@ def merge_unloaded_classes(
 
         deps_stale = False
         if entries is not None and version_registry is not None:
-            # Use the most recently versioned entry's dep_hash to represent the class.
-            # If the newest entry is current, the class dot stays clear even if older
-            # entries are stale — the user has already rerun at the current version.
-            best_dep_hash: str | None = None
-            best_version = None
-            for rid in entry_registry.get_state_hashes(class_name):
-                entry = entries.get(rid)
-                if entry is None or not entry.dep_hash:
-                    continue
-                v = version_registry.version_for_dep_hash(entry.dep_hash)
-                if v is not None and (best_version is None or v > best_version):
-                    best_version = v
-                    best_dep_hash = entry.dep_hash
-            if best_dep_hash is not None:
-                deps_stale = version_registry.is_dependency_hash_stale(best_dep_hash)
+            dep_hashes = (
+                entries[rid].dep_hash for rid in entry_registry.get_state_hashes(class_name) if rid in entries
+            )
+            deps_stale = class_staleness(class_name, dep_hashes, version_registry) is Staleness.STALE
 
         merged[class_name] = ClassInfo(
             class_name=class_name,

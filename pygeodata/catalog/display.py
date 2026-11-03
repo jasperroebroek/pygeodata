@@ -14,20 +14,9 @@ from typing import Any
 
 from pygeodata.catalog.params_index import flatten_params
 from pygeodata.catalog.types import FileRef
-from pygeodata.figure import Figure
-from pygeodata.paths import CACHE_DIR_SUFFIXES, CACHE_META_FILES, classify_file
-from pygeodata.table import Table
+from pygeodata.enums import ObjectType
+from pygeodata.paths import CachePathConstructor, classify_file
 from pygeodata.tracked_object import TrackedObject
-
-_FAMILY_EXT: dict[str, str] = {'Figure': Figure.ext, 'Table': Table.ext}
-
-
-def is_output_file(path: Path) -> bool:
-    if path.name in CACHE_META_FILES:
-        return False
-    if path.is_dir():
-        return path.suffix.lower() in CACHE_DIR_SUFFIXES
-    return path.is_file()
 
 
 def preferred_ext(class_name: str | None, object_type: str | None) -> str | None:
@@ -41,8 +30,8 @@ def preferred_ext(class_name: str | None, object_type: str | None) -> str | None
     obj_cls = TrackedObject.find_object_class(class_name) if class_name else None
     ext = getattr(obj_cls, 'ext', None)
 
-    if ext is None:
-        ext = _FAMILY_EXT.get(object_type)
+    if ext is None and object_type in ObjectType.__members__.values():
+        ext = ObjectType(object_type).default_ext
 
     return f'.{ext}'.lower() if isinstance(ext, str) else None
 
@@ -62,10 +51,7 @@ def find_primary_and_sidecar_files(
     candidates are not primary-file material but are still real outputs, so they are returned
     as sidecars rather than silently dropped.
     """
-    candidates = sorted(
-        (p for p in entry_dir.iterdir() if is_output_file(p)),
-        key=lambda p: p.name,
-    )
+    candidates = CachePathConstructor(entry_dir).output_paths()
     if not candidates:
         return None, []
 

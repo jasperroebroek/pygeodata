@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from pygeodata.cache import handle_invalid, hash_matches_live, is_zarr_root, prune_empty_dirs
-from pygeodata.config import JSONKeys
+from pygeodata.cache import handle_invalid, hash_matches_live, prune_empty_dirs
+from pygeodata.enums import JSONKeys
 from pygeodata.paths import CachePathConstructor
 from tests.fixtures.data import EmptyLoader
 
@@ -87,37 +87,6 @@ def test_from_state_hash(tmp_path: Path) -> None:
     resolver = CachePathConstructor.from_state_hash('abc123', tmp_path)
     assert resolver.directory == tmp_path / 'abc123'
     assert resolver.state_hash_path == tmp_path / 'abc123' / 'meta.json'
-
-
-# --- is_zarr_root ---
-
-
-def test_is_zarr_root_by_suffix(tmp_path: Path) -> None:
-    zarr_dir = tmp_path / 'archive.zarr'
-    zarr_dir.mkdir()
-    assert is_zarr_root(zarr_dir)
-
-
-def test_is_zarr_root_v3_marker(tmp_path: Path) -> None:
-    zarr_dir = tmp_path / 'archive'
-    zarr_dir.mkdir()
-    (zarr_dir / 'zarr.json').touch()
-    assert is_zarr_root(zarr_dir)
-
-
-@pytest.mark.parametrize('marker', ['.zgroup', '.zarray', '.zattrs', '.zmetadata'])
-def test_is_zarr_root_v2_markers(tmp_path: Path, marker: str) -> None:
-    zarr_dir = tmp_path / 'archive'
-    zarr_dir.mkdir()
-    (zarr_dir / marker).touch()
-    assert is_zarr_root(zarr_dir)
-
-
-def test_is_zarr_root_false(tmp_path: Path) -> None:
-    regular_dir = tmp_path / 'regular'
-    regular_dir.mkdir()
-    (regular_dir / 'data.tif').touch()
-    assert not is_zarr_root(regular_dir)
 
 
 # --- handle_invalid ---

@@ -1,4 +1,3 @@
-import json
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
@@ -8,15 +7,17 @@ from typing import Any, ClassVar
 from filelock import FileLock
 
 from pygeodata.catalog.store import index_entry
-from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config
+from pygeodata.config import FORMAT_VERSION, get_config
+from pygeodata.enums import JSONKeys, SpecKeys
 from pygeodata.extraction import extract_instances
+from pygeodata.fileio import write_json_atomic
 from pygeodata.graph_types import RuntimeDependencyGraph, RuntimeNode, RuntimeParamEdge
 from pygeodata.graphs import plot_compact_execution_graph
 from pygeodata.hash import calculate_cls_source_hash, calculate_dict_hash
 from pygeodata.paths import CachePathConstructor
 from pygeodata.protocols import Processor
 from pygeodata.registries.registry_types import EntryRecord
-from pygeodata.spec import SpatialSpec, SpecKeys
+from pygeodata.spec import SpatialSpec
 from pygeodata.tracked_object import TrackedObject
 
 
@@ -139,18 +140,6 @@ class Artifact(TrackedObject, ABC):
         path.parent.mkdir(parents=True, exist_ok=True)
         return path
 
-    def write_parameters(self, spec: SpatialSpec) -> None:
-        path = self.resolve_cache_paths(spec).params_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open('w', encoding='utf-8') as f:
-            json.dump(self.get_params_as_json(spec=spec), f, indent=4)
-
-    def write_spec(self, spec: SpatialSpec) -> None:
-        path = self.resolve_cache_paths(spec).spec_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open('w', encoding='utf-8') as f:
-            json.dump(spec.to_dict(), f, indent=4)
-
     def get_state_hash(self, spec: SpatialSpec) -> str:
         """Hash of instance identity combined with spec — unique per (artifact, spec) pair."""
         return calculate_dict_hash(
@@ -160,21 +149,18 @@ class Artifact(TrackedObject, ABC):
             },
         )
 
-    def write_cache_metadata(self, spec: SpatialSpec, co_outputs: tuple[str, ...] = ()) -> None:
-        """
-        Write the state hash and source hierarchy hash to the hash file.
+    def write_entry(self, spec: SpatialSpec, co_outputs: tuple[str, ...] = ()) -> None:
+        """Write ``parameters.json``, ``spec.json`` and ``meta.json`` for this entry and index it in the catalog.
 
-        Creates the parent directory if it does not exist.
-
-        Parameters
-        ----------
-        spec : SpatialSpec
-            The spatial specification for which to write the hash.
-        co_outputs : tuple[str, ...]
-            State hashes of artifacts produced in the same _process call.
+        ``co_outputs`` are the state hashes of artifacts produced in the same ``_process`` call.
         """
-        hash_path = self.resolve_cache_paths(spec).state_hash_path
-        hash_path.parent.mkdir(parents=True, exist_ok=True)
+        spec = self.resolve_spec(spec)
+        state_hash = self.get_state_hash(spec)
+        paths = CachePathConstructor.from_state_hash(state_hash, self.get_cache_root())
+        paths.mkdir()
+        params_json = self.get_params_as_json(spec=spec)
+        write_json_atomic(paths.params_path, params_json, indent=4)
+        write_json_atomic(paths.spec_path, spec.to_dict(), indent=4)
         record = EntryRecord(
             class_name=self.get_class_name(),
             source_hash=calculate_cls_source_hash(self.__class__),
@@ -182,19 +168,14 @@ class Artifact(TrackedObject, ABC):
             instance_hash=self.get_instance_hash(),
             params_hash=self.get_params_hash(),
             spec_hash=spec.get_hash(),
-            state_hash=self.get_state_hash(spec),
+            state_hash=state_hash,
             object_type=self.object_type.get_class_name(),
-            hash_path=str(hash_path),
+            hash_path=str(paths.state_hash_path),
             co_output_hashes=list(co_outputs),
             format_version=FORMAT_VERSION,
         )
-        record.dump(hash_path)
-        index_entry(
-            hash_path.parent,
-            record,
-            self.resolve_spec(spec),
-            self.get_params_as_json(spec=spec),
-        )
+        record.dump(paths.state_hash_path)
+        index_entry(paths.directory, record, spec, params_json)
 
     def read_state_hash(self, spec: SpatialSpec) -> str | None:
         """
@@ -238,7 +219,7 @@ class Artifact(TrackedObject, ABC):
             return False
 
         record = EntryRecord.from_file(hash_file)
-        if record.format_version != FORMAT_VERSION:
+        if not record.is_current_format:
             return False
         if record.state_hash is None:
             return False
@@ -373,11 +354,9 @@ class Artifact(TrackedObject, ABC):
         if self.is_processed(spec):
             return
 
-        processed_path = self.get_processed_path(spec)
-        processed_path.parent.mkdir(parents=True, exist_ok=True)
-        data_lock_path = processed_path.parent / 'process.lock'
-
-        with FileLock(data_lock_path, timeout=3600):
+        cache_paths = self.resolve_cache_paths(spec)
+        cache_paths.mkdir()
+        with FileLock(cache_paths.lock_path, timeout=3600):
             if self.is_processed_hash_present(spec) and not self.is_cache_valid(spec):
                 print(f'# Cache invalid for {self.get_class_name()}. Recomputing ...')
 
@@ -394,9 +373,7 @@ class Artifact(TrackedObject, ABC):
             for state_hash, artifact in seen.items():
                 others = tuple(h for h in seen if h != state_hash)
                 artifact.update_registry()
-                artifact.write_parameters(spec)
-                artifact.write_spec(spec)
-                artifact.write_cache_metadata(spec, co_outputs=others)
+                artifact.write_entry(spec, co_outputs=others)
 
                 if next(extract_instances(artifact.get_params(), Artifact), None) is not None:
                     self.plot_runtime_execution_graph(spec)

@@ -6,7 +6,8 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from pygeodata.cli import cli
-from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config
+from pygeodata.config import FORMAT_VERSION, get_config
+from pygeodata.enums import JSONKeys
 
 # ---------------------------------------------------------------------------
 # Helpers

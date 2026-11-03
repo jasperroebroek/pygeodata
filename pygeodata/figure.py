@@ -3,6 +3,7 @@ from typing import ClassVar
 
 from pygeodata.artifact import Artifact
 from pygeodata.config import get_config
+from pygeodata.enums import ObjectType
 
 
 class Figure(Artifact):
@@ -62,8 +63,8 @@ class Figure(Artifact):
     """
 
     color: ClassVar[str] = '#bda0bc'
-    ext: ClassVar[str] = 'png'
+    ext: ClassVar[str] = ObjectType.FIGURE.default_ext
 
     @classmethod
     def get_cache_root(cls) -> Path:
-        return get_config().path_figures
+        return get_config().get_cache_root(ObjectType.FIGURE)

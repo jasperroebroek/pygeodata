@@ -13,7 +13,8 @@ import pytest
 
 from pygeodata.catalog import store
 from pygeodata.catalog.types import EntryInfo, FileRef, SpecInfo
-from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config, set_config
+from pygeodata.config import FORMAT_VERSION, get_config, set_config
+from pygeodata.enums import JSONKeys
 from pygeodata.registries.registry import EntryRegistry
 from pygeodata.registries.registry_types import EntryRecord
 from pygeodata.tracked_object import TrackedObject
@@ -255,7 +256,7 @@ def test_entry_registry_single_entry(tmp_path):
 
 
 def test_entry_registry_groups_populated(tmp_path):
-    base = tmp_path / 'data_processed' / 'MyLoader'
+    base = tmp_path / 'data_processed'
     write_hash_file(base / 'abc', 'abc', state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'abc'})
     write_hash_file(base / 'def', 'def', state={JSONKeys.CLASS_NAME: 'MyLoader', JSONKeys.STATE_HASH: 'def'})
     reg = EntryRegistry()

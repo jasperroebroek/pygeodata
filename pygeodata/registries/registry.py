@@ -16,6 +16,7 @@ from pathlib import Path
 from pygeodata.catalog import store
 from pygeodata.config import FORMAT_VERSION, get_config
 from pygeodata.paths import (
+    CachePathConstructor,
     CachePathResolver,
     CodeRegistryPathConstructor,
     RegistryResolver,
@@ -306,7 +307,7 @@ class EntryRegistry:
                     spec_hash=row['spec_hash'],
                     state_hash=row['state_hash'],
                     object_type=row['object_type'],
-                    hash_path=str(entry_dir / 'meta.json'),
+                    hash_path=str(CachePathConstructor(entry_dir).state_hash_path),
                     co_output_hashes=row['co_output_hashes'] or [],
                     format_version=FORMAT_VERSION,
                 ),

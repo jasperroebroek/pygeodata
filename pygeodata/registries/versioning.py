@@ -11,7 +11,7 @@ VersionRegistry is the single authoritative source for:
     .version_by_id(version_id)                 -> Version | None
     .label(version)                            -> str
     .class_snapshot_at_version(version)        -> dict[class_name, source_hash]
-    .is_dependency_hash_stale(dependency_hash) -> bool  (True if any class in snapshot differs from current)
+    .dependency_staleness(dependency_hash)     -> Staleness  (STALE if any class in snapshot differs from current)
     .version_change_summary(version)           -> list[CodeEvent] | None
     .version_change_summary_from_id(vid)       -> list[CodeEvent] | None
     .live_snapshot()                           -> dict[class_name, source_hash]  (live in-memory state)
@@ -37,6 +37,7 @@ import itertools
 from datetime import datetime
 from pathlib import Path
 
+from pygeodata.enums import Staleness
 from pygeodata.registries.registry import SourceRegistry, TreeRegistry
 from pygeodata.registries.registry_types import ChangeStatus, CodeEvent, CodeState, Version
 from pygeodata.tracked_object import TrackedObject
@@ -352,19 +353,17 @@ class VersionRegistry:
             return {}
         return {e.state_new.class_name: e.state_new.source_hash for e in version.events if e.state_new}
 
-    def is_dependency_hash_stale(self, dependency_hash: str) -> bool:
-        """Return True if any class in the dependency snapshot differs from the current source.
+    def dependency_staleness(self, dependency_hash: str) -> Staleness:
+        """STALE if any class in the dependency snapshot differs from its newest registered source.
 
-        Compares each class's source_hash in the stored tree snapshot against
-        the newest version's events. Returns False if the dependency_hash is
-        unknown, has no snapshot, or there are no versions yet.
+        UNKNOWN when there are no versions yet or the snapshot is missing.
         """
         if not self.versions:
-            return False
+            return Staleness.UNKNOWN
         current = self.class_snapshot_at_version(self.versions[0])
         snapshot = self._trees.get_snapshot_from_hash(dependency_hash)
         if snapshot is None:
-            return False
+            return Staleness.UNKNOWN
         for class_name, node in snapshot.nodes.items():
             if not isinstance(node, dict):
                 continue
@@ -373,8 +372,8 @@ class VersionRegistry:
                 continue
             current_hash = current.get(class_name)
             if current_hash is not None and stored_hash != current_hash:
-                return True
-        return False
+                return Staleness.STALE
+        return Staleness.CURRENT
 
     def version_change_summary(self, version: Version) -> list[CodeEvent] | None:
         """Return the full per-class change summary for the given version.

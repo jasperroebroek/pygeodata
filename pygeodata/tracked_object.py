@@ -11,11 +11,13 @@ from pygeodata.ast import (
     get_source_ast_tree,
     get_source_code,
 )
-from pygeodata.config import JSONKeys
+from pygeodata.enums import JSONKeys
+from pygeodata.fileio import write_bytes_atomic
 from pygeodata.graph_types import ClassNode, DependencyGraph
 from pygeodata.graphs import plot_class_dependency_graph
 from pygeodata.hash import calculate_cls_source_hash, calculate_dict_hash
 from pygeodata.paths import CodeRegistryPathConstructor, TreeRegistryPathConstructor
+from pygeodata.registries.registry import SourceRegistry
 from pygeodata.registries.registry_types import CodeState, TreeSnapshot
 from pygeodata.spec import SpatialSpec
 
@@ -62,7 +64,7 @@ class TrackedObject:
         return self.get_class_name()
 
     def format_as_json(self, spec: SpatialSpec | None = None) -> Any:
-        from pygeodata.formatting.json import format_json
+        from pygeodata.formatting.json import format_json  # keeps numpy out of the CLI import path
 
         return {
             JSONKeys.CLASS_NAME: self.get_class_name(),
@@ -98,16 +100,18 @@ class TrackedObject:
         return params
 
     def get_params_as_json(self, spec: SpatialSpec | None = None) -> dict[str, Any]:
-        from pygeodata.formatting.json import format_json
+        from pygeodata.formatting.json import format_json  # keeps numpy out of the CLI import path
 
         return format_json(self.get_params(), spec=spec)  # type: ignore[return-value]
 
+    def _get_params_state(self) -> dict[str, Any]:
+        from pygeodata.formatting.json import format_json  # keeps numpy out of the CLI import path
+
+        return {k: format_json(v) for k, v in self.get_params().items()}
+
     def get_params_hash(self) -> str:
         """Hash of params only — no dep_tree_hash. Groups entries with same params across dep versions."""
-        from pygeodata.formatting.json import format_json
-
-        state: dict = {JSONKeys.PARAMS: {k: format_json(v) for k, v in self.get_params().items()}}
-        return calculate_dict_hash(state)
+        return calculate_dict_hash({JSONKeys.PARAMS: self._get_params_state()})
 
     def get_instance_state(self) -> dict[str, Any]:
         """
@@ -124,12 +128,10 @@ class TrackedObject:
         dict[str, Any]
             The state hashed by :meth:`get_instance_hash`.
         """
-        from pygeodata.formatting.json import format_json
-
         return {
             JSONKeys.CLASS_NAME: self.get_class_name(),
             JSONKeys.DEPENDENCY_TREE_HASH: self.get_dependency_tree_hash(),
-            JSONKeys.PARAMS: {k: format_json(v) for k, v in self.get_params().items()},
+            JSONKeys.PARAMS: self._get_params_state(),
         }
 
     def get_instance_hash(self) -> str:
@@ -254,14 +256,6 @@ class TrackedObject:
         return DependencyGraph(nodes=nodes, call_edges=call_edges, inheritance_edges=inheritance_edges)
 
     @classmethod
-    def _previously_active_source_hash(cls) -> str | None:
-        """Return the source_hash from the most-recent ``source.json`` for this class."""
-        from pygeodata.registries.registry import SourceRegistry
-
-        state = SourceRegistry().get_latest_state_for_class(cls.get_class_name())
-        return state.source_hash if state else None
-
-    @classmethod
     def to_code_state(cls) -> CodeState:
         return CodeState(
             source_hash=calculate_cls_source_hash(cls),
@@ -270,107 +264,75 @@ class TrackedObject:
         )
 
     @classmethod
-    def _write_code_registry(cls) -> None:
-        """Write source code and metadata to ``.source/code/{source_hash}/``.
+    def _is_code_registry_current(cls, registry: SourceRegistry) -> bool:
+        """``source.py`` exists and this source hash is the latest registered state of the class.
 
-        ``source.py`` is content-addressed and written once.  ``source.json`` is written
-        on first use and its mtime is refreshed whenever this hash is re-activated after
-        a different hash was active (i.e. a revert).  This keeps the mtime accurate for
-        version resolution in the Code browser.
+        The second condition also catches a revert: an older hash that exists on disk but is not
+        the latest registration.
         """
         source_hash = calculate_cls_source_hash(cls)
-        resolver = CodeRegistryPathConstructor.from_source_hash(source_hash)
-        resolver.directory.mkdir(parents=True, exist_ok=True)
+        latest = registry.get_latest_state_for_class(cls.get_class_name())
+        return (
+            CodeRegistryPathConstructor.from_source_hash(source_hash).source_path.exists()
+            and latest is not None
+            and latest.source_hash == source_hash
+        )
 
-        if not resolver.source_path.exists():
-            tmp = resolver.source_path.with_suffix('.tmp')
-            tmp.write_text(get_source_code(cls), encoding='utf-8')
-            tmp.replace(resolver.source_path)
+    @classmethod
+    def _is_tree_registry_complete(cls) -> bool:
+        resolver = TreeRegistryPathConstructor.from_dep_tree_hash(cls.get_dependency_tree_hash())
+        return resolver.tree_path.exists() and (not cls.has_dependencies() or resolver.graph_path.exists())
 
+    @classmethod
+    def _write_code_registry(cls, registry: SourceRegistry) -> None:
+        """Write ``source.py`` once and (re-)register ``source.json`` when this hash is not the latest."""
+        if cls._is_code_registry_current(registry):
+            return
         state = cls.to_code_state()
-
-        previously_active = cls._previously_active_source_hash()
-        if not resolver.meta_path.exists() or (previously_active is not None and previously_active != source_hash):
-            tmp = resolver.meta_path.with_suffix('.tmp')
-            state.dump(tmp)
-            tmp.replace(resolver.meta_path)
+        resolver = CodeRegistryPathConstructor.from_source_hash(state.source_hash)
+        resolver.directory.mkdir(parents=True, exist_ok=True)
+        if not resolver.source_path.exists():
+            write_bytes_atomic(resolver.source_path, get_source_code(cls).encode('utf-8'))
+        state.dump(resolver.meta_path)
 
     @classmethod
     def _write_tree_registry(cls) -> None:
-        """Write the dependency tree and graph to ``.source/snapshots/{dep_tree_hash}/``.
-
-        Skips writing only when all expected files are present — ``tree.json``
-        always, and ``graph.pdf`` when the class has dependencies.
-        """
-        dep_tree_hash = cls.get_dependency_tree_hash()
-        resolver = TreeRegistryPathConstructor.from_dep_tree_hash(dep_tree_hash)
-        has_dependencies = cls.has_dependencies()
+        if cls._is_tree_registry_complete():
+            return
+        resolver = TreeRegistryPathConstructor.from_dep_tree_hash(cls.get_dependency_tree_hash())
         resolver.directory.mkdir(parents=True, exist_ok=True)
-        complete = resolver.tree_path.exists() and (not has_dependencies or resolver.graph_path.exists())
-        if not complete:
-            tree = cls.get_dependency_tree()
-            tmp = resolver.tree_path.with_suffix('.tmp')
-            tree.dump(tmp)
-            tmp.replace(resolver.tree_path)
-            if has_dependencies:
-                plot_class_dependency_graph(
-                    cls_name=cls.get_class_name(),
-                    graph_data=cls.get_dependency_graph(),
-                    path=resolver.graph_path,
-                    view=False,
-                )
+        cls.get_dependency_tree().dump(resolver.tree_path)
+        if cls.has_dependencies():
+            plot_class_dependency_graph(
+                cls_name=cls.get_class_name(),
+                graph_data=cls.get_dependency_graph(),
+                path=resolver.graph_path,
+                view=False,
+            )
 
     @classmethod
-    def write_registry(cls) -> None:
-        """Write both the source code snapshot and the dependency tree snapshot to disk.
-
-        Delegates to :meth:`_write_code_registry` and :meth:`_write_tree_registry`. Both
-        stores are content-addressed and append-only — existing entries are never overwritten.
-        """
-        cls._write_code_registry()
+    def write_registry(cls, registry: SourceRegistry | None = None) -> None:
+        cls._write_code_registry(registry if registry is not None else SourceRegistry())
         cls._write_tree_registry()
 
     @classmethod
-    def is_registry_valid(cls) -> bool:
-        """Check whether the on-disk registry is complete for the current class state.
-
-        Returns ``True`` when both ``_write_code_registry`` and ``_write_tree_registry``
-        would be no-ops — i.e. all expected files exist for the current source hash and
-        dependency tree hash.
-
-        Returns
-        -------
-        bool
-        """
-        source_hash = calculate_cls_source_hash(cls)
-        code_resolver = CodeRegistryPathConstructor.from_source_hash(source_hash)
-        if not (code_resolver.source_path.exists() and code_resolver.meta_path.exists()):
-            return False
-        tree_resolver = TreeRegistryPathConstructor.from_dep_tree_hash(cls.get_dependency_tree_hash())
-        has_deps = cls.has_dependencies()
-        return tree_resolver.tree_path.exists() and (not has_deps or tree_resolver.graph_path.exists())
+    def is_registry_valid(cls, registry: SourceRegistry | None = None) -> bool:
+        registry = registry if registry is not None else SourceRegistry()
+        return cls._is_code_registry_current(registry) and cls._is_tree_registry_complete()
 
     @classmethod
-    def update_registry(cls, visited: frozenset[type] | None = None) -> None:
-        """
-        Ensure this class and all its dependencies have a valid source registry on disk.
-
-        Calls :meth:`save_source_code_and_hash` if the registry is stale, then
-        recursively initializes registries for all dependencies.
-        """
-        if visited is None:
-            visited = frozenset()
-
-        if cls in visited:
-            return
-
-        next_visited = visited | frozenset([cls])
-
-        if not cls.is_registry_valid():
-            cls.write_registry()
-
-        for dep_class in cls.get_all_dependencies():
-            dep_class.update_registry(next_visited)
+    def update_registry(cls) -> None:
+        """Ensure this class and all its dependencies have a current registry on disk."""
+        registry = SourceRegistry()
+        done: set[type[TrackedObject]] = set()
+        pending: list[type[TrackedObject]] = [cls]
+        while pending:
+            tracked_cls = pending.pop()
+            if tracked_cls in done:
+                continue
+            done.add(tracked_cls)
+            tracked_cls.write_registry(registry)
+            pending.extend(tracked_cls.get_all_dependencies())
 
     @classmethod
     def clear_function_caches(cls) -> None:

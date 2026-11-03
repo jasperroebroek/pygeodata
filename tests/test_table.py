@@ -3,8 +3,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pygeodata.artifact import Artifact
-from pygeodata.config import JSONKeys, get_config
+from pygeodata.config import get_config
 from pygeodata.data import Data
+from pygeodata.enums import JSONKeys
 from pygeodata.registries.registry import EntryRegistry
 from pygeodata.spec import SpatialSpec
 from pygeodata.table import Table

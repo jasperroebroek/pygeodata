@@ -8,7 +8,8 @@ import xarray as xr
 from affine import Affine
 from pyproj import CRS
 
-from pygeodata.config import JSONKeys, set_config
+from pygeodata.config import set_config
+from pygeodata.enums import JSONKeys
 from pygeodata.spec import SpatialSpec
 from tests.fixtures.data import TEST_DATA_DIR, MultiOutputLoader, NestedLoader, SampleLoader
 

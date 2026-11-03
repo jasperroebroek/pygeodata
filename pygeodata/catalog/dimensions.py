@@ -18,8 +18,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from pygeodata.enums import SpecKeys
 from pygeodata.hash import calculate_dict_hash, calculate_string_hash
-from pygeodata.spec import SpatialSpec, SpecKeys
+from pygeodata.spec import SpatialSpec
 
 _NONE_DIMS: dict[str, Any] = {
     'crs_hash': None,

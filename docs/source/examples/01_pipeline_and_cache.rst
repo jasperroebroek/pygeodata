@@ -121,10 +121,10 @@ What happens:
 2. ``SlopeLoader._process(SPEC)`` calls ``load(self.elevation, SPEC)``.
    ``load`` calls ``ElevationLoader.process(SPEC)`` first — same cache
    check, same miss, so the DEM reprojection runs.
-3. ``ElevationLoader.write_cache_metadata(SPEC)`` writes its hash file.
+3. ``ElevationLoader.write_entry(SPEC)`` writes its entry files.
 4. Back in ``SlopeLoader._process``, the slope raster is computed and
    written.
-5. ``SlopeLoader.write_cache_metadata(SPEC)`` writes its hash file.
+5. ``SlopeLoader.write_entry(SPEC)`` writes its entry files.
 6. Both classes call ``update_registry()``, which writes their source
    code and dependency tree snapshot to ``.source/``.
 
@@ -136,7 +136,7 @@ What lands on disk
    data_processed/
    └── <slope_state_hash>/            ← SHA-256 of (instance_hash, spec)
        ├── slope_loader.tif           ← the output raster
-       ├── meta.json                  ← written by write_cache_metadata()
+       ├── meta.json                  ← written by write_entry()
        ├── parameters.json            ← serialised constructor parameters
        └── spec.json                  ← the SpatialSpec used
 

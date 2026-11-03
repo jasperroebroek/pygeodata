@@ -113,7 +113,8 @@ def test_load_project_settings_does_not_search_parents(tmp_path: Path, monkeypat
 
 
 def test_load_project_settings_explicit_path_loads_alongside_discovered(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     (tmp_path / 'confs').mkdir()
     explicit = tmp_path / 'confs' / 'my_settings.py'

@@ -3,7 +3,7 @@ from collections.abc import Generator
 
 import pytest
 
-from pygeodata.config import JSONKeys
+from pygeodata.enums import JSONKeys
 from pygeodata.hash import calculate_cls_source_hash
 from pygeodata.paths import CodeRegistryPathConstructor, TreeRegistryPathConstructor
 from pygeodata.tracked_object import TrackedObject

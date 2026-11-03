@@ -2,10 +2,9 @@ import ast
 import textwrap
 from unittest.mock import MagicMock, patch
 
-from pygeodata.config import JSONKeys
+from pygeodata.enums import JSONKeys, SpecKeys
 from pygeodata.formatting.json import format_json
 from pygeodata.hash import calculate_cls_source_hash, calculate_dict_hash
-from pygeodata.spec import SpecKeys
 from tests.fixtures.data import ClassParamLoader, LoaderA
 
 

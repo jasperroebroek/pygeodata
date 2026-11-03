@@ -19,15 +19,14 @@ from pygeodata.catalog.export import collect_export_files, write_export_tar
 from pygeodata.catalog.filters import Filter, FilterOperator, FilterTarget, prescan_text
 from pygeodata.catalog.store import BACKFILL_LOG_INTERVAL, refresh
 from pygeodata.catalog.types import ParamRowType, SpecInfo
-from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config, load_project_settings
-from pygeodata.data import Data
-from pygeodata.figure import Figure
+from pygeodata.config import FORMAT_VERSION, get_config, load_project_settings
+from pygeodata.enums import JSONKeys, ObjectType, Staleness
 from pygeodata.paths import CachePathConstructor
 from pygeodata.registries.registry import EntryRegistry, SourceRegistry, TreeRegistry
-from pygeodata.registries.registry_types import Version
+from pygeodata.registries.registry_types import EntryRecord, Version
 from pygeodata.registries.versioning import VersionRegistry
 from pygeodata.spec import SpatialSpec
-from pygeodata.table import Table
+from pygeodata.staleness import dependency_staleness
 from pygeodata.tracked_object import TrackedObject
 
 
@@ -82,7 +81,6 @@ def cli(settings_path: Path | None) -> None:
 
 def _cache_root_from_tar(tar: tarfile.TarFile, hash_dir: str) -> Path | None:
     """Read OBJECT_TYPE from the meta.json and return the matching Artifact subclass cache root."""
-    family_by_name = {c.get_class_name(): c for c in (Data, Table, Figure)}
     for member in tar.getmembers():
         p = Path(member.name)
         if p.parts[:1] == ('cache',) and p.parts[1] == hash_dir and p.name == 'meta.json':
@@ -93,9 +91,11 @@ def _cache_root_from_tar(tar: tarfile.TarFile, hash_dir: str) -> Path | None:
                 data = json.loads(f.read())
             except (json.JSONDecodeError, OSError):
                 return None
-            object_type = data.get(JSONKeys.OBJECT_TYPE, '')
-            family = family_by_name.get(object_type)
-            return family.get_cache_root() if family else None
+            try:
+                object_type = ObjectType(data.get(JSONKeys.OBJECT_TYPE, ''))
+            except ValueError:
+                return None
+            return get_config().get_cache_root(object_type)
     return None
 
 
@@ -999,7 +999,7 @@ def classes_cmd(
     for class_name, info in classes.items():
         by_type.setdefault(info.object_type or 'Unknown', []).append(class_name)
 
-    type_order = ['Data', 'Table', 'Figure']
+    type_order = list(ObjectType)
     other_types = sorted(t for t in by_type if t not in type_order)
     ordered_types = [t for t in type_order if t in by_type] + other_types
 
@@ -1046,19 +1046,13 @@ def entry(ctx: click.Context, full_hash: bool) -> None:
     ctx.obj['full_hash'] = full_hash
 
 
-def _stale_indicator(rec, vreg: VersionRegistry | None = None) -> str:
+def _stale_indicator(rec: EntryRecord, vreg: VersionRegistry) -> str:
     """Single-char staleness marker: F=format stale, S=dep stale, N=not loaded, blank=ok."""
-    if rec.format_version != FORMAT_VERSION:
+    if not rec.is_current_format:
         return 'F'
-    obj_cls = TrackedObject.find_object_class(rec.class_name)
-    if rec.dependency_tree_hash:
-        if obj_cls is not None:
-            dep_stale = obj_cls.get_dependency_tree_hash() != rec.dependency_tree_hash
-        else:
-            dep_stale = (vreg or VersionRegistry()).is_dependency_hash_stale(rec.dependency_tree_hash)
-        if dep_stale:
-            return 'S'
-    if obj_cls is None:
+    if dependency_staleness(rec.class_name, rec.dependency_tree_hash, vreg) is Staleness.STALE:
+        return 'S'
+    if TrackedObject.find_object_class(rec.class_name) is None:
         return 'N'
     return ' '
 
@@ -1333,7 +1327,7 @@ def entry_show(
         except Exception:  # noqa: BLE001
             pass
 
-    stale = _stale_indicator(rec)
+    stale = _stale_indicator(rec, VersionRegistry())
     stale_label = {'S': 'dep stale', 'F': 'format stale', '?': 'unknown (class not loaded)'}.get(stale, 'ok')
 
     click.echo(f'Class        {rec.class_name}')

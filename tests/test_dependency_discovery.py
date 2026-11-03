@@ -6,12 +6,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from pygeodata.ast import get_parsed_source_code, get_source_ast_tree, get_source_code
-from pygeodata.config import JSONKeys
 from pygeodata.data import Data
+from pygeodata.enums import JSONKeys
 from pygeodata.figure import Figure
 from pygeodata.hash import calculate_cls_source_hash
 from pygeodata.hash import calculate_cls_source_hash as _hash
 from pygeodata.paths import CodeRegistryPathConstructor, TreeRegistryPathConstructor
+from pygeodata.registries.registry import SourceRegistry
+from pygeodata.registries.registry_types import CodeState
 from tests.fixtures.data import Child, CircularLoader, HardcodedDependencyLoader, LoaderA, LoaderB, LoaderD, Parent
 
 
@@ -126,6 +128,23 @@ def test_initialize_class_code_state_heals_missing_tree_file() -> None:
     assert not LoaderA.is_registry_valid()
 
     LoaderA.write_registry()
+    assert LoaderA.is_registry_valid()
+
+
+def test_update_registry_records_revert() -> None:
+    LoaderA.update_registry()
+    current = calculate_cls_source_hash(LoaderA)
+    newer = CodeState(source_hash='otherhash', class_name='LoaderA', object_type='Data')
+    other = CodeRegistryPathConstructor.from_source_hash(newer.source_hash)
+    other.directory.mkdir(parents=True)
+    newer.dump(other.meta_path)
+
+    assert SourceRegistry().get_latest_state_for_class('LoaderA').source_hash == 'otherhash'
+    assert not LoaderA.is_registry_valid()
+
+    LoaderA.update_registry()
+
+    assert SourceRegistry().get_latest_state_for_class('LoaderA').source_hash == current
     assert LoaderA.is_registry_valid()
 
 

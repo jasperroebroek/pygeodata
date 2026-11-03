@@ -6,8 +6,9 @@ import tarfile
 from collections.abc import Callable
 from pathlib import Path
 
+from pygeodata.catalog.display import find_primary_and_sidecar_files
 from pygeodata.catalog.types import EntryInfo
-from pygeodata.paths import CodeRegistryPathConstructor
+from pygeodata.paths import CachePathConstructor, CodeRegistryPathConstructor
 from pygeodata.registries.registry import TreeRegistry
 
 
@@ -29,7 +30,13 @@ def _cache_files_for_entry(
         warnings.append(f'{record_id}: path not allowed ({cache_dir})')
         return []
     try:
-        return [(f, f'cache/{cache_dir.name}/{f.name}') for f in cache_dir.iterdir() if f.is_file()]
+        paths = CachePathConstructor(cache_dir)
+        meta_files = [
+            p
+            for p in (paths.state_hash_path, paths.params_path, paths.spec_path, paths.execution_graph_path)
+            if p.is_file()
+        ]
+        return [(f, f'cache/{cache_dir.name}/{f.name}') for f in [*meta_files, *paths.output_paths()]]
     except OSError as exc:
         warnings.append(f'{record_id}: could not read {cache_dir} ({exc})')
         return []
@@ -123,12 +130,10 @@ def single_entry_tar_path(
     if not path_allowed(str(cache_dir)):
         return None, None, False
 
-    data_path = next(
-        (f for f in cache_dir.iterdir() if not f.name.startswith('.')),
-        None,
-    )
-    if data_path is None:
+    primary, _ = find_primary_and_sidecar_files(cache_dir, entry.class_name, entry.object_type)
+    if primary is None:
         return None, None, False
+    data_path = Path(primary.path)
 
     if data_path.is_dir():
         return data_path, f'{data_path.name}.tar', True

@@ -1,7 +1,7 @@
 import pytest
 
 from pygeodata.cache import clean_cache
-from pygeodata.config import JSONKeys
+from pygeodata.enums import JSONKeys
 from pygeodata.spec import SpatialSpec
 from tests.fixtures.table import SimpleTable
 
@@ -14,7 +14,7 @@ def process_touch(artifact: SimpleTable, spec: SpatialSpec, stale: bool = False)
         hash_file = artifact.resolve_cache_paths(spec).state_hash_path
         hash_file.write_text('{"' + JSONKeys.DEPENDENCY_TREE_HASH + '": "stale"}')
     else:
-        artifact.write_cache_metadata(spec)
+        artifact.write_entry(spec)
 
 
 def test_clean_cache_stale_table_reported(

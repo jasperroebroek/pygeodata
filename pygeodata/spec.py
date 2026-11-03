@@ -3,13 +3,13 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass
-from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 import numpy as np
 
+from pygeodata.enums import SpecKeys
 from pygeodata.hash import calculate_dict_hash
 
 if TYPE_CHECKING:
@@ -21,18 +21,6 @@ class BoundingBox(NamedTuple):
     bottom: float
     right: float
     top: float
-
-
-class SpecKeys(StrEnum):
-    SPEC = 'spec'
-    CRS = 'crs'
-    TRANSFORM = 'transform'
-    RESOLUTION = 'resolution'
-    RESOLUTION_DISPLAY = 'resolution_display'
-    SHAPE = 'shape'
-    BOUNDS = 'bounds'
-    BOUNDS_LATLON = 'bounds_latlon'
-    BOUNDS_DISPLAY = 'bounds_display'
 
 
 RasterShape = tuple[float, float]

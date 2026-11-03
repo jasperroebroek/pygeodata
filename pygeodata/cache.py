@@ -8,38 +8,19 @@ from pathlib import Path
 from filelock import FileLock, Timeout
 
 from pygeodata.catalog.store import reconcile
-from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config
-from pygeodata.paths import CachePathConstructor
-from pygeodata.registries.registry_types import EntryRecord
+from pygeodata.config import get_config
+from pygeodata.enums import JSONKeys, Staleness
+from pygeodata.paths import CachePathConstructor, CachePathResolver, RegistryResolver
+from pygeodata.registries.registry import EntryRegistry, SourceRegistry, TreeRegistry
+from pygeodata.registries.registry_types import EntryRecord, is_current_format
+from pygeodata.staleness import dependency_staleness
 from pygeodata.tracked_object import TrackedObject
-
-ZARR_MARKERS = (
-    'zarr.json',  # v3
-    '.zgroup',  # v2 group
-    '.zarray',  # v2 array
-    '.zattrs',  # v2 attributes
-    '.zmetadata',  # v2 consolidated metadata
-)
-
-
-def is_zarr_root(path: Path) -> bool:
-    """Detect zarr v2 and v3 archive roots by marker files, with fast suffix check."""
-    if path.suffix == '.zarr':
-        return True
-    return any((path / marker).exists() for marker in ZARR_MARKERS)
 
 
 def read_cache_class_name(hash_path: Path) -> str | None:
     if not hash_path.exists():
         return None
     return EntryRecord.from_file(hash_path).class_name
-
-
-def format_version_matches(hash_path: Path) -> bool:
-    """Return False if the cache entry was written by a different format version."""
-    if not hash_path.exists():
-        return False
-    return EntryRecord.from_file(hash_path).format_version == FORMAT_VERSION
 
 
 def _iter_class_params(value: object) -> Iterator[dict]:
@@ -86,12 +67,12 @@ def hash_matches_live(hash_path: Path, check_class_params: bool = False) -> bool
         return False
 
     record = EntryRecord.from_file(hash_path)
-    class_object = TrackedObject.find_object_class(record.class_name)
-
-    if class_object is None:
+    if not record.dependency_tree_hash:
+        return False
+    staleness = dependency_staleness(record.class_name, record.dependency_tree_hash)
+    if staleness is Staleness.UNKNOWN:
         return None
-
-    if record.dependency_tree_hash != class_object.get_dependency_tree_hash():
+    if staleness is Staleness.STALE:
         return False
 
     if not check_class_params:
@@ -160,7 +141,7 @@ def _purge_dir(dirpath: Path, dry_run: bool, delete_unregistered: bool, check_cl
 
     class_name = read_cache_class_name(hash_path)
 
-    if not format_version_matches(hash_path):
+    if not is_current_format(hash_path):
         handle_invalid(dirpath, dry_run=dry_run, label='Format version mismatch', class_name=class_name)
         return True
 
@@ -195,32 +176,19 @@ def clean_cache(
         reported as current even though the runtime correctly recomputes it. Entries with no
         ``parameters.json`` are reported as stale under this check.
     """
-    for root in get_config().cache_roots:
-        if not root.exists():
-            continue
-
-        for dirpath_str, dirs, files in os.walk(root, topdown=True, followlinks=True):
-            dirpath = Path(dirpath_str)
-            if dirpath == root:
-                continue
-
-            dirs[:] = [d for d in dirs if not is_zarr_root(dirpath / d)]
-
-            if dirs:
-                continue
-            deleted = _purge_dir(
-                dirpath,
-                dry_run=dry_run,
-                delete_unregistered=delete_unregistered,
-                check_class_params=check_class_params,
-            )
-            if deleted:
-                dirs.clear()
-
-        if not dry_run:
-            prune_empty_dirs(root)
+    roots = get_config().cache_roots
+    for entry_dir in CachePathResolver(roots).iter_entry_dirs():
+        _purge_dir(
+            entry_dir,
+            dry_run=dry_run,
+            delete_unregistered=delete_unregistered,
+            check_class_params=check_class_params,
+        )
 
     if not dry_run:
+        for root in roots:
+            if root.exists():
+                prune_empty_dirs(root)
         prune_catalog()
 
 
@@ -230,31 +198,23 @@ def clean_lock_files(dry_run: bool = True) -> None:
     A lock currently held by a running process is skipped; a dry run cannot
     detect held locks and lists every lock file found.
     """
-    for root in get_config().cache_roots:
-        if not root.exists():
+    for entry_dir in CachePathResolver().iter_entry_dirs():
+        lock_path = CachePathConstructor(entry_dir).lock_path
+        if not lock_path.exists():
+            continue
+        if dry_run:
+            print(f'[dry_run] process.lock: {lock_path}')
             continue
 
-        for dirpath_str, dirs, files in os.walk(root, topdown=True, followlinks=True):
-            dirpath = Path(dirpath_str)
-            dirs[:] = [d for d in dirs if not is_zarr_root(dirpath / d)]
-
-            if 'process.lock' not in files:
-                continue
-
-            lock_path = dirpath / 'process.lock'
-            if dry_run:
-                print(f'[dry_run] process.lock: {lock_path}')
-                continue
-
-            lock = FileLock(lock_path, timeout=0)
-            try:
-                lock.acquire()
-            except Timeout:
-                print(f'[Skipping] process.lock in use: {lock_path}')
-                continue
-            lock_path.unlink(missing_ok=True)
-            lock.release()
-            print(f'[Deleting] process.lock: {lock_path}')
+        lock = FileLock(lock_path, timeout=0)
+        try:
+            lock.acquire()
+        except Timeout:
+            print(f'[Skipping] process.lock in use: {lock_path}')
+            continue
+        lock_path.unlink(missing_ok=True)
+        lock.release()
+        print(f'[Deleting] process.lock: {lock_path}')
 
 
 def prune_catalog() -> None:
@@ -268,8 +228,9 @@ def rebuild_registry() -> None:
     if root.exists():
         shutil.rmtree(root)
 
+    registry = SourceRegistry()
     for tracked_cls in TrackedObject.get_registered_objects():
-        tracked_cls.write_registry()
+        tracked_cls.write_registry(registry)
 
 
 def clean_registry(dry_run: bool = True) -> None:
@@ -279,17 +240,9 @@ def clean_registry(dry_run: bool = True) -> None:
     directory whose metadata JSON does not carry the current FORMAT_VERSION.
     Missing or unreadable metadata is treated as a version mismatch.
     """
-    root = get_config().path_registry
-    if not root.exists():
-        return
-
-    for meta_path in [*root.rglob('source.json'), *root.rglob('tree.json')]:
-        try:
-            data = json.loads(meta_path.read_text(encoding='utf-8'))
-            stale = data.get(JSONKeys.FORMAT_VERSION) != FORMAT_VERSION
-        except (OSError, json.JSONDecodeError):
-            stale = True
-        if stale:
+    resolver = RegistryResolver()
+    for meta_path in [*resolver.glob_source_paths(), *resolver.glob_tree_paths()]:
+        if not is_current_format(meta_path):
             handle_invalid(meta_path.parent, dry_run=dry_run, label='Format version mismatch')
 
 
@@ -305,8 +258,6 @@ def clean_source_registry(dry_run: bool = True) -> None:
     Everything else is prunable.  Dry-run prints what would be deleted without
     removing anything.
     """
-    from pygeodata.registries.registry import EntryRegistry, SourceRegistry, TreeRegistry
-
     root = get_config().path_registry
     if not root.exists():
         return
@@ -336,7 +287,7 @@ def clean_source_registry(dry_run: bool = True) -> None:
                 keep_source_hashes.add(h)
 
     # Prune orphan code/ dirs
-    code_root = root / 'code'
+    code_root = RegistryResolver(root).code_dir
     if code_root.exists():
         for entry in sorted(code_root.iterdir()):
             if not entry.is_dir():
@@ -346,7 +297,7 @@ def clean_source_registry(dry_run: bool = True) -> None:
                 handle_invalid(entry, dry_run=dry_run, label='Orphan code snapshot')
 
     # Prune orphan snapshots/ dirs
-    snapshots_root = root / 'snapshots'
+    snapshots_root = RegistryResolver(root).snapshots_dir
     if snapshots_root.exists():
         for entry in sorted(snapshots_root.iterdir()):
             if not entry.is_dir():

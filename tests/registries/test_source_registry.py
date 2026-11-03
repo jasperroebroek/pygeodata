@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from pygeodata.config import JSONKeys
+from pygeodata.enums import JSONKeys
 from pygeodata.registries.registry import SourceRegistry
 from pygeodata.registries.versioning import VersionRegistry
 

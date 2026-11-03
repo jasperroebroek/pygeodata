@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 
-from pygeodata.config import JSONKeys
+from pygeodata.enums import JSONKeys
 from pygeodata.formatting.shared import JSON_SAFE_TYPES, format_array
 from pygeodata.protocols import AllowsFormatting, AllowsTracking
 from pygeodata.spec import SpatialSpec

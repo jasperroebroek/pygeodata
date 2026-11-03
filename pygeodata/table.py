@@ -3,6 +3,7 @@ from typing import ClassVar
 
 from pygeodata.artifact import Artifact
 from pygeodata.config import get_config
+from pygeodata.enums import ObjectType
 
 
 class Table(Artifact):
@@ -42,8 +43,8 @@ class Table(Artifact):
     """
 
     color: ClassVar[str] = '#c9d8c5'
-    ext: ClassVar[str] = 'html'
+    ext: ClassVar[str] = ObjectType.TABLE.default_ext
 
     @classmethod
     def get_cache_root(cls) -> Path:
-        return get_config().path_tables
+        return get_config().get_cache_root(ObjectType.TABLE)

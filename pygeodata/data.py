@@ -3,6 +3,7 @@ from typing import ClassVar, Generic
 
 from pygeodata.artifact import Artifact
 from pygeodata.config import get_config
+from pygeodata.enums import ObjectType
 from pygeodata.protocols import Driver, T
 from pygeodata.spec import SpatialSpec
 
@@ -119,7 +120,7 @@ class Data(Artifact, Generic[T]):
 
     @classmethod
     def get_cache_root(cls) -> Path:
-        return get_config().path_cache
+        return get_config().get_cache_root(ObjectType.DATA)
 
     def load(self, spec: SpatialSpec) -> T:
         """

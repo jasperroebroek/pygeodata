@@ -10,9 +10,10 @@ from pygeodata.catalog import store
 from pygeodata.catalog.dimensions import dimension_rows
 from pygeodata.catalog.entry_catalog import _spec_info_cached
 from pygeodata.catalog.types import FileRole
-from pygeodata.config import FORMAT_VERSION, Config, JSONKeys, get_config, set_config
+from pygeodata.config import FORMAT_VERSION, Config, get_config, set_config
+from pygeodata.enums import JSONKeys, SpecKeys
 from pygeodata.registries.registry_types import EntryRecord
-from pygeodata.spec import SpatialSpec, SpecKeys
+from pygeodata.spec import SpatialSpec
 from tests.fixtures.data import SimpleLoader
 
 
@@ -224,9 +225,9 @@ def test_bootstrap_rows_latest_per_class(tmp_path: Path, sample_spatial_spec: Sp
     assert [r['state_hash'] for r in rows] == ['a2', 'b1']
 
 
-def test_write_cache_metadata_hooks_catalog(sample_spatial_spec: SpatialSpec) -> None:
+def test_write_entry_hooks_catalog(sample_spatial_spec: SpatialSpec) -> None:
     artifact = SimpleLoader()
-    artifact.write_cache_metadata(sample_spatial_spec)
+    artifact.write_entry(sample_spatial_spec)
 
     catalog = store.load_catalog()
     state_hash = artifact.get_state_hash(sample_spatial_spec)
@@ -257,7 +258,7 @@ def test_write_hook_warns_and_continues(
         raise OSError('disk full')
 
     monkeypatch.setattr(store, 'save_catalog', broken_save)
-    SimpleLoader().write_cache_metadata(sample_spatial_spec)
+    SimpleLoader().write_entry(sample_spatial_spec)
     assert any('Catalog write failed' in str(w.message) for w in recwarn.list)
 
 
@@ -266,7 +267,7 @@ def test_catalog_disabled_makes_writes_noops(
     recwarn: pytest.WarningsChecker,
 ) -> None:
     with set_config(catalog_enabled=False):
-        SimpleLoader().write_cache_metadata(sample_spatial_spec)
+        SimpleLoader().write_entry(sample_spatial_spec)
         assert store.reconcile() == 0
         assert store.refresh([get_config().path_cache]) == (0, 0)
     assert not get_config().path_catalog.exists()
@@ -327,7 +328,7 @@ def test_write_hook_stores_display_and_files(sample_spatial_spec: SpatialSpec) -
     entry_dir = artifact.resolve_cache_paths(sample_spatial_spec).directory
     entry_dir.mkdir(parents=True, exist_ok=True)
     (entry_dir / 'dummy.tif').write_bytes(b'x')
-    artifact.write_cache_metadata(sample_spatial_spec)
+    artifact.write_entry(sample_spatial_spec)
 
     catalog = store.load_catalog()
     state_hash = artifact.get_state_hash(sample_spatial_spec)

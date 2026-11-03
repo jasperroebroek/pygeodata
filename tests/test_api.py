@@ -7,7 +7,8 @@ import pytest
 
 import pygeodata
 from pygeodata.api import load_from_hash
-from pygeodata.config import FORMAT_VERSION, JSONKeys, set_config
+from pygeodata.config import FORMAT_VERSION, set_config
+from pygeodata.enums import JSONKeys
 from pygeodata.paths import CACHE_META_FILES
 
 
@@ -48,7 +49,7 @@ def test_load_from_hash_success(cache_root):
 
     state_hash = 'aabbcc1234567890' * 4
 
-    cache_dir = cache_root / 'SimpleLoader' / state_hash
+    cache_dir = cache_root / state_hash
     _write_meta(cache_dir, state_hash, 'SimpleLoader', 'Data')
     output_path = cache_dir / 'output.tif'
     output_path.write_bytes(b'tif_content')
@@ -76,7 +77,7 @@ def test_load_from_hash_skips_meta_files(cache_root):
 
     state_hash = 'deadbeef1234abcd' * 4
 
-    cache_dir = cache_root / 'SimpleLoader' / state_hash
+    cache_dir = cache_root / state_hash
     _write_meta(cache_dir, state_hash, 'SimpleLoader', 'Data')
 
     for name in CACHE_META_FILES - {'meta.json'}:
@@ -111,7 +112,7 @@ def test_load_from_hash_ambiguous_prefix_raises_key_error(cache_root):
     state_hash_b = 'aabbcc9876543210' * 4
 
     for h in (state_hash_a, state_hash_b):
-        cache_dir = cache_root / 'SimpleLoader' / h
+        cache_dir = cache_root / h
         _write_meta(cache_dir, h, 'SimpleLoader', 'Data')
 
     with pytest.raises(KeyError, match='No entry found for hash prefix'):
@@ -143,7 +144,7 @@ def test_load_from_hash_no_output_file_raises_file_not_found(cache_root):
     """An entry dir with only meta files and no output raises FileNotFoundError."""
     state_hash = 'cafebabe12345678' * 4
 
-    cache_dir = cache_root / 'SimpleLoader' / state_hash
+    cache_dir = cache_root / state_hash
     _write_meta(cache_dir, state_hash, 'SimpleLoader', 'Data')
 
     for name in CACHE_META_FILES - {'meta.json'}:
@@ -158,7 +159,7 @@ def test_load_from_hash_unregistered_class_raises_runtime_error(cache_root):
     state_hash = 'beefcafe12345678' * 4
     unknown_class = 'NonExistentDataClass99'
 
-    cache_dir = cache_root / unknown_class / state_hash
+    cache_dir = cache_root / state_hash
     _write_meta(cache_dir, state_hash, unknown_class, 'Data')
     (cache_dir / 'output.tif').write_bytes(b'data')
 

@@ -18,12 +18,13 @@ from pygeodata.catalog.types import (
     SpecInfo,
 )
 from pygeodata.config import FORMAT_VERSION, get_config
+from pygeodata.enums import Staleness
 from pygeodata.paths import CachePathConstructor
 from pygeodata.registries.registry import EntryRegistry
 from pygeodata.registries.registry_types import EntryRecord
 from pygeodata.registries.versioning import VersionRegistry
 from pygeodata.spec import SpatialSpec, _crs_from_string
-from pygeodata.tracked_object import TrackedObject
+from pygeodata.staleness import dependency_staleness
 
 # ---------------------------------------------------------------------------
 # Per-entry display enrichment
@@ -198,12 +199,9 @@ def discover_entries(
             else _enrich_params_path(CachePathConstructor.from_path(Path(rec.hash_path)).params_path, rec)
         )
         entry.record_id = rec.state_hash
-        if entry.dep_hash:
-            obj_cls = TrackedObject.find_object_class(entry.class_name)
-            if obj_cls is not None:
-                entry.dep_hash_stale = obj_cls.get_dependency_tree_hash() != entry.dep_hash
-            else:
-                entry.dep_hash_stale = version_registry.is_dependency_hash_stale(entry.dep_hash)
+        entry.dep_hash_stale = (
+            dependency_staleness(entry.class_name, entry.dep_hash, version_registry) is Staleness.STALE
+        )
         entries[entry.record_id] = entry
         if progress is not None:
             progress['done'] += 1

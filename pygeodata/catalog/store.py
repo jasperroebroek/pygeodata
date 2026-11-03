@@ -38,7 +38,8 @@ from filelock import FileLock
 from pygeodata.catalog.dimensions import dimension_rows
 from pygeodata.catalog.types import FileRole
 from pygeodata.config import FORMAT_VERSION, get_config
-from pygeodata.paths import CachePathResolver
+from pygeodata.fileio import write_json_atomic
+from pygeodata.paths import CachePathConstructor, CachePathResolver
 from pygeodata.registries.registry_types import EntryRecord
 from pygeodata.spec import SpatialSpec
 
@@ -118,14 +119,11 @@ def load_catalog() -> dict[str, Any]:
 
 
 def save_catalog(catalog: dict[str, Any]) -> None:
-    """Write the catalog atomically — a temp file in the same directory, then rename."""
-    path = catalog_path().resolve()  # a symlinked catalog stays a symlink: write its target
+    path = catalog_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     catalog[_META_FORMAT_VERSION] = FORMAT_VERSION
     catalog[_META_SCHEMA_VERSION] = schema_fingerprint()
-    tmp = path.with_name(f'{path.name}.tmp')
-    tmp.write_text(json.dumps(catalog), encoding='utf-8')
-    tmp.replace(path)
+    write_json_atomic(path, catalog)
 
 
 @contextmanager
@@ -175,7 +173,7 @@ def _entry_row(
     display: EntryDisplay | None,
 ) -> dict[str, Any]:
     try:
-        created_at = (Path(entry_dir) / 'meta.json').stat().st_mtime
+        created_at = CachePathConstructor(Path(entry_dir)).state_hash_path.stat().st_mtime
     except OSError:
         created_at = None
     return {
@@ -277,7 +275,7 @@ def iter_cache_records(
         if format_version is not None and record.format_version != format_version:
             continue
         spec = None
-        spec_path = meta_path.parent / 'spec.json'
+        spec_path = CachePathConstructor.from_path(meta_path).spec_path
         if spec_path.exists():
             try:
                 spec = SpatialSpec.from_file(spec_path)
@@ -299,7 +297,7 @@ def backfill(
     count = 0
     for entry_dir, record, spec in iter_cache_records(cache_roots, format_version=format_version, skip_hashes=known):
         display = None
-        params_path = entry_dir / 'parameters.json'
+        params_path = CachePathConstructor(entry_dir).params_path
         if params_path.exists():
             try:
                 params_json = json.loads(params_path.read_text(encoding='utf-8'))
@@ -318,7 +316,7 @@ def prune_missing(catalog: dict[str, Any]) -> int:
     stale = [
         state_hash
         for state_hash, row in catalog['entries'].items()
-        if not (entry_abs_path(row['dir_relpath']) / 'meta.json').exists()
+        if not CachePathConstructor(entry_abs_path(row['dir_relpath'])).state_hash_path.exists()
     ]
     for state_hash in stale:
         catalog['entries'].pop(state_hash, None)
@@ -436,11 +434,9 @@ def _load_pins() -> list[dict[str, Any]]:
 
 
 def _save_pins(pins: list[dict[str, Any]]) -> None:
-    path = pins_path().resolve()  # follow a symlinked pins file to its target
+    path = pins_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f'{path.name}.tmp')
-    tmp.write_text(json.dumps(pins), encoding='utf-8')
-    tmp.replace(path)
+    write_json_atomic(path, pins)
 
 
 def pinned_hashes() -> list[str]:

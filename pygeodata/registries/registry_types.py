@@ -10,8 +10,23 @@ from functools import total_ordering
 from pathlib import Path
 from typing import Self
 
-from pygeodata.config import FORMAT_VERSION, JSONKeys
+from pygeodata.config import FORMAT_VERSION
+from pygeodata.enums import JSONKeys
+from pygeodata.fileio import write_json_atomic
 from pygeodata.paths import CachePathConstructor
+
+
+def read_format_version(path: Path) -> int | None:
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError):
+        return None
+    version = data.get(JSONKeys.FORMAT_VERSION) if isinstance(data, dict) else None
+    return version if isinstance(version, int) else None
+
+
+def is_current_format(path: Path) -> bool:
+    return read_format_version(path) == FORMAT_VERSION
 
 
 class ChangeStatus(str, Enum):
@@ -87,6 +102,10 @@ class EntryRecord:
     format_version: int | None = None
 
     @property
+    def is_current_format(self) -> bool:
+        return self.format_version == FORMAT_VERSION
+
+    @property
     def params_path(self) -> Path | None:
         if self.hash_path is None:
             return None
@@ -112,7 +131,7 @@ class EntryRecord:
     def dump(self, path: Path) -> None:
         d = dataclasses.asdict(self)
         d.pop('hash_path', None)
-        path.write_text(json.dumps(d, indent=4), encoding='utf-8')
+        write_json_atomic(path, d, indent=4)
 
 
 @dataclass(slots=True)
@@ -142,7 +161,7 @@ class TreeSnapshot:
         return sorted({t for s, t in self.inheritance_edges if s == self.root_class})
 
     def dump(self, path: Path) -> None:
-        path.write_text(json.dumps(dataclasses.asdict(self), indent=4), encoding='utf-8')
+        write_json_atomic(path, dataclasses.asdict(self), indent=4)
 
     @classmethod
     def from_file(cls, path: Path) -> Self:
@@ -154,7 +173,7 @@ class TreeSnapshot:
             inheritance_edges=data.get(JSONKeys.INHERITANCE_EDGES, []),
             root_class=data.get(JSONKeys.ROOT_CLASS, ''),
             registered_at=data.get(JSONKeys.REGISTERED_AT, ''),
-            format_version=data.get(JSONKeys.FORMAT_VERSION, FORMAT_VERSION),
+            format_version=data.get(JSONKeys.FORMAT_VERSION, 0),
         )
 
 
@@ -167,7 +186,7 @@ class CodeState:
     format_version: int = field(default=FORMAT_VERSION)
 
     def dump(self, path: Path) -> None:
-        path.write_text(json.dumps(dataclasses.asdict(self), indent=4), encoding='utf-8')
+        write_json_atomic(path, dataclasses.asdict(self), indent=4)
 
     @classmethod
     def from_file(cls, path: Path) -> Self:
@@ -177,7 +196,7 @@ class CodeState:
             class_name=data[JSONKeys.CLASS_NAME],
             object_type=data[JSONKeys.OBJECT_TYPE],
             registered_at=data[JSONKeys.REGISTERED_AT],
-            format_version=data.get(JSONKeys.FORMAT_VERSION, FORMAT_VERSION),
+            format_version=data.get(JSONKeys.FORMAT_VERSION, 0),
         )
 
 

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from pygeodata.config import JSONKeys
+from pygeodata.enums import JSONKeys
 from pygeodata.spec import SpatialSpec
 from tests.fixtures.data import (
     DummyLoader,
@@ -108,7 +108,7 @@ def _setup_output_file(loader, spec):
         (
             lambda loader, spec: (
                 _setup_output_file(loader, spec),
-                loader.write_cache_metadata(spec),
+                loader.write_entry(spec),
             ),
             True,
         ),
@@ -128,7 +128,7 @@ def test_is_processed_symlinks(sample_spatial_spec: SpatialSpec, tmp_path: Path)
     target = tmp_path / 'target.tif'
     target.touch()
     path.symlink_to(target)
-    loader.write_cache_metadata(sample_spatial_spec)
+    loader.write_entry(sample_spatial_spec)
     assert loader.is_processed(sample_spatial_spec)
 
     path.unlink()
@@ -154,7 +154,7 @@ def test_process_fn_calls_processor(sample_spatial_spec: SpatialSpec) -> None:
 def test_write_and_read_state_hash(sample_spatial_spec: SpatialSpec) -> None:
     loader = SimpleLoader()
     loader.get_processed_path(sample_spatial_spec)
-    loader.write_cache_metadata(sample_spatial_spec)
+    loader.write_entry(sample_spatial_spec)
     assert loader.read_state_hash(sample_spatial_spec) == loader.get_state_hash(sample_spatial_spec)
 
 
@@ -237,9 +237,9 @@ def test_get_src_path_returns_path(sample_geotiff: Path) -> None:
     assert loader.get_src_path() == sample_geotiff
 
 
-def test_write_cache_metadata_content(sample_spatial_spec: SpatialSpec) -> None:
+def test_write_entry_content(sample_spatial_spec: SpatialSpec) -> None:
     loader = SimpleLoader()
-    loader.write_cache_metadata(sample_spatial_spec)
+    loader.write_entry(sample_spatial_spec)
     data = json.loads(loader.resolve_cache_paths(sample_spatial_spec).state_hash_path.read_text())
     assert data[JSONKeys.STATE_HASH] == loader.get_state_hash(sample_spatial_spec)
     assert data[JSONKeys.DEPENDENCY_TREE_HASH] == loader.get_dependency_tree_hash()
@@ -248,9 +248,9 @@ def test_write_cache_metadata_content(sample_spatial_spec: SpatialSpec) -> None:
     assert data[JSONKeys.CO_OUTPUTS] == []
 
 
-def test_write_cache_metadata_co_outputs(sample_spatial_spec: SpatialSpec) -> None:
+def test_write_entry_co_outputs(sample_spatial_spec: SpatialSpec) -> None:
     loader = SimpleLoader()
-    loader.write_cache_metadata(sample_spatial_spec, co_outputs=('abc123', 'def456'))
+    loader.write_entry(sample_spatial_spec, co_outputs=('abc123', 'def456'))
     data = json.loads(loader.resolve_cache_paths(sample_spatial_spec).state_hash_path.read_text())
     assert data[JSONKeys.CO_OUTPUTS] == ['abc123', 'def456']
 

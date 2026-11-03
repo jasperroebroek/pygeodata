@@ -11,9 +11,9 @@ from pathlib import Path
 import pytest
 
 from pygeodata.catalog import store
-from pygeodata.catalog.display import is_output_file
 from pygeodata.catalog.entry_catalog import _enrich_params_path, discover_entries
-from pygeodata.config import FORMAT_VERSION, JSONKeys, get_config, set_config
+from pygeodata.config import FORMAT_VERSION, get_config, set_config
+from pygeodata.enums import JSONKeys
 from pygeodata.paths import CachePathConstructor
 from pygeodata.registries.registry import EntryRegistry
 from pygeodata.tracked_object import TrackedObject
@@ -64,46 +64,6 @@ def write_cache_entry(
 
 
 # ---------------------------------------------------------------------------
-# _is_output_file
-# ---------------------------------------------------------------------------
-
-
-def _make_tif(p):
-    f = p / 'result.tif'
-    f.write_bytes(b'x')
-    return f
-
-
-def _make_zarr(p):
-    d = p / 'data.zarr'
-    d.mkdir()
-    return d
-
-
-def _make_subdir(p):
-    d = p / 'subdir'
-    d.mkdir()
-    return d
-
-
-@pytest.mark.parametrize(
-    'make_path,expected',
-    [
-        (_make_tif, True),
-        (_make_zarr, True),
-        (_make_subdir, False),
-    ],
-)
-def test_is_output_file(tmp_path, make_path, expected):
-    path = make_path(tmp_path)
-    assert is_output_file(path) is expected
-
-
-def test_is_output_file_meta_files(tmp_path):
-    for name in ('parameters.json', 'meta.json', 'spec.json', 'graph.pdf', 'process.lock'):
-        f = tmp_path / name
-        f.write_bytes(b'x')
-        assert not is_output_file(f)
 
 
 # ---------------------------------------------------------------------------

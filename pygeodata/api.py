@@ -5,7 +5,7 @@ from pathlib import Path
 
 from pygeodata.artifact import Artifact
 from pygeodata.data import Data
-from pygeodata.paths import CACHE_META_FILES, CachePathConstructor
+from pygeodata.paths import CachePathConstructor
 from pygeodata.protocols import T
 from pygeodata.registries.registry import EntryRegistry
 from pygeodata.spec import SpatialSpec
@@ -42,7 +42,7 @@ def _resolve_output_path(instance: Artifact, directory: Path, full_hash: str) ->
             return candidate
     except ValueError:
         pass
-    files = [p for p in directory.iterdir() if p.name not in CACHE_META_FILES]
+    files = CachePathConstructor(directory).output_paths()
     if not files:
         raise FileNotFoundError(f'No output file found for hash {full_hash!r} in {directory}')
     if len(files) > 1:
