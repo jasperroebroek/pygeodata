@@ -27,17 +27,19 @@ python -m pytest -q
 
 ## CLI import time
 
-`import pygeodata.cli` must stay fast, and the goal is to make it faster still. The CLI must not load numpy, affine, graphviz or other heavy packages. Check after any change that touches imports:
+`import pygeodata.cli` and `pygeodata --help` must stay fast. Neither may load numpy, affine, graphviz, filelock or any other heavy package. `tests/test_cli_import.py` guards this in a fresh interpreter, and it runs with the normal suite. To investigate a regression:
 
 ```
 python -X importtime -c "import pygeodata.cli" 2>&1 | sort -t'|' -k2 -n | tail -15
-python -c "import sys, pygeodata.cli; print(sorted(m for m in ('numpy', 'affine', 'graphviz', 'filelock', 'pandas', 'xarray', 'rasterio', 'pyproj', 'geopandas', 'shapely', 'matplotlib') if m in sys.modules))"
-time python -c "import pygeodata.cli"
+time pygeodata --help
 ```
 
-Baseline (2026-11-03, macOS, Python 3.14, warm cache): about 290 ms in-process, or about 390 ms of process wall time. For comparison, `python -c "import click"` takes about 70 ms. Heavy modules loaded today: numpy, affine, graphviz and filelock (filelock ≥ 3.29 imports asyncio, about 100 ms).
+Baseline (2026-11-03, macOS, Python 3.14, warm cache): `import pygeodata.cli` takes about 45 ms in-process, and `pygeodata --help` about 0.1 s wall time. For comparison, `python -c "import click"` takes about 0.08 s. Before this work it was about 300 ms in-process.
 
-An import a module needs only on a code path the CLI doesn't use goes inside the function, with a one-line comment giving the reason. Otherwise imports stay at module level.
+How it stays light:
+- `pygeodata/__init__.py` resolves its public API lazily via `lazy_loader`. The names are declared once, in `pygeodata/__init__.pyi`.
+- `pygeodata/cli/__init__.py` imports only click. Each command lives in its own module under `pygeodata/cli/` and is registered in the `COMMANDS` table (`'module:attribute'` plus its short help) instead of being imported. A test keeps the short help equal to the command's docstring summary.
+- An import that a module needs only on a code path the CLI doesn't take goes inside the function, with a one-line comment giving the reason. Otherwise imports stay at module level.
 
 ## Collaboration
 

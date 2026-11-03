@@ -5,17 +5,12 @@ import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from pygeodata.formatting.html import format_html_block
+
 if TYPE_CHECKING:
     from graphviz import Digraph
 
     from pygeodata.graph_types import DependencyGraph, RuntimeDependencyGraph
-
-try:
-    from graphviz import Digraph as _Digraph
-
-    HAS_GRAPHVIZ = True
-except ImportError:
-    HAS_GRAPHVIZ = False
 
 _GRAPHVIZ_WARNED = False
 
@@ -28,8 +23,17 @@ def _warn_graphviz_missing() -> None:
             'graphviz is not installed; dependency graphs will not be generated. '
             'Install it with: pip install pygeodata[viz]',
             ImportWarning,
-            stacklevel=3,
+            stacklevel=4,
         )
+
+
+def _digraph_class() -> type[Digraph] | None:
+    try:
+        from graphviz import Digraph  # noqa: PLC0415 — optional, and graphs is on the CLI import path
+    except ImportError:
+        _warn_graphviz_missing()
+        return None
+    return Digraph
 
 
 def _build_runtime_html_label(
@@ -57,8 +61,6 @@ def _build_runtime_html_label(
         )
 
     if show_params and node.params:
-        from pygeodata.formatting.html import format_html_block
-
         prim_params: list[str] = []
 
         for k, v in node.params.items():
@@ -91,13 +93,13 @@ def plot_compact_execution_graph(
     show_calls: bool = True,
     view: bool = False,
 ) -> Digraph | None:
-    if not HAS_GRAPHVIZ:
-        _warn_graphviz_missing()
+    digraph = _digraph_class()
+    if digraph is None:
         return None
 
     path = Path(path)
 
-    dot = _Digraph(
+    dot = digraph(
         name='CompactExecutionGraph',
         graph_attr={
             'rankdir': 'LR',
@@ -158,11 +160,11 @@ def plot_class_dependency_graph(
     Plots the class dependency graph and saves it in the code registry directory.
     Returns the path to the generated PNG, or None if graphviz is missing.
     """
-    if not HAS_GRAPHVIZ:
-        _warn_graphviz_missing()
+    digraph = _digraph_class()
+    if digraph is None:
         return None
 
-    dot = _Digraph(comment=f'{cls_name} Dependency Graph')
+    dot = digraph(comment=f'{cls_name} Dependency Graph')
     dot.attr(rankdir='LR')
     dot.attr('node', fontname='Helvetica', fontsize='10')
     dot.attr('edge', fontname='Helvetica', fontsize='9')

@@ -5,11 +5,10 @@ import shutil
 from collections.abc import Iterator
 from pathlib import Path
 
-from filelock import FileLock, Timeout
-
 from pygeodata.catalog.store import reconcile
 from pygeodata.config import get_config
 from pygeodata.enums import JSONKeys, Staleness
+from pygeodata.fileio import file_lock, try_acquire
 from pygeodata.paths import CachePathConstructor, CachePathResolver, RegistryResolver
 from pygeodata.registries.registry import EntryRegistry, SourceRegistry, TreeRegistry
 from pygeodata.registries.registry_types import EntryRecord, is_current_format
@@ -207,10 +206,8 @@ def clean_lock_files(dry_run: bool = True) -> None:
             print(f'[dry_run] process.lock: {lock_path}')
             continue
 
-        lock = FileLock(lock_path, timeout=0)
-        try:
-            lock.acquire()
-        except Timeout:
+        lock = file_lock(lock_path)
+        if not try_acquire(lock):
             print(f'[Skipping] process.lock in use: {lock_path}')
             continue
         lock_path.unlink(missing_ok=True)

@@ -4,12 +4,11 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, ClassVar
 
-from filelock import FileLock
-
 from pygeodata.cache_entry import is_cache_valid, write_entry
 from pygeodata.config import get_config
 from pygeodata.enums import JSONKeys, SpecKeys
 from pygeodata.extraction import extract_instances
+from pygeodata.fileio import file_lock
 from pygeodata.graph_types import RuntimeDependencyGraph, RuntimeNode, RuntimeParamEdge
 from pygeodata.graphs import plot_compact_execution_graph
 from pygeodata.hash import calculate_cls_source_hash, calculate_dict_hash
@@ -276,7 +275,7 @@ class Artifact(TrackedObject, ABC):
 
         cache_paths = self.resolve_cache_paths(spec)
         cache_paths.mkdir()
-        with FileLock(cache_paths.lock_path, timeout=3600):
+        with file_lock(cache_paths.lock_path, timeout=3600):
             if cache_paths.state_hash_path.exists() and not is_cache_valid(self, spec):
                 print(f'# Cache invalid for {self.get_class_name()}. Recomputing ...')
 

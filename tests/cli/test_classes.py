@@ -13,18 +13,18 @@ def _patch_registries(
     discover: Callable[[], dict[str, ClassInfo]],
     merge: Callable[..., dict[str, ClassInfo]],
 ) -> None:
-    monkeypatch.setattr('pygeodata.cli.EntryRegistry', MagicMock(return_value=MagicMock(class_names=[])))
-    monkeypatch.setattr('pygeodata.cli.VersionRegistry', MagicMock(return_value=MagicMock()))
+    monkeypatch.setattr('pygeodata.cli.classes.EntryRegistry', MagicMock(return_value=MagicMock(class_names=[])))
+    monkeypatch.setattr('pygeodata.cli.classes.VersionRegistry', MagicMock(return_value=MagicMock()))
     monkeypatch.setattr(
-        'pygeodata.cli.SourceRegistry',
+        'pygeodata.cli.classes.SourceRegistry',
         MagicMock(
             return_value=MagicMock(
                 get_latest_state_for_class=MagicMock(return_value=None),
             ),
         ),
     )
-    monkeypatch.setattr('pygeodata.cli.discover_loaded_classes', discover)
-    monkeypatch.setattr('pygeodata.cli.merge_unloaded_classes', merge)
+    monkeypatch.setattr('pygeodata.cli.classes.discover_loaded_classes', discover)
+    monkeypatch.setattr('pygeodata.cli.classes.merge_unloaded_classes', merge)
 
 
 def _identity_merge(classes: dict[str, ClassInfo], *_args: object, **_kwargs: object) -> dict[str, ClassInfo]:

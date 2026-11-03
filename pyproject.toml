@@ -27,6 +27,7 @@ dependencies = [
     "pyarrow",
     "filelock",
     "click",
+    "lazy_loader>=0.4",
 ]
 
 [project.urls]
@@ -40,6 +41,9 @@ pygeodata = "pygeodata.cli:cli"
 
 [tool.setuptools.packages.find]
 include = ["pygeodata*"]
+
+[tool.setuptools.package-data]
+pygeodata = ["*.pyi"]
 
 [project.optional-dependencies]
 viz = [

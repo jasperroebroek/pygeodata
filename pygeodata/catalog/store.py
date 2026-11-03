@@ -33,18 +33,14 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
-from filelock import FileLock
-
 from pygeodata.catalog.dimensions import dimension_rows
+from pygeodata.catalog.display import EntryDisplay, entry_display
 from pygeodata.catalog.types import FileRole
 from pygeodata.config import FORMAT_VERSION, get_config
-from pygeodata.fileio import write_json_atomic
+from pygeodata.fileio import file_lock, write_json_atomic
 from pygeodata.paths import CachePathConstructor, CachePathResolver
 from pygeodata.registries.registry_types import EntryRecord
 from pygeodata.spec import SpatialSpec
-
-if TYPE_CHECKING:
-    from pygeodata.catalog.display import EntryDisplay
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +126,7 @@ def save_catalog(catalog: dict[str, Any]) -> None:
 def _catalog_lock() -> Iterator[None]:
     path = catalog_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    with FileLock(path.with_name(f'{path.name}.lock')):
+    with file_lock(path.with_name(f'{path.name}.lock')):
         yield
 
 
@@ -291,8 +287,6 @@ def backfill(
     log_interval: int = BACKFILL_LOG_INTERVAL,
 ) -> int:
     """Index every cache entry missing from the catalog; returns the count indexed."""
-    from pygeodata.catalog.display import entry_display  # noqa: PLC0415 — display imports the artifact families
-
     known = set(catalog['entries'])
     count = 0
     for entry_dir, record, spec in iter_cache_records(cache_roots, format_version=format_version, skip_hashes=known):
@@ -357,8 +351,6 @@ def index_entry(
         return
     display = None
     if params_json is not None:
-        from pygeodata.catalog.display import entry_display  # noqa: PLC0415 — display imports the artifact families
-
         try:
             display = entry_display(params_json, entry_dir, record.class_name, record.object_type)
         except OSError as exc:
@@ -446,7 +438,7 @@ def pinned_hashes() -> list[str]:
 
 def set_pinned(state_hash: str, pinned: bool) -> None:
     """Pin or unpin one entry; pinning an already pinned entry keeps its original time."""
-    with FileLock(pins_path().with_suffix('.lock')):
+    with file_lock(pins_path().with_suffix('.lock')):
         pins = _load_pins()
         if pinned:
             if not any(pin['state_hash'] == state_hash for pin in pins):

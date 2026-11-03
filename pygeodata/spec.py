@@ -12,6 +12,9 @@ import numpy as np
 from pygeodata.enums import SpecKeys
 from pygeodata.hash import calculate_dict_hash
 
+# pyproj, affine, rasterio and fiona are imported inside the functions that need them: they are
+# heavy, and importing spec (which most of pygeodata, the CLI included, does) must not load them.
+
 if TYPE_CHECKING:
     from pyproj import CRS
 
