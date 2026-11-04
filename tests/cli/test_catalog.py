@@ -9,7 +9,7 @@ from click.testing import CliRunner
 from pygeodata.catalog import store
 from pygeodata.catalog.types import CatalogData
 from pygeodata.cli import cli
-from pygeodata.config import get_config
+from pygeodata.config import get_config, set_config
 from pygeodata.spec import SpatialSpec
 from tests.fixtures.records import make_record, write_meta
 
@@ -52,10 +52,32 @@ def test_catalog_build_prunes_missing_rows(tmp_path: Path, sample_spatial_spec: 
 def test_browse_flags_available() -> None:
     result = CliRunner().invoke(cli, ['browse', '--help'])
     assert result.exit_code == 0
-    for flag in ('--fast', '--reconcile-interval', '--import-all'):
+    for flag in ('--fast', '--reconcile-interval', '--import-all', '--read-only', '--writable'):
         assert flag in result.output
     assert '--reimport-on-reconcile' not in result.output
     assert '--verbose-import' not in result.output
+
+
+@pytest.mark.parametrize(('flag', 'expected'), [('--read-only', True), ('--writable', False), (None, None)])
+def test_browse_passes_the_mode_override(
+    monkeypatch: pytest.MonkeyPatch, flag: str | None, expected: bool | None
+) -> None:
+    opened = {}
+    monkeypatch.setattr(
+        'pygeodata_browser.serve.open_registry_browser',
+        lambda *args, **kwargs: opened.update(kwargs),
+    )
+    result = CliRunner().invoke(cli, ['browse', *([flag] if flag else [])])
+    assert result.exit_code == 0, result.output
+    assert opened['read_only'] is expected
+
+
+def test_browse_writable_needs_the_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr('pygeodata_browser.serve.open_registry_browser', lambda *args, **kwargs: None)
+    with set_config(catalog_enabled=False):
+        result = CliRunner().invoke(cli, ['browse', '--writable'])
+    assert result.exit_code != 0
+    assert 'catalog_enabled' in result.output
 
 
 def test_catalog_build_import_all(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

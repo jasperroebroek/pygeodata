@@ -51,6 +51,20 @@ Version 0.5.0 (unreleased)
   there were.  **Importing runs every .py file at the project root and in its
   packages: a root-level script without an** ``if __name__ == '__main__':``
   **guard is executed on every import.**
+- A project mirrored to another machine can be browsed without ever writing
+  into the mirror.  The browser is read-only when the catalog was written from
+  another project root, or ``catalog_enabled`` is False; ``browse --read-only``
+  and ``--writable`` override that.  Pins and thumbnails then live in the user's
+  data and cache directories, keyed by the catalog id; deleting entries and the
+  clean commands are disabled; an outdated catalog is reported with the command
+  to run where it is written instead of being rebuilt.  The registry
+  diagnostics show the mode, where the catalog was written and the local paths.
+  See :doc:`tutorials/08_registry_browser`.
+- Entries of a cache root that is missing or empty (an unsynced mirror, an
+  unmounted drive) are shown with an ``offline`` badge, with a banner, disabled
+  file actions and an ``Online`` / ``Offline (n)`` filter, instead of looking
+  like normal entries whose files fail to open.
+- ``analyse_in_subprocess`` takes an optional ``env`` for the subprocess.
 - One **Reload** button re-runs the analysis and rebuilds the view at once.  A
   failed analysis keeps the last good view and shows the error; the files the
   analysis could not read are listed in the registry diagnostics.

@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 import textwrap
@@ -132,6 +133,13 @@ def test_analyse_in_subprocess(project: Path) -> None:
     assert analysis.mode == 'import'
     assert Path(analysis.root).resolve() == project.resolve()
     assert set(project_classes(analysis)) == PROJECT_CLASSES
+
+
+@pytest.mark.usefixtures('own_pygeodata')
+def test_subprocess_env_can_keep_bytecode_out_of_the_project(project: Path) -> None:
+    analyse_in_subprocess(project, timeout=120, env={**os.environ, 'PYTHONDONTWRITEBYTECODE': '1'})
+
+    assert not list(project.rglob('__pycache__'))
 
 
 @pytest.mark.usefixtures('own_pygeodata')

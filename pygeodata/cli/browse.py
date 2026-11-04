@@ -30,7 +30,16 @@ from pygeodata.config import get_config
         'without an if __name__ == "__main__" guard RUNS, on every import.'
     ),
 )
-def browse(port: int, fast: bool, reconcile_interval: float, import_all: bool) -> None:
+@click.option(
+    '--read-only/--writable',
+    'read_only',
+    default=None,
+    help=(
+        'Never write into the project (a mirror), or allow it. Default: read-only when the catalog was written '
+        'from another project root or catalog_enabled is False.'
+    ),
+)
+def browse(port: int, fast: bool, reconcile_interval: float, import_all: bool, read_only: bool | None) -> None:
     """Launch the registry browser."""
     try:
         from pygeodata_browser.serve import open_registry_browser  # optional package that itself imports pygeodata
@@ -40,9 +49,18 @@ def browse(port: int, fast: bool, reconcile_interval: float, import_all: bool) -
             f'Original error: {err}',
         ) from err
 
+    if read_only is False and not get_config().catalog_enabled:
+        raise click.UsageError('--writable needs catalog_enabled: it is False, so nothing can be written.')
+
     if not get_config().catalog_enabled:
         click.echo('Note: catalog_enabled is False — the browser shows nothing until a catalog is built.')
 
     _check_roots_readable((*get_config().cache_roots, get_config().path_registry))
 
-    open_registry_browser(port, fast=fast, reconcile_interval=reconcile_interval * 60, import_all=import_all)
+    open_registry_browser(
+        port,
+        fast=fast,
+        reconcile_interval=reconcile_interval * 60,
+        import_all=import_all,
+        read_only=read_only,
+    )

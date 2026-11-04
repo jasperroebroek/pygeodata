@@ -16,6 +16,7 @@ import msgspec
 from pygeodata.dependencies import ClassFacts, dependency_tree_hash
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 
 
@@ -61,11 +62,11 @@ def decode_analysis(data: bytes | str) -> ProjectAnalysis:
     return msgspec.json.decode(data, type=ProjectAnalysis)
 
 
-def analyse_in_subprocess(root: Path, *, timeout: float) -> ProjectAnalysis:
-    """The project at ``root`` analysed by importing it in a fresh interpreter."""
+def analyse_in_subprocess(root: Path, *, timeout: float, env: Mapping[str, str] | None = None) -> ProjectAnalysis:
+    """The project at ``root`` analysed by importing it in a fresh interpreter; ``env`` replaces the environment."""
     command = [sys.executable, '-m', 'pygeodata', 'analyse', '--import-all', '--json']
     try:
-        result = subprocess.run(command, cwd=root, capture_output=True, timeout=timeout, check=False)  # noqa: S603 — fixed interpreter and arguments
+        result = subprocess.run(command, cwd=root, env=env, capture_output=True, timeout=timeout, check=False)  # noqa: S603 — fixed interpreter and arguments
     except subprocess.TimeoutExpired as exc:
         raise AnalysisError(f'analysing {root} took longer than {timeout} s') from exc
     stderr = result.stderr.decode(errors='replace').strip()

@@ -47,6 +47,7 @@ Options:
    pygeodata browse --port 8080              # use a specific port
    pygeodata browse --reconcile-interval 1   # check the catalog every minute (default 5, 0 disables)
    pygeodata browse --import-all             # read the classes by importing the project
+   pygeodata browse --read-only              # never write into the project (see below); --writable forces the opposite
 
 Source reading does not see classes created at runtime or inside functions.
 With ``--import-all`` the browser instead imports the project in a separate
@@ -75,6 +76,37 @@ From Python:
 
    from pygeodata_browser.serve import open_registry_browser
    open_registry_browser(port=8080)  # blocks
+
+Browsing a mirror
+~~~~~~~~~~~~~~~~~
+
+A project that runs on a server can be browsed on a laptop through a synced copy
+of its directory. The browser then never writes into that copy. It is read-only
+("mirror mode") when the catalog was written from another project root, as a
+synced copy's was, or when ``catalog_enabled`` is False, and ``--read-only`` or
+``--writable`` override that. In mirror mode:
+
+- the catalog is read as it is: nothing is indexed, pruned or saved, and
+  **Reload** rebuilds from the catalog file only;
+- pins are stored on your machine, under the user data directory of
+  ``pygeodata-browser`` keyed by the catalog id, and the server's pins are not
+  shown;
+- **Delete**, **Clean cache** and **Clean registry** are disabled;
+- an outdated catalog is reported with the command to run where it is written
+  (``pygeodata catalog build``) instead of being rebuilt, since that would scan
+  every entry directory.
+
+Thumbnails are always cached on your machine (user cache directory), never in the
+project. The registry diagnostics (Activity icon) show the mode and why, where
+the catalog was written (root, host, time, pygeodata and Python version), its
+id and the local paths.
+
+A cache root that is missing or empty, because it is not synced or not mounted,
+keeps its entries in the catalog. They are shown with an ``offline`` badge, their
+download and open actions are disabled, a banner above the list names the root and
+how many entries it holds, and the ``Online`` / ``Offline (n)`` filter next to the
+kind filter hides them or shows only them. This applies on the machine that runs
+the pipeline as well.
 
 The browser reads ``path_cache``, ``path_tables``, ``path_figures``, and
 ``path_registry`` as configured in the current session. No data leaves

@@ -77,6 +77,11 @@ Commands
     │                             and in its packages: a root-level script
     │                             without an if __name__ == "__main__" guard
     │                             RUNS, on every import
+    │     --read-only / --writable
+    │                             Never write into the project (a synced
+    │                             mirror), or allow it.  Default: read-only
+    │                             when the catalog was written from another
+    │                             project root or catalog_enabled is False
     │
     ├── catalog
     │   Inspect and rebuild the .catalog.json cache catalog.
