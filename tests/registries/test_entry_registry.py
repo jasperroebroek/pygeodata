@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from pygeodata._version import FORMAT_VERSION
+from pygeodata._version import CATALOG_VERSION, FORMAT_VERSION
 from pygeodata.catalog import store
 from pygeodata.catalog.types import CatalogData, CatalogOutdatedError
 from pygeodata.config import get_config, set_config
@@ -167,7 +167,7 @@ def test_mirror_is_read_only_and_reports_the_difference() -> None:
 
 def test_outdated_mirror_catalog_raises_instead_of_scanning() -> None:
     write_entry('a1')
-    before = write_foreign_catalog(catalog_version=1)
+    before = write_foreign_catalog(catalog_version=CATALOG_VERSION - 1)
 
     with pytest.raises(CatalogOutdatedError, match='catalog build'):
         EntryRegistry()

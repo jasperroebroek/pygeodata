@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from pygeodata._version import CATALOG_VERSION
 from pygeodata.catalog import store
 from pygeodata.catalog.types import CatalogData
 from pygeodata.cli import cli
@@ -110,7 +111,7 @@ def test_catalog_build_errors_on_unreadable_root() -> None:
 
 def test_entry_list_on_an_outdated_mirror_catalog_is_a_clean_error() -> None:
     catalog = store._new_catalog()
-    catalog.header.catalog_version = 1
+    catalog.header.catalog_version = CATALOG_VERSION - 1
     catalog.header.writer.root = '/eos/elsewhere'
     catalog.dump(get_config().path_catalog)
 

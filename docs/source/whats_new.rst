@@ -84,7 +84,8 @@ Version 0.5.0 (unreleased)
 
 **Catalog**
 
-- The catalog (``.catalog.json``) is a typed, versioned contract.  Its header
+- The catalog (``.catalog.json``) is a typed, versioned contract (catalog
+  version 1; catalogs written by 0.4 are rebuilt once).  Its header
   records which machine, root, pygeodata and Python version wrote it; see it
   with ``pygeodata catalog info``.
 - Readers keep the catalog in sync with the cache by themselves: entries
@@ -102,7 +103,7 @@ Version 0.5.0 (unreleased)
 - The catalog's schema fingerprint included the types' docstrings, whose
   indentation Python 3.13 changed, so a catalog written on Python 3.11 or 3.12
   looked like another schema to Python 3.13 or later (on a mirror: refused).
-  It now covers the structure only (catalog version 4).
+  It now covers the structure only.
 - ``clean_cache`` deleted entries of a class it does not know as "Hash wrong",
   even with ``delete_unregistered=False`` or when the deletion was declined.
   Such entries are now kept unless deletion is allowed and confirmed, and are
