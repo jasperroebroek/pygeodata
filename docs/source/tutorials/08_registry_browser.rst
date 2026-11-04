@@ -55,7 +55,7 @@ Python process and reads the classes that were registered, which finds those
 too. The browser process itself still never runs project code. Because an
 import is slow, it is not repeated on every edit: the UI keeps showing the last
 import and says *Code changed since the last import — next import at HH:MM*,
-with a **Reload now** button. The import runs at the next
+with a **Reload** button. The import runs at the next
 ``--reconcile-interval`` tick, once however many edits there were, and only if
 code changed.
 

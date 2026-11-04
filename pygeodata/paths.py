@@ -109,13 +109,14 @@ class RegistryResolver:
     def _root(self) -> Path:
         return self.root if self.root is not None else get_config().path_registry
 
+    # .value: Python 3.11's pathlib interns glob patterns, which rejects str subclasses
     def glob_source_paths(self) -> Generator[Path, None, None]:
         if self.code_dir.exists():
-            yield from self.code_dir.rglob(CodeFile.META)
+            yield from self.code_dir.rglob(CodeFile.META.value)
 
     def glob_tree_paths(self) -> Generator[Path, None, None]:
         if self.snapshots_dir.exists():
-            yield from self.snapshots_dir.rglob(SnapshotFile.TREE)
+            yield from self.snapshots_dir.rglob(SnapshotFile.TREE.value)
 
 
 @dataclass
