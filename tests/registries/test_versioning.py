@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from pygeodata.dependencies import ClassFacts
 from pygeodata.enums import JSONKeys
 from pygeodata.registries.registry_types import ChangeStatus
 from pygeodata.registries.versioning import VersionRegistry
@@ -436,3 +437,56 @@ def test_assign_full_events_forward_pass_matches_original(spread_registry):
         VR._assign_full_events = original_method
 
     assert optimised == reference
+
+
+# ===========================================================================
+# Current code, via a facts lookup
+# ===========================================================================
+
+
+def _facts_lookup(**hashes: str):
+    facts = {
+        name: ClassFacts(
+            name=name,
+            object_type='Data',
+            source_hash=source_hash,
+            call_deps=frozenset(),
+            bases=frozenset(),
+        )
+        for name, source_hash in hashes.items()
+    }
+    return facts.get
+
+
+def test_live_snapshot_takes_current_hash_over_the_registered_one(two_class_registry):
+    vr = VersionRegistry(two_class_registry)
+    assert vr.live_snapshot(_facts_lookup(MyLoader='h3')) == {'MyLoader': 'h3', 'MyDep': 'd1'}
+
+
+def test_live_snapshot_without_current_code_is_the_newest_registered(two_class_registry):
+    vr = VersionRegistry(two_class_registry)
+    assert vr.live_snapshot(_facts_lookup()) == {'MyLoader': 'h2', 'MyDep': 'd1'}
+
+
+def test_has_live_stale_only_when_a_current_hash_differs(two_class_registry):
+    vr = VersionRegistry(two_class_registry)
+    assert not vr.has_live_stale(_facts_lookup(MyLoader='h2', MyDep='d1'))
+    assert not vr.has_live_stale(_facts_lookup())
+    assert vr.has_live_stale(_facts_lookup(MyLoader='h3'))
+
+
+def test_compare_versions_resolves_an_unregistered_current_hash_through_facts(two_class_registry):
+    vr = VersionRegistry(two_class_registry)
+    facts = _facts_lookup(MyLoader='h3')
+
+    events = vr.compare_versions({'MyLoader': 'h2'}, {'MyLoader': 'h3'}, facts)
+
+    assert [e.class_name for e in events] == ['MyLoader']
+    assert events[0].state_old.source_hash == 'h2'
+    assert events[0].state_new.source_hash == 'h3'
+    assert events[0].status is ChangeStatus.CHANGED
+
+
+def test_compare_versions_skips_a_hash_nothing_knows(two_class_registry):
+    vr = VersionRegistry(two_class_registry)
+    assert vr.compare_versions({'MyLoader': 'nope'}, {'MyLoader': 'nada'}, _facts_lookup()) == []

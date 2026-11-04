@@ -38,6 +38,31 @@ Version 0.5.0 (unreleased)
 - ``import pygeodata.cli`` no longer loads numpy; ``pygeodata --help`` takes
   about 0.1 s.
 
+**The registry browser never imports your project**
+
+- ``pygeodata browse`` reads the project's classes from source, like the other
+  commands, and the browser process no longer imports project code, so a
+  crashing or stale import can no longer affect it.  Edits are picked up
+  within about ten seconds and the staleness markers follow.
+- ``browse --import-all`` imports the project in a fresh subprocess instead.
+  Changed code is only noted (the UI shows "Code changed since the last import
+  — next import at HH:MM"); the import runs at the next
+  ``--reconcile-interval`` tick (default 5 minutes), once however many edits
+  there were.  **Importing runs every .py file at the project root and in its
+  packages: a root-level script without an** ``if __name__ == '__main__':``
+  **guard is executed on every import.**
+- One **Reload** button re-runs the analysis and rebuilds the view at once.  A
+  failed analysis keeps the last good view and shows the error; the files the
+  analysis could not read are listed in the registry diagnostics.
+- Removed ``--reimport-on-reconcile`` and, for ``browse``, ``--verbose-import``.
+  Removed the entry filters "Has warnings" and "Has error", which the catalog
+  never filled.
+- ``VersionRegistry.live_snapshot``, ``has_live_stale`` and ``compare_versions``
+  take a lookup from class name to the facts of its current code
+  (``ProjectAnalysis.facts.get``) instead of reading imported classes;
+  ``clean_cache`` takes ``current``, a lookup from class name to its current
+  dependency tree hash.
+
 **Catalog**
 
 - The catalog (``.catalog.json``) is a typed, versioned contract.  Its header

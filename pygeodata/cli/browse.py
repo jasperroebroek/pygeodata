@@ -1,8 +1,6 @@
-from pathlib import Path
-
 import click
 
-from pygeodata.cli.common import _check_roots_readable, _import_options, _import_project_modules
+from pygeodata.cli.common import _check_roots_readable
 from pygeodata.config import get_config
 
 
@@ -19,22 +17,20 @@ from pygeodata.config import get_config
     default=5.0,
     show_default=True,
     type=float,
-    help='Minutes between automatic catalog reconciles (0 disables).',
+    help='Minutes between automatic catalog checks and, with --import-all, project imports (0 disables).',
 )
 @click.option(
-    '--reimport-on-reconcile/--no-reimport-on-reconcile',
-    default=True,
-    help='Also reimport project modules on the periodic reconcile.',
+    '--import-all',
+    'import_all',
+    is_flag=True,
+    default=False,
+    help=(
+        'Read the classes by importing the project in a subprocess instead of from source. '
+        'Imports EVERY .py file at the project root and in its packages: a root-level script '
+        'without an if __name__ == "__main__" guard RUNS, on every import.'
+    ),
 )
-@_import_options
-def browse(
-    port: int,
-    fast: bool,
-    reconcile_interval: float,
-    reimport_on_reconcile: bool,
-    do_import: bool,
-    verbose_import: bool,
-) -> None:
+def browse(port: int, fast: bool, reconcile_interval: float, import_all: bool) -> None:
     """Launch the registry browser."""
     try:
         from pygeodata_browser.serve import open_registry_browser  # optional package that itself imports pygeodata
@@ -44,19 +40,9 @@ def browse(
             f'Original error: {err}',
         ) from err
 
-    if do_import:
-        root = Path.cwd()
-        n = _import_project_modules(root, verbose=verbose_import)
-        click.echo(f'Imported {n} module(s) from {root}')
-
     if not get_config().catalog_enabled:
         click.echo('Note: catalog_enabled is False — the browser shows nothing until a catalog is built.')
 
     _check_roots_readable((*get_config().cache_roots, get_config().path_registry))
 
-    open_registry_browser(
-        port,
-        fast=fast,
-        reconcile_interval=reconcile_interval * 60,
-        reimport_on_reconcile=reimport_on_reconcile,
-    )
+    open_registry_browser(port, fast=fast, reconcile_interval=reconcile_interval * 60, import_all=import_all)

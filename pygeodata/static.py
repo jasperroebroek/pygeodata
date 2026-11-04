@@ -11,7 +11,9 @@ installed packages. Such classes are unknown here, never reported as current.
 from __future__ import annotations
 
 import ast
+import textwrap
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pygeodata.analysis import ClassRecord, ProjectAnalysis, tree_hashes_of
@@ -22,8 +24,6 @@ from pygeodata.project import iter_project_files
 from pygeodata.tracked_object import TrackedObject
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from pygeodata.graph_types import SymbolTables
 
 # pygeodata's own TrackedObject classes a project class can derive from; each is its own object type
@@ -196,6 +196,22 @@ def analyse_project(root: Path) -> ProjectAnalysis:
         for name, facts in all_facts.items()
     }
     return ProjectAnalysis(mode='static', root=str(root), classes=classes, problems=problems)
+
+
+def read_class_source(record: ClassRecord) -> str | None:
+    """The class's source as its file holds it now; None when the file no longer holds the class as analysed."""
+    try:
+        text = Path(record.path).read_text(encoding='utf-8')
+        tree = ast.parse(text)
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        return None
+    lines = text.splitlines(keepends=True)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == record.facts.name and _first_line(node) == record.lineno:
+            source = ''.join(lines[record.lineno - 1 : node.end_lineno])
+            if calculate_ast_hash(parse_class_source(source)) == record.facts.source_hash:
+                return textwrap.dedent(source)
+    return None
 
 
 def compare_with_imports(analysis: ProjectAnalysis) -> list[str]:

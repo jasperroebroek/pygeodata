@@ -640,3 +640,30 @@ def test_clean_cache_keeps_subfolder_of_valid_entry(sample_spatial_spec: Spatial
     clean_cache(dry_run=False, delete_unregistered=False)
 
     assert (sidecars / 'extra.csv').exists()
+
+
+def test_clean_cache_keeps_unknown_class_without_delete_unregistered() -> None:
+    entry_dir = get_config().path_cache / 'gone1'
+    write_meta(entry_dir, make_record('gone1', 'GoneLoader', 'Data'))
+
+    clean_cache(dry_run=False, delete_unregistered=False)
+
+    assert entry_dir.exists()
+
+
+@pytest.mark.parametrize(('answer', 'kept'), [('n', True), ('y', False)])
+def test_clean_cache_asks_before_deleting_unknown_class(
+    answer: str,
+    kept: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    entry_dir = get_config().path_cache / 'gone1'
+    # the answer is remembered per class name, so each case needs its own
+    write_meta(entry_dir, make_record('gone1', f'GoneLoader{answer}', 'Data'))
+    monkeypatch.setattr('builtins.input', lambda _: answer)
+
+    clean_cache(dry_run=False, delete_unregistered=True)
+
+    assert entry_dir.exists() is kept
+    assert ('Class not found' in capsys.readouterr().out) is not kept

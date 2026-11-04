@@ -2,7 +2,7 @@ import functools
 import json
 import os
 import shutil
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import msgspec
@@ -62,8 +62,12 @@ def class_params_match_live(params_path: Path) -> bool | None:
     return True
 
 
-def hash_matches_live(hash_path: Path, check_class_params: bool = False) -> bool | None:
-    """Validate a cache entry's recorded hashes against the live classes.
+def hash_matches_live(
+    hash_path: Path,
+    check_class_params: bool = False,
+    current: Callable[[str], str | None] = live_tree_hash,
+) -> bool | None:
+    """Validate a cache entry's recorded hashes against the current classes (the imported ones by default).
 
     With ``check_class_params``, additionally validate every ``TrackedObject`` subclass held
     as a *parameter* — see :func:`class_params_match_live`. Off by default: it reads a second
@@ -73,7 +77,7 @@ def hash_matches_live(hash_path: Path, check_class_params: bool = False) -> bool
         record = EntryRecord.from_file(hash_path)
     except (OSError, msgspec.DecodeError):
         return False
-    staleness = dependency_staleness(record.class_name, record.dependency_tree_hash, live_tree_hash)
+    staleness = dependency_staleness(record.class_name, record.dependency_tree_hash, current)
     if staleness is Staleness.UNKNOWN:
         return None
     if staleness is Staleness.STALE:
@@ -116,24 +120,26 @@ def _confirm_class_deletion(class_name: str) -> bool:
     return answer.lower() == 'y'
 
 
-def _delete_manually(hash_path: Path, delete_unregistered: bool) -> bool:
-    """Confirm with the user if an entry can be deleted if not found in registry."""
+def _delete_unknown(class_name: str | None, delete_unregistered: bool) -> bool:
+    """Whether to delete an entry whose class is not known; asks the user per class name."""
     if not delete_unregistered:
         return False
-    class_name = read_cache_class_name(hash_path)
-    if class_name is None:
-        return True
-    if TrackedObject.find_object_class(class_name) is not None:
-        return False
-    return _confirm_class_deletion(class_name)
+    return class_name is None or _confirm_class_deletion(class_name)
 
 
-def _purge_dir(dirpath: Path, dry_run: bool, delete_unregistered: bool, check_class_params: bool = False) -> bool:
+def _purge_dir(
+    dirpath: Path,
+    dry_run: bool,
+    delete_unregistered: bool,
+    check_class_params: bool,
+    current: Callable[[str], str | None],
+) -> bool:
     """
     Validate a single cache directory. Returns True if the directory was deleted.
 
     No meta.json  → delete as invalid.
-    meta.json     → validate; delete directory if stale or unregistered.
+    meta.json     → validate; delete directory if stale, or if its class is unknown and
+                    ``delete_unregistered`` (after confirmation).
     """
     resolver = CachePathConstructor(dirpath)
     hash_path = resolver.state_hash_path
@@ -149,10 +155,13 @@ def _purge_dir(dirpath: Path, dry_run: bool, delete_unregistered: bool, check_cl
         handle_invalid(dirpath, dry_run=dry_run, label='Format version mismatch', class_name=class_name)
         return True
 
-    valid = hash_matches_live(hash_path, check_class_params=check_class_params)
+    valid = hash_matches_live(hash_path, check_class_params=check_class_params, current=current)
 
-    if valid is None and _delete_manually(hash_path, delete_unregistered):
-        valid = False
+    if valid is None:
+        if not _delete_unknown(class_name, delete_unregistered):
+            return False
+        handle_invalid(dirpath, dry_run=dry_run, label='Class not found', class_name=class_name)
+        return True
 
     if not valid:
         handle_invalid(dirpath, dry_run=dry_run, label='Hash wrong', class_name=class_name)
@@ -165,6 +174,7 @@ def clean_cache(
     dry_run: bool = True,
     delete_unregistered: bool = True,
     check_class_params: bool = False,
+    current: Callable[[str], str | None] = live_tree_hash,
 ) -> None:
     """Remove stale or invalid cache entries.
 
@@ -179,6 +189,8 @@ def clean_cache(
         entry's dependency tree, so without this a class-valued param that changed is
         reported as current even though the runtime correctly recomputes it. Entries with no
         ``parameters.json`` are reported as stale under this check.
+    current : Callable[[str], str | None]
+        A class's current dependency tree hash, or None when unknown; the imported classes by default.
     """
     roots = get_config().cache_roots
     deleted = [
@@ -189,6 +201,7 @@ def clean_cache(
             dry_run=dry_run,
             delete_unregistered=delete_unregistered,
             check_class_params=check_class_params,
+            current=current,
         )
     ]
 

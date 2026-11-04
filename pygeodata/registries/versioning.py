@@ -14,10 +14,10 @@ VersionRegistry is the single authoritative source for:
     .dependency_staleness(dependency_hash)     -> Staleness  (STALE if any class in snapshot differs from current)
     .version_change_summary(version)           -> list[CodeEvent] | None
     .version_change_summary_from_id(vid)       -> list[CodeEvent] | None
-    .live_snapshot()                           -> dict[class_name, source_hash]  (live in-memory state)
-    .has_live_stale()                          -> bool  (True when any loaded class diverges from disk)
+    .live_snapshot(facts)                      -> dict[class_name, source_hash]  (current code, via a facts lookup)
+    .has_live_stale(facts)                     -> bool  (True when any class's current code diverges from disk)
     .snapshot_for_version(version_id)          -> dict[class_name, source_hash] | None
-    .compare_versions(base, target)            -> list[CodeEvent]
+    .compare_versions(base, target, facts)     -> list[CodeEvent]
     .source_registry                           -> SourceRegistry
     .tree_registry                             -> TreeRegistry
 
@@ -33,13 +33,22 @@ Construct a fresh instance to scan from disk.
 from __future__ import annotations
 
 import itertools
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+from pygeodata._version import FORMAT_VERSION
 from pygeodata.enums import Staleness
 from pygeodata.registries.registry import SourceRegistry, TreeRegistry
 from pygeodata.registries.registry_types import ChangeStatus, CodeEvent, CodeState, Version
-from pygeodata.tracked_object import TrackedObject
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from pygeodata.dependencies import ClassFacts
+
+    # class name → the facts of its current code; None for a class whose current code is unknown
+    CurrentFacts = Callable[[str], ClassFacts | None]
 
 
 class VersionRegistry:
@@ -395,29 +404,29 @@ class VersionRegistry:
         """Full dep_hash → Version mapping (read-only view)."""
         return dict(self._dep_hash_to_version)
 
-    def live_snapshot(self) -> dict[str, str]:
-        """Return {class_name: source_hash} for the current live state.
+    def live_snapshot(self, facts: CurrentFacts) -> dict[str, str]:
+        """Return {class_name: source_hash} for the current code.
 
-        Prefers the in-memory hash from a loaded TrackedObject over the newest
-        on-disk hash so that unsaved edits are reflected.
+        A registered class whose current code ``facts`` knows is taken at that hash, so edits
+        that have not run yet are reflected; any other at its newest on-disk hash.
         """
         nodes: dict[str, str] = {}
         for class_name in self._src.class_names:
             state = self._src.get_latest_state_for_class(class_name)
             if state is None:
                 continue
-            cls = TrackedObject.find_object_class(class_name)
-            nodes[class_name] = cls.to_code_state().source_hash if cls is not None else state.source_hash
+            current = facts(class_name)
+            nodes[class_name] = current.source_hash if current is not None else state.source_hash
         return nodes
 
-    def has_live_stale(self) -> bool:
-        """True when any loaded class's in-memory hash diverges from its newest on-disk hash."""
+    def has_live_stale(self, facts: CurrentFacts) -> bool:
+        """True when any class's current source hash diverges from its newest on-disk hash."""
         for class_name in self._src.class_names:
             state = self._src.get_latest_state_for_class(class_name)
             if state is None:
                 continue
-            cls = TrackedObject.find_object_class(class_name)
-            if cls is not None and cls.to_code_state().source_hash != state.source_hash:
+            current = facts(class_name)
+            if current is not None and current.source_hash != state.source_hash:
                 return True
         return False
 
@@ -432,20 +441,26 @@ class VersionRegistry:
         self,
         base: dict[str, str],
         target: dict[str, str],
+        facts: CurrentFacts,
     ) -> list[CodeEvent]:
         """Compare two {class_name: source_hash} snapshots; return CodeEvents sorted by class_name.
 
-        For hashes not found on disk (e.g. an unregistered in-memory live hash),
-        a CodeState is constructed via TrackedObject.to_code_state().
+        A hash not found on disk (an unregistered current one) is resolved through ``facts``.
         """
 
         def _resolve(class_name: str, source_hash: str) -> CodeState | None:
             state = self._src.get_state_by_hash(source_hash)
             if state is not None:
                 return state
-            cls = TrackedObject.find_object_class(class_name)
-            if cls is not None and cls.to_code_state().source_hash == source_hash:
-                return cls.to_code_state()
+            current = facts(class_name)
+            if current is not None and current.source_hash == source_hash:
+                return CodeState(
+                    source_hash=source_hash,
+                    class_name=class_name,
+                    object_type=current.object_type,
+                    registered_at=datetime.now(UTC).isoformat(),
+                    format_version=FORMAT_VERSION,
+                )
             return None
 
         events: list[CodeEvent] = []

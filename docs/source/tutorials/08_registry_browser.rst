@@ -31,19 +31,43 @@ in your default browser. The URL is printed before the browser opens:
 
    http://127.0.0.1:52341
 
-With ``--import-all``, ``pygeodata browse`` imports all ``.py`` files in
-the current directory (recursively, skipping ``venv``, ``tests``, and
-build directories) before starting the server. This populates
-``TrackedObject._registry`` so the browser can resolve class names from
-hash files.
+The browser reads the project's classes from source, like ``pygeodata classes``:
+it parses the ``.py`` files at the project root and in its packages and never
+imports them, so it also works on a project whose dependencies are not
+installed. It looks at the files every ten seconds and re-reads them when one
+changed, so staleness follows your edits. The **Reload** button (menu, or
+``Ctrl+K`` → Reload) re-reads everything at once, including the cache catalog.
+Files that could not be parsed, and classes defined twice, are listed in the
+registry diagnostics.
 
 Options:
 
 .. code-block:: bash
 
-   pygeodata browse --port 8080        # use a specific port
-   pygeodata browse --import-all       # auto-import .py files first
-   pygeodata browse --import-all --verbose-import  # print each module imported
+   pygeodata browse --port 8080              # use a specific port
+   pygeodata browse --reconcile-interval 1   # check the catalog every minute (default 5, 0 disables)
+   pygeodata browse --import-all             # read the classes by importing the project
+
+Source reading does not see classes created at runtime or inside functions.
+With ``--import-all`` the browser instead imports the project in a separate
+Python process and reads the classes that were registered, which finds those
+too. The browser process itself still never runs project code. Because an
+import is slow, it is not repeated on every edit: the UI keeps showing the last
+import and says *Code changed since the last import — next import at HH:MM*,
+with a **Reload now** button. The import runs at the next
+``--reconcile-interval`` tick, once however many edits there were, and only if
+code changed.
+
+.. warning::
+
+   ``--import-all`` imports **every** ``.py`` file at the project root and in
+   its packages. A root-level script without an ``if __name__ == '__main__':``
+   guard therefore **runs** — a ``run.py`` that executes a pipeline would
+   process data each time the browser imports the project, automatically every
+   few minutes while you edit. Guard such scripts before using ``--import-all``.
+
+If the analysis fails (for example the import subprocess times out), the browser
+keeps the last good view and shows the error.
 
 From Python:
 

@@ -61,19 +61,22 @@ Commands
     │
     ├── browse
     │     Launch the registry browser web UI. Blocks until the first full
-    │     state is ready by default.
+    │     state is ready by default.  Reads the project's classes from
+    │     source; the server never imports project code.
     │     --port INTEGER          Port to listen on (0 = random free port)
     │     --fast / --no-fast      Serve the UI immediately from the catalog
     │                             bootstrap while the full state builds
     │                             (default: block until ready)
     │     --reconcile-interval FLOAT
-    │                             Minutes between automatic catalog reconciles
+    │                             Minutes between automatic catalog checks
+    │                             and, with --import-all, project imports
     │                             (0 disables; default: 5)
-    │     --reimport-on-reconcile / --no-reimport-on-reconcile
-    │                             Also reimport project modules on the
-    │                             periodic reconcile (default: on)
-    │     --import-all            Import all .py files from cwd before starting
-    │     --verbose-import        Print each module imported (with --import-all)
+    │     --import-all            Read the classes by importing the project in
+    │                             a subprocess instead of from source.
+    │                             Imports EVERY .py file at the project root
+    │                             and in its packages: a root-level script
+    │                             without an if __name__ == "__main__" guard
+    │                             RUNS, on every import
     │
     ├── catalog
     │   Inspect and rebuild the .catalog.json cache catalog.

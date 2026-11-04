@@ -42,6 +42,12 @@ def test_hash_matches_live_none_when_unregistered(tmp_path: Path) -> None:
     assert hash_matches_live(hash_file) is None
 
 
+def test_hash_matches_live_uses_the_given_lookup(tmp_path: Path) -> None:
+    hash_file = write_meta(tmp_path, make_record(class_name='NoSuchClass', dependency_tree_hash='abc'))
+    assert hash_matches_live(hash_file, current={'NoSuchClass': 'abc'}.get) is True
+    assert hash_matches_live(hash_file, current={'NoSuchClass': 'other'}.get) is False
+
+
 # --- CachePathResolver paths ---
 
 

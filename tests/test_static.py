@@ -6,7 +6,7 @@ import pytest
 
 from pygeodata.config import set_config
 from pygeodata.project import import_project_modules, iter_project_files
-from pygeodata.static import analyse_project, compare_with_imports
+from pygeodata.static import analyse_project, compare_with_imports, read_class_source
 from pygeodata.tracked_object import TrackedObject
 
 FIXTURES = Path(__file__).parent / 'fixtures'
@@ -111,6 +111,18 @@ def test_edited_source_changes_the_tree_hash(project: Path) -> None:
     after = analyse_project(project).tree_hashes
 
     assert {name for name in before if before[name] != after[name]} == {'StaticBase', 'StaticChild', 'StaticPlot'}
+
+
+def test_read_class_source_is_the_class_as_analysed(project: Path) -> None:
+    record = analyse_project(project).classes['StaticChild']
+
+    source = read_class_source(record)
+
+    assert source is not None
+    assert source.startswith('@dataclasses.dataclass\nclass StaticChild')
+    loaders = project / 'src' / 'loaders.py'
+    loaders.write_text(loaders.read_text().replace('2000', '2001'), encoding='utf-8')
+    assert read_class_source(record) is None
 
 
 def test_problems_are_reported_and_duplicates_left_out(project: Path) -> None:

@@ -52,8 +52,10 @@ def test_catalog_build_prunes_missing_rows(tmp_path: Path, sample_spatial_spec: 
 def test_browse_flags_available() -> None:
     result = CliRunner().invoke(cli, ['browse', '--help'])
     assert result.exit_code == 0
-    for flag in ('--fast', '--reconcile-interval', '--reimport-on-reconcile'):
+    for flag in ('--fast', '--reconcile-interval', '--import-all'):
         assert flag in result.output
+    assert '--reimport-on-reconcile' not in result.output
+    assert '--verbose-import' not in result.output
 
 
 def test_catalog_build_import_all(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
