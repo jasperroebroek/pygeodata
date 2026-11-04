@@ -80,6 +80,10 @@ Version 0.5.0 (unreleased)
 
 **Fixes**
 
+- ``clean_cache`` deleted entries of a class it does not know as "Hash wrong",
+  even with ``delete_unregistered=False`` or when the deletion was declined.
+  Such entries are now kept unless deletion is allowed and confirmed, and are
+  reported as "Class not found".
 - ``export`` includes zarr outputs; ``clean-cache`` no longer deletes
   subfolders of valid entries; a single-entry download never returns
   ``meta.json``.
