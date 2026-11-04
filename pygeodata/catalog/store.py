@@ -186,21 +186,40 @@ def catalog_entry(entry_path: Path, record: EntryRecord, params_json: dict[str, 
     )
 
 
+@dataclass
+class SkippedDirs:
+    """Why entry dirs were left out of the index; each is a dir that is no usable entry."""
+
+    # written by a different cache format, stale by definition
+    other_format: int = 0
+    # no meta.json: an interrupted run
+    no_meta: int = 0
+    # a meta.json that cannot be read or decoded
+    unreadable: int = 0
+
+
 def iter_cache_records(
     entry_dirs: Iterable[Path],
     format_version: int | None = None,
+    skipped: SkippedDirs | None = None,
 ) -> Iterator[tuple[Path, EntryRecord]]:
     """Yield ``(entry_dir, record)`` for each of ``entry_dirs`` holding a readable ``meta.json``.
 
     Skips entries written by a different ``format_version``: those are stale
-    by definition and are handled by clean-cache.
+    by definition and are handled by clean-cache. The reasons for skipping are tallied in ``skipped``.
     """
+    skipped = skipped if skipped is not None else SkippedDirs()
     for entry_dir in entry_dirs:
         try:
             record = EntryRecord.from_file(CachePathConstructor(entry_dir).state_hash_path)
+        except FileNotFoundError:
+            skipped.no_meta += 1
+            continue
         except (OSError, msgspec.DecodeError):
+            skipped.unreadable += 1
             continue
         if format_version is not None and record.format_version != format_version:
+            skipped.other_format += 1
             continue
         yield entry_dir, record
 
@@ -209,6 +228,7 @@ def backfill(
     catalog: CatalogData,
     entry_dirs: Iterable[Path],
     format_version: int | None = None,
+    skipped: SkippedDirs | None = None,
 ) -> int:
     """Index the entries in ``entry_dirs`` that the catalog lacks; returns the count indexed.
 
@@ -217,7 +237,7 @@ def backfill(
     """
     count = 0
     unknown = (d for d in entry_dirs if d.name not in catalog.entries)
-    for path, record in iter_cache_records(unknown, format_version=format_version):
+    for path, record in iter_cache_records(unknown, format_version=format_version, skipped=skipped):
         if record.state_hash in catalog.entries:
             continue
         paths = CachePathConstructor(path)
@@ -263,6 +283,8 @@ class CatalogDiff:
 
     # entry dirs the catalog lacks: new entries, or dirs that are no current entry (yet)
     unindexed: list[Path] = field(default_factory=list)
+    # why those dirs are no entry; None when the dirs were not read (a read-only catalog)
+    unindexed_reasons: SkippedDirs | None = None
     # entries whose dir is gone from a root that is otherwise present
     missing: list[str] = field(default_factory=list)
     # roots that are missing or empty — an unmounted share, an unsynced mirror — whose entries
@@ -347,18 +369,29 @@ def _sync() -> tuple[CatalogData, CatalogDiff]:
     with _lock_for(catalog_path()):
         catalog, rebuilt = _load_for_write()
         diff = diff_against_disk(catalog)
-        indexed = backfill(catalog, diff.unindexed, format_version=FORMAT_VERSION)
+        skipped = SkippedDirs()
+        indexed = backfill(catalog, diff.unindexed, format_version=FORMAT_VERSION, skipped=skipped)
         pruned = catalog.prune(diff.missing)
         if rebuilt or indexed or pruned:
             _save(catalog)
+    diff.unindexed_reasons = skipped
     diff.unindexed = [d for d in diff.unindexed if d.name not in catalog.entries]
     diff.missing = []
     return catalog, diff
 
 
 def _needs_sync(diff: CatalogDiff) -> bool:
-    """Whether the diff holds anything to index or prune; reads only the unindexed dirs' meta.json."""
-    return bool(diff.missing) or next(iter_cache_records(diff.unindexed, FORMAT_VERSION), None) is not None
+    """Whether the diff holds anything to index or prune; reads only the unindexed dirs' meta.json.
+
+    When nothing is to be indexed every unindexed dir has been read, so the reasons are set on the diff.
+    """
+    if diff.missing:
+        return True
+    skipped = SkippedDirs()
+    if next(iter_cache_records(diff.unindexed, FORMAT_VERSION, skipped), None) is not None:
+        return True
+    diff.unindexed_reasons = skipped
+    return False
 
 
 def _written_elsewhere(catalog: CatalogData | None, outdated: CatalogOutdatedError | None) -> bool:

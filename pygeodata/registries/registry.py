@@ -9,6 +9,7 @@ Each is built once and never changes; build a new one to see newer data.
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import TYPE_CHECKING
 
 import msgspec
@@ -261,6 +262,7 @@ class EntryRegistry:
             'catalog_id': self._data.header.catalog_id,
             'read_only': self.status.read_only if self.status is not None else None,
             'unindexed_dirs': len(diff.unindexed) if diff else 0,
+            'unindexed_reasons': asdict(diff.unindexed_reasons) if diff and diff.unindexed_reasons else None,
             'missing_dirs': len(diff.missing) if diff else 0,
             'unavailable_roots': [str(r) for r in diff.unavailable_roots] if diff else [],
         }

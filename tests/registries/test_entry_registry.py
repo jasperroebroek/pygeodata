@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from pygeodata._version import FORMAT_VERSION
 from pygeodata.catalog import store
 from pygeodata.catalog.types import CatalogData, CatalogOutdatedError
 from pygeodata.config import get_config, set_config
@@ -114,6 +115,41 @@ def test_unreadable_dir_is_reported_without_rewriting(monkeypatch: pytest.Monkey
     assert set(reg.entries) == {'a1'}
     assert reg.diagnostics()['unindexed_dirs'] == 1
     assert not saves
+
+
+def write_skipped_dirs() -> None:
+    cache = get_config().path_cache
+    write_meta(cache / 'old1', make_record('old1', 'MyLoader', 'Data', format_version=FORMAT_VERSION - 1))
+    (cache / 'interrupted1').mkdir()
+    (cache / 'interrupted2').mkdir()
+    (cache / 'broken').mkdir()
+    CachePathConstructor(cache / 'broken').state_hash_path.write_text('{not json')
+
+
+@pytest.mark.parametrize('sync_needed', [False, True])
+def test_writable_diagnostics_count_why_dirs_are_unindexed(sync_needed: bool) -> None:
+    write_entry('a1')
+    write_skipped_dirs()
+    if not sync_needed:
+        EntryRegistry()
+    else:
+        write_entry('a2')
+
+    diagnostics = EntryRegistry().diagnostics()
+
+    assert diagnostics['unindexed_dirs'] == 4
+    assert diagnostics['unindexed_reasons'] == {'other_format': 1, 'no_meta': 2, 'unreadable': 1}
+
+
+def test_mirror_diagnostics_do_not_know_why_dirs_are_unindexed() -> None:
+    write_entry('a1')
+    write_foreign_catalog()
+    write_skipped_dirs()
+
+    diagnostics = EntryRegistry().diagnostics()
+
+    assert diagnostics['unindexed_dirs'] == 4
+    assert diagnostics['unindexed_reasons'] is None
 
 
 def test_mirror_is_read_only_and_reports_the_difference() -> None:

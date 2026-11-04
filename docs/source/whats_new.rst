@@ -26,6 +26,9 @@ Version 0.5.0 (unreleased)
   and ``?`` for a class not found in the project), with a legend for the
   markers shown.  ``N`` ("not loaded") is gone.
 - New ``catalog info`` and ``entry list --type``.
+- The registry diagnostics say why entry dirs are not indexed: written by an
+  older cache format, no ``meta.json`` (an interrupted run) or an unreadable
+  one.  A read-only mirror does not read the dirs, so it cannot say.
 - New ``analyse [--import-all] [--json]``: the project's classes, their
   dependency tree hashes and any problems, read from source or by importing the
   project.  With ``--json`` it prints only the result, even when project
