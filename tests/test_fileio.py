@@ -5,7 +5,12 @@ from pathlib import Path
 import pytest
 
 from pygeodata import fileio
-from pygeodata.fileio import write_bytes_atomic, write_json_atomic
+from pygeodata._version import FORMAT_VERSION
+from pygeodata.cache_entry import write_entry
+from pygeodata.enums import JSONKeys
+from pygeodata.fileio import read_format_version, write_bytes_atomic, write_json_atomic
+from pygeodata.spec import SpatialSpec
+from tests.fixtures.data import SimpleLoader
 
 
 def test_write_json_atomic_round_trips(tmp_path: Path) -> None:
@@ -49,3 +54,30 @@ def test_file_mode_follows_umask(tmp_path: Path) -> None:
     finally:
         os.umask(previous)
     assert (tmp_path / 'data.bin').stat().st_mode & 0o777 == 0o644
+
+
+def test_read_format_version_of_written_entry(sample_spatial_spec: SpatialSpec) -> None:
+    loader = SimpleLoader()
+    write_entry(loader, sample_spatial_spec)
+    hash_path = loader.resolve_cache_paths(sample_spatial_spec).state_hash_path
+    assert read_format_version(hash_path) == FORMAT_VERSION
+
+
+@pytest.mark.parametrize(
+    ('content', 'expected'),
+    [
+        (json.dumps({JSONKeys.CLASS_NAME: 'SimpleLoader'}), None),
+        (json.dumps({JSONKeys.FORMAT_VERSION: FORMAT_VERSION + 1}), FORMAT_VERSION + 1),
+        (json.dumps({JSONKeys.FORMAT_VERSION: str(FORMAT_VERSION)}), None),
+        (json.dumps([FORMAT_VERSION]), None),
+        ('{not json', None),
+    ],
+)
+def test_read_format_version(tmp_path: Path, content: str, expected: int | None) -> None:
+    path = tmp_path / 'meta.json'
+    path.write_text(content)
+    assert read_format_version(path) == expected
+
+
+def test_read_format_version_of_missing_file(tmp_path: Path) -> None:
+    assert read_format_version(tmp_path / 'meta.json') is None

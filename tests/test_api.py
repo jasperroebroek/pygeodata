@@ -1,33 +1,19 @@
 """Tests for pygeodata.api.load_from_hash / pygeodata.load_from_hash."""
 
-import json
 from pathlib import Path
 
 import pytest
 
 import pygeodata
 from pygeodata.api import load_from_hash
-from pygeodata.config import FORMAT_VERSION, set_config
-from pygeodata.enums import JSONKeys
+from pygeodata.config import set_config
 from pygeodata.paths import CACHE_META_FILES
+from tests.fixtures.records import make_record, write_meta
 
 
 def _write_meta(directory: Path, state_hash: str, class_name: str, object_type: str) -> Path:
     """Write a meta.json so EntryRegistry can discover this entry."""
-    directory.mkdir(parents=True, exist_ok=True)
-    meta_path = directory / 'meta.json'
-    meta_path.write_text(
-        json.dumps(
-            {
-                JSONKeys.CLASS_NAME: class_name,
-                JSONKeys.STATE_HASH: state_hash,
-                JSONKeys.OBJECT_TYPE: object_type,
-                JSONKeys.FORMAT_VERSION: FORMAT_VERSION,
-            },
-        ),
-        encoding='utf-8',
-    )
-    return meta_path
+    return write_meta(directory, make_record(state_hash, class_name, object_type))
 
 
 @pytest.fixture
@@ -117,27 +103,6 @@ def test_load_from_hash_ambiguous_prefix_raises_key_error(cache_root):
 
     with pytest.raises(KeyError, match='No entry found for hash prefix'):
         load_from_hash('aabbcc')
-
-
-def test_load_from_hash_no_hash_path_raises_file_not_found(cache_root, monkeypatch):
-    """A record whose hash_path is None raises FileNotFoundError."""
-    from pygeodata.registries.registry import EntryRegistry
-    from pygeodata.registries.registry_types import EntryRecord
-
-    state_hash = 'deadbeef' * 8
-
-    record = EntryRecord(
-        class_name='SimpleLoader',
-        state_hash=state_hash,
-        object_type='Data',
-        hash_path=None,
-    )
-
-    monkeypatch.setattr(EntryRegistry, 'resolve_hash_prefix', lambda self, prefix: state_hash)
-    monkeypatch.setattr(EntryRegistry, 'records', property(lambda self: {state_hash: record}))
-
-    with pytest.raises(FileNotFoundError, match=state_hash):
-        load_from_hash(state_hash[:8])
 
 
 def test_load_from_hash_no_output_file_raises_file_not_found(cache_root):

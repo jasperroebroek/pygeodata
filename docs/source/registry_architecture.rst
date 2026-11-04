@@ -16,10 +16,13 @@ the ``.source/`` directory and the artifact cache.
 and ``.tree_registry``.  Callers that need version-group information should
 construct one ``VersionRegistry`` and access the others through it.
 
-The neutral view-model layer lives in ``pygeodata/catalog/``: ``class_catalog.py``
-and ``entry_catalog.py`` build ``ClassInfo`` / ``EntryInfo`` dicts from the
-registries without any Flask dependency.  Both the CLI and the browser (the
-``pygeodata-browser`` package) import from ``pygeodata.catalog``.
+The neutral view-model layer lives in ``pygeodata/views/``: ``classes.py``
+and ``entries.py`` build ``ClassInfo`` / ``EntryInfo`` from the registries
+without any Flask dependency.  Both the CLI and the browser (the
+``pygeodata-browser`` package) import from ``pygeodata.views``.
+``pygeodata/catalog/`` holds the catalog index file, its stored types and the
+write path. ``pygeodata/records.py`` holds the per-entry file contracts
+(``EntryRecord`` for ``meta.json``, ``SpecRecord`` for ``spec.json``).
 
 Construction pattern
 --------------------

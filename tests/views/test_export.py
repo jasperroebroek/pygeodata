@@ -1,7 +1,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-from pygeodata.catalog.export import _cache_files_for_entry, single_entry_tar_path
+from pygeodata.views.export import _cache_files_for_entry, single_entry_tar_path
 
 
 def _entry_dir(tmp_path: Path) -> Path:

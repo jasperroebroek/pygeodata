@@ -5,22 +5,29 @@ import shutil
 from collections.abc import Iterator
 from pathlib import Path
 
+import msgspec
+
+from pygeodata._version import FORMAT_VERSION
 from pygeodata.catalog.store import reconcile
 from pygeodata.config import get_config
 from pygeodata.enums import JSONKeys, Staleness
-from pygeodata.fileio import file_lock, try_acquire
+from pygeodata.fileio import file_lock, read_format_version, try_acquire
 from pygeodata.paths import CachePathConstructor, CachePathResolver, RegistryResolver
+from pygeodata.records import EntryRecord
 from pygeodata.registries.registry import EntryRegistry, SourceRegistry, TreeRegistry
-from pygeodata.registries.registry_types import EntryRecord, is_current_format
 from pygeodata.registries.writer import write_registry
 from pygeodata.staleness import dependency_staleness
 from pygeodata.tracked_object import TrackedObject
 
 
 def read_cache_class_name(hash_path: Path) -> str | None:
-    if not hash_path.exists():
+    """For labels only: read leniently, so entries in an older format still get a name."""
+    try:
+        data = json.loads(hash_path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError):
         return None
-    return EntryRecord.from_file(hash_path).class_name
+    name = data.get(JSONKeys.CLASS_NAME) if isinstance(data, dict) else None
+    return name if isinstance(name, str) else None
 
 
 def _iter_class_params(value: object) -> Iterator[dict]:
@@ -35,10 +42,9 @@ def _iter_class_params(value: object) -> Iterator[dict]:
             yield from _iter_class_params(item)
 
 
-def class_params_match_live(record: EntryRecord) -> bool | None:
+def class_params_match_live(params_path: Path) -> bool | None:
     """Compare the recorded dependency tree hash of each class-valued param against the live one."""
-    params_path = record.params_path
-    if params_path is None or not params_path.exists():
+    if not params_path.exists():
         return False
 
     try:
@@ -63,11 +69,9 @@ def hash_matches_live(hash_path: Path, check_class_params: bool = False) -> bool
     as a *parameter* — see :func:`class_params_match_live`. Off by default: it reads a second
     file per entry and reports as stale any entry whose ``parameters.json`` is absent.
     """
-    if not hash_path.exists():
-        return False
-
-    record = EntryRecord.from_file(hash_path)
-    if not record.dependency_tree_hash:
+    try:
+        record = EntryRecord.from_file(hash_path)
+    except (OSError, msgspec.DecodeError):
         return False
     staleness = dependency_staleness(record.class_name, record.dependency_tree_hash)
     if staleness is Staleness.UNKNOWN:
@@ -78,7 +82,7 @@ def hash_matches_live(hash_path: Path, check_class_params: bool = False) -> bool
     if not check_class_params:
         return True
 
-    return class_params_match_live(record)
+    return class_params_match_live(CachePathConstructor.from_path(hash_path).params_path)
 
 
 def handle_invalid(path: Path, dry_run: bool, label: str, class_name: str | None = None) -> None:
@@ -141,7 +145,7 @@ def _purge_dir(dirpath: Path, dry_run: bool, delete_unregistered: bool, check_cl
 
     class_name = read_cache_class_name(hash_path)
 
-    if not is_current_format(hash_path):
+    if read_format_version(hash_path) != FORMAT_VERSION:
         handle_invalid(dirpath, dry_run=dry_run, label='Format version mismatch', class_name=class_name)
         return True
 
@@ -240,7 +244,7 @@ def clean_registry(dry_run: bool = True) -> None:
     """
     resolver = RegistryResolver()
     for meta_path in [*resolver.glob_source_paths(), *resolver.glob_tree_paths()]:
-        if not is_current_format(meta_path):
+        if read_format_version(meta_path) != FORMAT_VERSION:
             handle_invalid(meta_path.parent, dry_run=dry_run, label='Format version mismatch')
 
 
@@ -274,15 +278,11 @@ def clean_source_registry(dry_run: bool = True) -> None:
     # Build keep-set of dep_hashes: referenced by live entries
     keep_dep_hashes: set[str] = set()
     for record in entries.records.values():
-        if not record.dependency_tree_hash:
-            continue
         keep_dep_hashes.add(record.dependency_tree_hash)
         snapshot = trees.get_snapshot_from_hash(record.dependency_tree_hash)
         if snapshot is None:
             continue
-        for node in snapshot.nodes.values():
-            if isinstance(node, dict) and (h := node.get('hash')):
-                keep_source_hashes.add(h)
+        keep_source_hashes.update(node.hash for node in snapshot.nodes.values())
 
     # Prune orphan code/ dirs
     code_root = RegistryResolver(root).code_dir

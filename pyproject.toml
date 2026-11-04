@@ -25,9 +25,11 @@ dependencies = [
     "zarr",
     "fiona",
     "pyarrow",
+    "affine>=3",
     "filelock",
     "click",
     "lazy_loader>=0.4",
+    "msgspec",
 ]
 
 [project.urls]

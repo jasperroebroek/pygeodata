@@ -8,6 +8,7 @@ import pytest
 from pygeodata.enums import JSONKeys
 from pygeodata.registries.registry_types import ChangeStatus
 from pygeodata.registries.versioning import VersionRegistry
+from tests.fixtures.records import write_tree
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -38,15 +39,6 @@ def _write_snapshot(
     )
 
 
-def _write_tree(registry: Path, dep_hash: str, nodes: dict) -> None:
-    d = registry / 'snapshots' / dep_hash
-    d.mkdir(parents=True, exist_ok=True)
-    (d / 'tree.json').write_text(
-        json.dumps({JSONKeys.NODES: nodes, JSONKeys.TREE: {}}),
-        encoding='utf-8',
-    )
-
-
 # ---------------------------------------------------------------------------
 # Fixture: two classes, two versions each
 #
@@ -62,8 +54,8 @@ def two_class_registry(tmp_path: Path):
     _write_snapshot(r, 'h1', 'MyLoader', 'class MyLoader:\n    x = 1\n', mtime='2026-01-01T00:00:00+00:00')
     _write_snapshot(r, 'h2', 'MyLoader', 'class MyLoader:\n    x = 2\n', mtime='2026-06-01T00:00:00+00:00')
     _write_snapshot(r, 'd1', 'MyDep', 'class MyDep: pass\n', mtime='2026-03-01T00:00:00+00:00')
-    _write_tree(r, 'snap_pre', {'MyLoader': {'hash': 'h1'}, 'MyDep': {'hash': 'd1'}})
-    _write_tree(r, 'snap_post', {'MyLoader': {'hash': 'h2'}, 'MyDep': {'hash': 'd1'}})
+    write_tree(r, 'snap_pre', {'MyLoader': {'hash': 'h1'}, 'MyDep': {'hash': 'd1'}})
+    write_tree(r, 'snap_post', {'MyLoader': {'hash': 'h2'}, 'MyDep': {'hash': 'd1'}})
     return r
 
 
@@ -285,8 +277,8 @@ def three_group_registry(tmp_path: Path):
     _write_snapshot(r, 'mb2', 'MyBase', 'class MyBase: v2\n', mtime='2026-06-01T00:00:00+00:00')
     _write_snapshot(r, 'mb3', 'MyBase', 'class MyBase: v3\n', mtime='2026-09-01T00:00:00+00:00')
     # Trees that separate the two change events (prove they're in different groups)
-    _write_tree(r, 'snap_v1', {'MyBase': {'hash': 'mb1'}})  # snapshot after mb1, before mb2
-    _write_tree(r, 'snap_v2', {'MyBase': {'hash': 'mb2'}})  # snapshot after mb2, before mb3
+    write_tree(r, 'snap_v1', {'MyBase': {'hash': 'mb1'}})  # snapshot after mb1, before mb2
+    write_tree(r, 'snap_v2', {'MyBase': {'hash': 'mb2'}})  # snapshot after mb2, before mb3
     # NewClass: single registration at Jul — after v1 lower (Jun) but before v2 lower (Sep)
     _write_snapshot(r, 'nc1', 'NewClass', 'class NewClass: pass\n', mtime='2026-07-01T00:00:00+00:00')
     return r
@@ -386,9 +378,9 @@ def tied_mtime_registry(tmp_path: Path):
     _write_snapshot(r, 'mb1', 'MyBase', 'class MyBase: v1\n', mtime=MTIME)
     _write_snapshot(r, 'mb2', 'MyBase', 'class MyBase: v2\n', mtime=MTIME)
     # Snapshot separating mb1 and mb2 into distinct version groups
-    _write_tree(r, 'sep', {'MyBase': {'hash': 'mb1'}})
+    write_tree(r, 'sep', {'MyBase': {'hash': 'mb1'}})
     # A dep hash whose node hash is unknown — exercises the fallback
-    _write_tree(r, 'dep_unknown', {'MyBase': {'hash': 'mb0'}})
+    write_tree(r, 'dep_unknown', {'MyBase': {'hash': 'mb0'}})
     return r
 
 

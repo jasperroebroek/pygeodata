@@ -1,253 +1,290 @@
-import dataclasses
 import json
 import os
+import shutil
 from pathlib import Path
 
+import msgspec
 import pytest
 from pyproj import CRS
 
+from pygeodata._version import CATALOG_VERSION, FORMAT_VERSION
 from pygeodata.cache_entry import write_entry
 from pygeodata.catalog import store
-from pygeodata.catalog.dimensions import dimension_rows
-from pygeodata.catalog.entry_catalog import _spec_info_cached
-from pygeodata.catalog.types import FileRole
-from pygeodata.config import FORMAT_VERSION, Config, get_config, set_config
-from pygeodata.enums import JSONKeys, SpecKeys
-from pygeodata.registries.registry_types import EntryRecord
+from pygeodata.catalog.display import find_output_files
+from pygeodata.catalog.types import CatalogData, CatalogNewerError, FileRef, FileRole
+from pygeodata.config import Config, get_config, set_config
+from pygeodata.records import EntryRecord
 from pygeodata.spec import SpatialSpec
+from pygeodata.views.types import spec_info
 from tests.fixtures.data import SimpleLoader
+from tests.fixtures.records import make_record, write_meta
 
 
-def make_record(state_hash: str = 's1', class_name: str = 'SimpleTable') -> EntryRecord:
-    return EntryRecord(
-        class_name=class_name,
-        object_type='Table',
-        source_hash='src1',
-        dependency_tree_hash='tree1',
-        instance_hash='inst1',
-        params_hash='params1',
-        spec_hash='spec1',
-        state_hash=state_hash,
-        co_output_hashes=['co1'],
-        format_version=FORMAT_VERSION,
-    )
+def record(state_hash: str = 's1', class_name: str = 'SimpleTable', **fields: object) -> EntryRecord:
+    return make_record(state_hash, class_name, 'Data', **fields)
 
 
-def write_entry_dir(
-    cache_root: Path,
-    state_hash: str,
-    class_name: str = 'SimpleTable',
-    spec_dict: dict | None = None,
-) -> Path:
-    entry_dir = cache_root / state_hash
-    entry_dir.mkdir(parents=True, exist_ok=True)
-    (entry_dir / 'meta.json').write_text(
-        json.dumps(dataclasses.asdict(make_record(state_hash, class_name))),
-        encoding='utf-8',
-    )
-    if spec_dict is not None:
-        (entry_dir / 'spec.json').write_text(json.dumps(spec_dict), encoding='utf-8')
+def write_entry_dir(state_hash: str, class_name: str = 'SimpleTable', spec: SpatialSpec | None = None) -> Path:
+    entry_dir = get_config().path_cache / state_hash
+    write_meta(entry_dir, record(state_hash, class_name))
+    if spec is not None:
+        (entry_dir / 'spec.json').write_text(json.dumps(spec.to_dict()), encoding='utf-8')
     return entry_dir
 
 
+def index(catalog: CatalogData, entry_dir: Path, rec: EntryRecord, spec: SpatialSpec | None) -> None:
+    catalog.upsert(store.catalog_entry(entry_dir, rec, None), spec.to_record() if spec is not None else None)
+
+
+def write_catalog(catalog: CatalogData) -> None:
+    catalog.dump(get_config().path_catalog)
+
+
+def on_disk() -> dict:
+    return json.loads(get_config().path_catalog.read_text(encoding='utf-8'))
+
+
 @pytest.fixture
-def catalog() -> dict:
-    return store._empty_catalog()
+def catalog() -> CatalogData:
+    return store._new_catalog()
 
 
-def test_upsert_entry_inserts_dimensions_once(
-    catalog: dict,
-    tmp_path: Path,
-    sample_spatial_spec: SpatialSpec,
-) -> None:
-    entry_dir = write_entry_dir(tmp_path / 'data_processed', 's1')
-    store.upsert_entry(catalog, entry_dir, make_record(), sample_spatial_spec)
-    store.upsert_entry(catalog, entry_dir, make_record(), sample_spatial_spec)
-
-    assert list(catalog['entries']) == ['s1']
-    dims = catalog['dimensions']
-    assert len(dims['crs']) == 1
-    assert len(dims['transforms']) == 1
-    assert len(dims['bounds']) == 1
-    assert len(dims['shapes']) == 1
-
-    entry = catalog['entries']['s1']
-    assert entry['class_name'] == 'SimpleTable'
-    assert entry['dir_relpath'] == 's1'
-    assert entry['co_output_hashes'] == ['co1']
-    assert dims['crs'][entry['crs_hash']] == 'EPSG:4326'
-    transform = dims['transforms'][entry['transform_hash']]
-    assert (transform['res_x'], transform['res_y']) == (0.1, 0.1)
-    bounds = dims['bounds'][entry['bounds_hash']]
-    assert (bounds['left'], bounds['bottom'], bounds['right'], bounds['top']) == (-180.0, -90.0, 180.0, 90.0)
-    assert dims['shapes'][entry['shape_hash']] == '(1800, 3600)'
+# ---------------------------------------------------------------------------
+# Contract
+# ---------------------------------------------------------------------------
 
 
-def test_upsert_entry_updates_existing_row(
-    catalog: dict,
-    tmp_path: Path,
-    sample_spatial_spec: SpatialSpec,
-) -> None:
-    entry_dir = write_entry_dir(tmp_path / 'data_processed', 's1')
-    store.upsert_entry(catalog, entry_dir, make_record(), sample_spatial_spec)
-
-    record = make_record()
-    record.class_name = 'RenamedTable'
-    store.upsert_entry(catalog, entry_dir, record, sample_spatial_spec)
-    assert catalog['entries']['s1']['class_name'] == 'RenamedTable'
+def test_round_trip(catalog: CatalogData, sample_spatial_spec: SpatialSpec) -> None:
+    index(catalog, write_entry_dir('s1'), record(co_output_hashes=['co1']), sample_spatial_spec)
+    write_catalog(catalog)
+    assert CatalogData.from_file(get_config().path_catalog) == catalog
 
 
-def test_shared_dimensions_deduplicate(
-    catalog: dict,
-    tmp_path: Path,
-    sample_spatial_spec: SpatialSpec,
-) -> None:
-    """Entries sharing a spec share dimension rows; a different spec adds only what changed."""
-    d1 = write_entry_dir(tmp_path / 'data_processed', 's1')
-    d2 = write_entry_dir(tmp_path / 'data_processed', 's2')
-    store.upsert_entry(catalog, d1, make_record('s1'), sample_spatial_spec)
-
+def test_entries_sharing_a_spec_share_its_record(catalog: CatalogData, sample_spatial_spec: SpatialSpec) -> None:
     other_spec = SpatialSpec(
         crs=CRS.from_string('EPSG:3857'),
         transform=sample_spatial_spec.transform,
         shape=sample_spatial_spec.shape,
     )
-    store.upsert_entry(catalog, d2, make_record('s2', 'SimpleTable'), other_spec)
+    index(catalog, write_entry_dir('s1'), record('s1'), sample_spatial_spec)
+    index(catalog, write_entry_dir('s2'), record('s2'), sample_spatial_spec)
+    index(catalog, write_entry_dir('s3'), record('s3', spec_hash='spec2'), other_spec)
 
-    assert len(catalog['entries']) == 2
-    dims = catalog['dimensions']
-    assert len(dims['crs']) == 2
-    assert len(dims['transforms']) == 1
-    assert len(dims['bounds']) == 1
-    assert len(dims['shapes']) == 1
+    assert len(catalog.entries) == 3
+    assert catalog.specs == {'spec1': sample_spatial_spec.to_record(), 'spec2': other_spec.to_record()}
 
 
-def test_bounds_keyed_by_transform_and_shape() -> None:
-    """Identical bounds from different (transform, shape) pairs stay separate rows."""
-    t1 = {'a': 0.1, 'b': 0.0, 'c': -180.0, 'd': 0.0, 'e': -0.1, 'f': 90.0}
-    t2 = {'a': 0.05, 'b': 0.0, 'c': -180.0, 'd': 0.0, 'e': -0.05, 'f': 90.0}
-    b1 = dimension_rows(
-        SpatialSpec.from_dict({SpecKeys.CRS: 'EPSG:4326', SpecKeys.TRANSFORM: t1, SpecKeys.SHAPE: [1800, 3600]}),
-    )['bounds_row']
-    b2 = dimension_rows(
-        SpatialSpec.from_dict({SpecKeys.CRS: 'EPSG:4326', SpecKeys.TRANSFORM: t2, SpecKeys.SHAPE: [3600, 7200]}),
-    )['bounds_row']
-
-    assert b1['bounds_hash'] != b2['bounds_hash']
-    assert (b1['left'], b1['bottom'], b1['right'], b1['top']) == (b2['left'], b2['bottom'], b2['right'], b2['top'])
+def test_upsert_replaces_the_entry(catalog: CatalogData, sample_spatial_spec: SpatialSpec) -> None:
+    entry_dir = write_entry_dir('s1')
+    index(catalog, entry_dir, record(), sample_spatial_spec)
+    index(catalog, entry_dir, record(class_name='RenamedTable'), sample_spatial_spec)
+    assert catalog.entries['s1'].record.class_name == 'RenamedTable'
 
 
-def test_partial_spec_leaves_nullable_keys(catalog: dict, tmp_path: Path) -> None:
-    entry_dir = write_entry_dir(tmp_path / 'data_processed', 's1')
-    store.upsert_entry(catalog, entry_dir, make_record(), SpatialSpec(crs=None))
+def test_prune_drops_entries_and_unused_specs(catalog: CatalogData, sample_spatial_spec: SpatialSpec) -> None:
+    index(catalog, write_entry_dir('s1'), record('s1'), sample_spatial_spec)
+    gone = write_entry_dir('s2')
+    index(catalog, gone, record('s2', spec_hash='spec2'), SpatialSpec(crs=None))
+    shutil.rmtree(gone)
 
-    entry = catalog['entries']['s1']
-    assert entry['crs_hash'] is None
-    assert entry['transform_hash'] is None
-    assert entry['bounds_hash'] is None
-    assert entry['shape_hash'] is None
+    assert store.prune_missing(catalog) == 1
+    assert list(catalog.entries) == ['s1']
+    assert list(catalog.specs) == ['spec1']
 
 
-def test_spec_info_keeps_crs_of_partial_spec(
-    tmp_path: Path,
-    sample_spatial_spec: SpatialSpec,
-) -> None:
-    catalog = store._empty_catalog()
-    entry_dir = write_entry_dir(tmp_path / 'data_processed', 's1')
-    store.upsert_entry(catalog, entry_dir, make_record(), SpatialSpec(crs=CRS.from_string('ESRI:54012')))
-    store.save_catalog(catalog)
-
-    entry = store.load_catalog()['entries']['s1']
-    info = _spec_info_cached.__wrapped__(entry['crs_hash'], entry['transform_hash'], entry['shape_hash'])
-
+def test_spec_info_keeps_crs_of_partial_spec() -> None:
+    info = spec_info(SpatialSpec(crs=CRS.from_string('ESRI:54012')).to_record())
     assert info.crs == 'ESRI:54012'
     assert info.resolution is None
     assert info.shape is None
 
 
-def test_format_version_mismatch_wipes(tmp_path: Path, sample_spatial_spec: SpatialSpec) -> None:
-    catalog = store._empty_catalog()
-    entry_dir = write_entry_dir(tmp_path / 'data_processed', 's1')
-    store.upsert_entry(catalog, entry_dir, make_record(), sample_spatial_spec)
-    store.save_catalog(catalog)
-    assert store.load_catalog()['entries']
-
-    on_disk = json.loads(get_config().path_catalog.read_text(encoding='utf-8'))
-    on_disk['format_version'] = FORMAT_VERSION + 1
-    get_config().path_catalog.write_text(json.dumps(on_disk), encoding='utf-8')
-
-    assert store.load_catalog()['entries'] == {}
+# ---------------------------------------------------------------------------
+# Versions
+# ---------------------------------------------------------------------------
 
 
-def test_prune_missing(catalog: dict, tmp_path: Path, sample_spatial_spec: SpatialSpec) -> None:
-    keep = write_entry_dir(tmp_path / 'data_processed', 's1')
-    gone = write_entry_dir(tmp_path / 'data_processed', 's2')
-    store.upsert_entry(catalog, keep, make_record('s1'), sample_spatial_spec)
-    store.upsert_entry(catalog, gone, make_record('s2'), sample_spatial_spec)
+def test_reader_ignores_outdated_catalog(catalog: CatalogData, sample_spatial_spec: SpatialSpec) -> None:
+    index(catalog, write_entry_dir('s1'), record(), sample_spatial_spec)
+    catalog.header.catalog_version = CATALOG_VERSION - 1
+    write_catalog(catalog)
 
-    import shutil
-
-    shutil.rmtree(gone)
-
-    assert store.prune_missing(catalog) == 1
-    assert 's1' in catalog['entries']
-    assert 's2' not in catalog['entries']
+    with pytest.warns(UserWarning, match='Catalog not used'):
+        assert store.read_catalog() is None
 
 
-def test_backfill_indexes_and_skips_old_format(
-    catalog: dict,
-    tmp_path: Path,
+def test_reader_ignores_catalog_with_other_schema(catalog: CatalogData) -> None:
+    catalog.header.schema_fingerprint = 'other'
+    write_catalog(catalog)
+    with pytest.warns(UserWarning, match='Catalog not used'):
+        assert store.read_catalog() is None
+
+
+def test_writer_rebuilds_outdated_catalog_and_keeps_its_id(
+    catalog: CatalogData,
     sample_spatial_spec: SpatialSpec,
 ) -> None:
-    spec_dict = sample_spatial_spec.to_dict()
-    write_entry_dir(tmp_path / 'data_processed', 's1', spec_dict=spec_dict)
-    write_entry_dir(tmp_path / 'data_processed', 's2', 'OtherTable', spec_dict=spec_dict)
+    write_entry_dir('s1', spec=sample_spatial_spec)
+    write_entry_dir('s2', spec=sample_spatial_spec)
+    catalog.header.catalog_version = CATALOG_VERSION - 1
+    write_catalog(catalog)
 
-    stale_dir = tmp_path / 'data_processed' / 's_old'
-    stale_dir.mkdir()
-    stale_record = dataclasses.asdict(make_record('s_old'))
-    stale_record[JSONKeys.FORMAT_VERSION] = FORMAT_VERSION - 1
-    (stale_dir / 'meta.json').write_text(json.dumps(stale_record), encoding='utf-8')
+    store.reconcile()
 
-    indexed = store.backfill(catalog, [tmp_path / 'data_processed'], format_version=FORMAT_VERSION)
-    assert indexed == 2
-    assert 's_old' not in catalog['entries']
-    assert 's1' in catalog['entries']
+    rebuilt = CatalogData.from_file(get_config().path_catalog)
+    assert rebuilt.header.catalog_id == catalog.header.catalog_id
+    assert set(rebuilt.entries) == {'s1', 's2'}
 
 
-def test_bootstrap_rows_latest_per_class(tmp_path: Path, sample_spatial_spec: SpatialSpec) -> None:
-    catalog = store._empty_catalog()
+def test_writer_rebuilds_pre_contract_catalog(sample_spatial_spec: SpatialSpec) -> None:
+    write_entry_dir('s1', spec=sample_spatial_spec)
+    get_config().path_catalog.write_text(json.dumps({'format_version': 2, 'entries': {}}), encoding='utf-8')
+
+    assert store.refresh(get_config().cache_roots) == (1, 0)
+    assert CatalogData.from_file(get_config().path_catalog).header.catalog_version == CATALOG_VERSION
+
+
+def test_newer_catalog_is_never_read_or_overwritten(
+    catalog: CatalogData,
+    sample_spatial_spec: SpatialSpec,
+    recwarn: pytest.WarningsChecker,
+) -> None:
+    catalog.header.catalog_version = CATALOG_VERSION + 1
+    catalog.header.writer.pygeodata = '9.9.9'
+    write_catalog(catalog)
+    before = get_config().path_catalog.read_bytes()
+
+    with pytest.raises(CatalogNewerError, match='9.9.9'):
+        store.read_catalog()
+    with pytest.raises(CatalogNewerError):
+        store.refresh(get_config().cache_roots)
+    write_entry(SimpleLoader(), sample_spatial_spec)
+
+    assert any('Catalog write failed' in str(w.message) for w in recwarn.list)
+    assert get_config().path_catalog.read_bytes() == before
+
+
+def test_catalog_id_survives_catalog_build(sample_spatial_spec: SpatialSpec) -> None:
+    write_entry_dir('s1', spec=sample_spatial_spec)
+    store.refresh(get_config().cache_roots)
+    catalog_id = on_disk()['header']['catalog_id']
+
+    store.refresh(get_config().cache_roots)
+    assert on_disk()['header']['catalog_id'] == catalog_id
+
+
+def test_header_records_writer_and_roots(sample_spatial_spec: SpatialSpec) -> None:
+    write_entry(SimpleLoader(), sample_spatial_spec)
+    header = CatalogData.from_file(get_config().path_catalog).header
+    assert header.writer.root == str(get_config().path_catalog.parent.resolve())
+    assert header.roots['Data'] == str(get_config().path_cache.resolve())
+
+
+# ---------------------------------------------------------------------------
+# Entry dirs
+# ---------------------------------------------------------------------------
+
+
+def test_entry_dir_resolves_against_local_root(catalog: CatalogData, tmp_path: Path) -> None:
+    index(catalog, write_entry_dir('s1'), record(), None)
+    entry = catalog.entries['s1']
+    assert entry.dir_relpath == 's1'
+
+    with set_config(path_cache=tmp_path / 'moved'):
+        assert store.entry_dir(entry) == (tmp_path / 'moved' / 's1').absolute()
+
+
+def test_entry_outside_its_root_keeps_absolute_path(catalog: CatalogData, tmp_path: Path) -> None:
+    entry_dir = tmp_path / 'elsewhere' / 's1'
+    write_meta(entry_dir, record())
+    index(catalog, entry_dir, record(), None)
+    entry = catalog.entries['s1']
+    assert entry.dir_relpath == str(entry_dir.resolve())
+    assert store.entry_dir(entry) == entry_dir.resolve()
+
+
+# ---------------------------------------------------------------------------
+# Backfill
+# ---------------------------------------------------------------------------
+
+
+def test_backfill_indexes_and_skips_old_format(catalog: CatalogData, sample_spatial_spec: SpatialSpec) -> None:
+    write_entry_dir('s1', spec=sample_spatial_spec)
+    write_entry_dir('s2', 'OtherTable', spec=sample_spatial_spec)
+    write_meta(get_config().path_cache / 's_old', record('s_old', format_version=FORMAT_VERSION - 1))
+
+    assert store.backfill(catalog, get_config().cache_roots, format_version=FORMAT_VERSION) == 2
+    assert set(catalog.entries) == {'s1', 's2'}
+    assert catalog.specs == {'spec1': sample_spatial_spec.to_record()}
+
+
+def test_backfill_is_incremental(catalog: CatalogData, sample_spatial_spec: SpatialSpec) -> None:
+    write_entry_dir('s1', spec=sample_spatial_spec)
+    assert store.backfill(catalog, get_config().cache_roots, format_version=FORMAT_VERSION) == 1
+
+    write_entry_dir('s2', 'OtherTable', spec=sample_spatial_spec)
+    assert store.backfill(catalog, get_config().cache_roots, format_version=FORMAT_VERSION) == 1
+    assert set(catalog.entries) == {'s1', 's2'}
+
+
+def test_backfill_stores_rows_and_files(catalog: CatalogData, sample_spatial_spec: SpatialSpec) -> None:
+    entry_dir = write_entry_dir('s1', spec=sample_spatial_spec)
+    (entry_dir / 'parameters.json').write_text(json.dumps({'a': {'b': 1}}), encoding='utf-8')
+    (entry_dir / 'out.html').write_text('<html/>', encoding='utf-8')
+    (entry_dir / 'sidecar.csv').write_text('x', encoding='utf-8')
+
+    store.backfill(catalog, get_config().cache_roots, format_version=FORMAT_VERSION)
+
+    entry = catalog.entries['s1']
+    assert (entry.rows[0].path, entry.rows[0].value_text) == ('a.b', '1')
+    assert entry.files == [
+        FileRef(relpath='out.html', kind='table', role=FileRole.PRIMARY),
+        FileRef(relpath='sidecar.csv', kind='file', role=FileRole.SIDECAR),
+    ]
+
+
+def test_backfill_tolerates_unreadable_spec(catalog: CatalogData) -> None:
+    entry_dir = write_entry_dir('s1')
+    (entry_dir / 'spec.json').write_text('{not json', encoding='utf-8')
+    assert store.backfill(catalog, get_config().cache_roots) == 1
+    assert catalog.specs == {}
+
+
+def test_bootstrap_rows_latest_per_class(catalog: CatalogData) -> None:
     for state_hash, class_name, mtime in [('a1', 'A', 100.0), ('a2', 'A', 200.0), ('b1', 'B', 150.0)]:
-        entry_dir = write_entry_dir(tmp_path / 'data_processed', state_hash, class_name)
+        entry_dir = write_entry_dir(state_hash, class_name)
         os.utime(entry_dir / 'meta.json', (mtime, mtime))
-        store.upsert_entry(catalog, entry_dir, make_record(state_hash, class_name), sample_spatial_spec)
+        index(catalog, entry_dir, record(state_hash, class_name), None)
 
-    rows = store.bootstrap_rows(catalog)
-    assert [r['state_hash'] for r in rows] == ['a2', 'b1']
+    assert [e.record.state_hash for e in store.bootstrap_rows(catalog)] == ['a2', 'b1']
 
 
-def test_write_entry_hooks_catalog(sample_spatial_spec: SpatialSpec) -> None:
+# ---------------------------------------------------------------------------
+# Write paths
+# ---------------------------------------------------------------------------
+
+
+def test_write_entry_indexes_the_entry(sample_spatial_spec: SpatialSpec) -> None:
     artifact = SimpleLoader()
+    entry_dir = artifact.resolve_cache_paths(sample_spatial_spec).directory
+    entry_dir.mkdir(parents=True, exist_ok=True)
+    (entry_dir / 'dummy.tif').write_bytes(b'x')
     write_entry(artifact, sample_spatial_spec)
 
-    catalog = store.load_catalog()
+    catalog = CatalogData.from_file(get_config().path_catalog)
     state_hash = artifact.get_state_hash(sample_spatial_spec)
-    entry = catalog['entries'][state_hash]
-    assert entry['class_name'] == 'SimpleLoader'
-    assert entry['spec_hash'] == sample_spatial_spec.get_hash()
-    assert entry['dir_relpath'] == state_hash
-    dims = catalog['dimensions']
-    assert dims['crs'][entry['crs_hash']] == sample_spatial_spec.crs.to_string()
-    transform = dims['transforms'][entry['transform_hash']]
-    assert (transform['res_x'], transform['res_y']) == sample_spatial_spec.resolution
-    bounds = dims['bounds'][entry['bounds_hash']]
-    spec_bounds = sample_spatial_spec.bounds
-    assert (bounds['left'], bounds['bottom'], bounds['right'], bounds['top']) == (
-        spec_bounds.left,
-        spec_bounds.bottom,
-        spec_bounds.right,
-        spec_bounds.top,
-    )
+    entry = catalog.entries[state_hash]
+    assert entry.record.class_name == 'SimpleLoader'
+    assert entry.dir_relpath == state_hash
+    assert entry.primary_file == FileRef(relpath='dummy.tif', kind='cube', role=FileRole.PRIMARY)
+    assert catalog.specs[entry.record.spec_hash] == sample_spatial_spec.to_record()
+
+
+def test_first_write_indexes_existing_entries(sample_spatial_spec: SpatialSpec) -> None:
+    """A missing catalog is rebuilt in full, so readers never see a partial index."""
+    write_entry_dir('existing', spec=sample_spatial_spec)
+    write_entry(SimpleLoader(), sample_spatial_spec)
+    assert 'existing' in CatalogData.from_file(get_config().path_catalog).entries
 
 
 def test_write_hook_warns_and_continues(
@@ -258,7 +295,7 @@ def test_write_hook_warns_and_continues(
     def broken_save(*_args: object, **_kwargs: object) -> None:
         raise OSError('disk full')
 
-    monkeypatch.setattr(store, 'save_catalog', broken_save)
+    monkeypatch.setattr(store, '_save', broken_save)
     write_entry(SimpleLoader(), sample_spatial_spec)
     assert any('Catalog write failed' in str(w.message) for w in recwarn.list)
 
@@ -279,7 +316,7 @@ def test_path_catalog_moves_the_catalog(tmp_path: Path) -> None:
     custom = tmp_path / 'elsewhere' / 'catalog.json'
 
     with set_config(path_catalog=custom):
-        store.save_catalog(store.load_catalog())
+        store.refresh(get_config().cache_roots)
 
         assert custom.exists()
         assert not (tmp_path / '.catalog.json').exists()
@@ -288,87 +325,7 @@ def test_path_catalog_moves_the_catalog(tmp_path: Path) -> None:
     assert Config().path_catalog == Path('.catalog.json')
 
 
-def test_entry_abs_path_resolves_against_configured_roots(tmp_path: Path) -> None:
-    cache_root = tmp_path / 'data_processed'
-    entry_dir = write_entry_dir(cache_root, 's1')
-    assert store.entry_abs_path('s1') == entry_dir.resolve()
-
-    with set_config(path_cache=tmp_path / 'moved'):
-        assert store.entry_abs_path('s1', cache_roots=(cache_root,)) == entry_dir.resolve()
-
-    absolute = str(entry_dir.resolve())
-    assert store.entry_abs_path(absolute) == entry_dir.resolve()
-
-
-def test_backfill_populates_display_and_files(
-    catalog: dict,
-    tmp_path: Path,
-    sample_spatial_spec: SpatialSpec,
-) -> None:
-    entry_dir = write_entry_dir(tmp_path / 'data_processed', 's1', spec_dict=sample_spatial_spec.to_dict())
-    (entry_dir / 'parameters.json').write_text(json.dumps({'a': {'b': 1}}), encoding='utf-8')
-    (entry_dir / 'out.html').write_text('<html/>', encoding='utf-8')
-    (entry_dir / 'sidecar.csv').write_text('x', encoding='utf-8')
-
-    store.backfill(catalog, [tmp_path / 'data_processed'], format_version=FORMAT_VERSION)
-
-    entry = catalog['entries']['s1']
-    assert entry['rows'] is not None
-    assert entry['rows'][0]['path'] == 'a.b'
-    assert entry['rows'][0]['value_text'] == '1'
-
-    file_rows = sorted(catalog['files']['s1'], key=lambda f: f['relpath'])
-    assert [(f['label'], f['kind'], f['role']) for f in file_rows] == [
-        ('out.html', 'table', FileRole.PRIMARY.value),
-        ('sidecar.csv', 'file', FileRole.SIDECAR.value),
-    ]
-
-
-def test_write_hook_stores_display_and_files(sample_spatial_spec: SpatialSpec) -> None:
-    artifact = SimpleLoader()
-    entry_dir = artifact.resolve_cache_paths(sample_spatial_spec).directory
-    entry_dir.mkdir(parents=True, exist_ok=True)
-    (entry_dir / 'dummy.tif').write_bytes(b'x')
-    write_entry(artifact, sample_spatial_spec)
-
-    catalog = store.load_catalog()
-    state_hash = artifact.get_state_hash(sample_spatial_spec)
-    assert catalog['entries'][state_hash]['rows'] is not None
-    assert len(catalog['files'].get(state_hash, [])) >= 1
-
-
-def test_schema_fingerprint_mismatch_wipes(tmp_path: Path) -> None:
-    catalog = store._empty_catalog()
-    write_entry_dir(tmp_path / 'data_processed', 's1')
-    store.upsert_entry(catalog, tmp_path / 'data_processed' / 's1', make_record('s1'), None)
-    store.save_catalog(catalog)
-    assert store.load_catalog()['entries']
-
-    on_disk = json.loads(get_config().path_catalog.read_text(encoding='utf-8'))
-    on_disk['schema_fingerprint'] = 'stale'
-    get_config().path_catalog.write_text(json.dumps(on_disk), encoding='utf-8')
-
-    wiped = store.load_catalog()
-    assert wiped['schema_fingerprint'] == store.schema_fingerprint()
-    assert wiped['entries'] == {}
-
-
-def test_backfill_is_incremental(
-    catalog: dict,
-    tmp_path: Path,
-    sample_spatial_spec: SpatialSpec,
-) -> None:
-    spec_dict = sample_spatial_spec.to_dict()
-    write_entry_dir(tmp_path / 'data_processed', 's1', spec_dict=spec_dict)
-    assert store.backfill(catalog, [tmp_path / 'data_processed'], format_version=FORMAT_VERSION) == 1
-
-    write_entry_dir(tmp_path / 'data_processed', 's2', 'OtherTable', spec_dict=spec_dict)
-    assert store.backfill(catalog, [tmp_path / 'data_processed'], format_version=FORMAT_VERSION) == 1
-    assert 's1' in catalog['entries']
-    assert 's2' in catalog['entries']
-
-
-def test_save_catalog_follows_symlinks(tmp_path: Path) -> None:
+def test_save_follows_symlinks(tmp_path: Path) -> None:
     """A symlinked catalog (e.g. into a synced tree) stays a symlink; writes land on its target."""
     target = tmp_path / 'synced' / '.catalog.json'
     target.parent.mkdir()
@@ -376,34 +333,32 @@ def test_save_catalog_follows_symlinks(tmp_path: Path) -> None:
     link.symlink_to(target)
 
     with set_config(path_catalog=link):
-        store.save_catalog(store.load_catalog())
+        store.refresh(get_config().cache_roots)
+        assert store.read_catalog() is not None
 
     assert link.is_symlink()
     assert target.is_file()
-    assert store.load_catalog() is not None
 
 
-def test_entry_display_relpath_survives_symlinked_entry_dir(tmp_path: Path) -> None:
+def test_file_refs_survive_symlinked_entry_dir(tmp_path: Path) -> None:
     """File refs must relativize even when entry dirs are reached through a symlinked
     home (e.g. eos_user_home → /mnt), which resolves differently than the raw path.
     """
-    import os
-
-    from pygeodata.catalog.display import entry_display
-
     real = tmp_path / 'real' / 'data_processed'
-    real.mkdir(parents=True)
-    entry_dir = real / 's1'
-    entry_dir.mkdir()
-    (entry_dir / 'out.tif').write_bytes(b'x')
+    (real / 's1').mkdir(parents=True)
+    (real / 's1' / 'out.tif').write_bytes(b'x')
 
     alias_root = tmp_path / 'alias' / 'data_processed'
     alias_root.parent.mkdir()
     os.symlink(real, alias_root)
 
-    display = entry_display({'a': 1}, alias_root / 's1', 'MyLoader', 'Data')
-    assert display.primary is not None
-    assert display.primary['relpath'] == 'out.tif'
+    files = find_output_files(alias_root / 's1', 'MyLoader', 'Data')
+    assert files == [FileRef(relpath='out.tif', kind='cube', role=FileRole.PRIMARY)]
+
+
+# ---------------------------------------------------------------------------
+# Pins
+# ---------------------------------------------------------------------------
 
 
 def test_pins_keep_order_and_are_idempotent() -> None:
@@ -416,3 +371,9 @@ def test_pins_keep_order_and_are_idempotent() -> None:
     store.set_pinned('missing', pinned=False)
     assert store.pinned_hashes() == ['a']
     assert store.pins_path().name == '.catalog.pins.json'
+
+
+def test_unreadable_pins_start_empty() -> None:
+    store.pins_path().write_text(msgspec.json.encode([{'state_hash': 'a'}]).decode(), encoding='utf-8')
+    with pytest.warns(UserWarning, match='Pins file unreadable'):
+        assert store.pinned_hashes() == []

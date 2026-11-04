@@ -4,8 +4,8 @@ from unittest.mock import MagicMock
 import pytest
 from click.testing import CliRunner
 
-from pygeodata.catalog.types import ClassInfo
 from pygeodata.cli import cli
+from pygeodata.views.types import ClassInfo
 
 
 def _patch_registries(
@@ -53,7 +53,7 @@ def test_classes_loaded_class_appears(monkeypatch: pytest.MonkeyPatch) -> None:
         source_stale=False,
         deps_stale=False,
     )
-    monkeypatch.setattr('pygeodata.catalog.class_catalog.TrackedObject._registry', {})
+    monkeypatch.setattr('pygeodata.views.classes.TrackedObject._registry', {})
     _patch_registries(monkeypatch, lambda: {'MyLoader': mock_info}, _identity_merge)
 
     runner = CliRunner()

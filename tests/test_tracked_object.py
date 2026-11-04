@@ -88,8 +88,8 @@ def test_dependency_tree_no_self_inheritance() -> None:
     result = TrackedChild.get_dependency_tree()
     child_name = TrackedChild.get_class_name()
     base_name = TrackedBase.get_class_name()
-    assert [child_name, base_name] in result.inheritance_edges
-    assert [child_name, child_name] not in result.inheritance_edges
+    assert (child_name, base_name) in result.inheritance_edges
+    assert (child_name, child_name) not in result.inheritance_edges
 
 
 def test_sibling_classes_get_distinct_instance_hashes() -> None:

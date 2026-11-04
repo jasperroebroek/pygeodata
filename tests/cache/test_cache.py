@@ -8,6 +8,7 @@ import pytest
 from filelock import FileLock
 
 from pygeodata import ast as ast_module
+from pygeodata._version import FORMAT_VERSION
 from pygeodata.cache import (
     clean_cache,
     clean_lock_files,
@@ -18,12 +19,12 @@ from pygeodata.cache import (
     rebuild_registry,
 )
 from pygeodata.cache_entry import write_entry
-from pygeodata.config import FORMAT_VERSION
 from pygeodata.enums import JSONKeys
 from pygeodata.hash import calculate_cls_source_hash
 from pygeodata.registries.writer import is_registry_valid
 from pygeodata.spec import SpatialSpec
 from tests.fixtures.data import Child, ClassParamLoader, LoaderA, Parent, SimpleLoader
+from tests.fixtures.records import make_record, write_meta, write_tree
 
 
 def write_stale_hash(artifact: SimpleLoader, spec: SpatialSpec) -> None:
@@ -51,22 +52,12 @@ def process_touch(artifact: SimpleLoader, spec: SpatialSpec, stale: bool = False
 
 
 def make_zarr_archive(parent: Path, stem: str, hash_value: str | None = None) -> Path:
-    from pygeodata.paths import CachePathConstructor
-
     zarr_dir = parent / f'{stem}.zarr'
     zarr_dir.mkdir(parents=True, exist_ok=True)
     (zarr_dir / 'zarr.json').touch()
     (zarr_dir / '0' / '0').mkdir(parents=True)
     if hash_value is not None:
-        CachePathConstructor(parent).state_hash_path.write_text(
-            json.dumps(
-                {
-                    JSONKeys.FORMAT_VERSION: FORMAT_VERSION,
-                    JSONKeys.CLASS_NAME: 'SimpleLoader',
-                    JSONKeys.DEPENDENCY_TREE_HASH: hash_value,
-                },
-            ),
-        )
+        write_meta(parent, make_record(parent.name, 'SimpleLoader', 'Data', dependency_tree_hash=hash_value))
     return zarr_dir
 
 
@@ -264,15 +255,7 @@ def test_hash_matches_live_false_when_missing(tmp_path: Path) -> None:
 
 
 def test_hash_matches_live_none_when_class_unregistered(tmp_path: Path) -> None:
-    hash_file = tmp_path / 'meta.json'
-    hash_file.write_text(
-        json.dumps(
-            {
-                JSONKeys.CLASS_NAME: 'NoSuchClass',
-                JSONKeys.DEPENDENCY_TREE_HASH: 'abc',
-            },
-        ),
-    )
+    hash_file = write_meta(tmp_path, make_record(class_name='NoSuchClass', dependency_tree_hash='abc'))
     assert hash_matches_live(hash_file) is None
 
 
@@ -519,32 +502,12 @@ def _write_code(registry: Path, source_hash: str, class_name: str, mtime: str) -
     )
 
 
-def _write_snap(registry: Path, dep_hash: str, nodes: dict) -> None:
-    d = registry / 'snapshots' / dep_hash
-    d.mkdir(parents=True, exist_ok=True)
-    (d / 'tree.json').write_text(
-        json.dumps({JSONKeys.NODES: nodes, JSONKeys.TREE: {}}),
-        encoding='utf-8',
-    )
-
-
 def _write_entry(cache_dir: Path, state_hash: str, dep_tree_hash: str, class_name: str) -> None:
     """Write a minimal meta.json that EntryRegistry can scan."""
     from pygeodata.paths import CachePathConstructor
 
     entry_dir = cache_dir / state_hash
-    entry_dir.mkdir(parents=True, exist_ok=True)
-    CachePathConstructor(entry_dir).state_hash_path.write_text(
-        json.dumps(
-            {
-                JSONKeys.FORMAT_VERSION: FORMAT_VERSION,
-                JSONKeys.CLASS_NAME: class_name,
-                JSONKeys.STATE_HASH: state_hash,
-                JSONKeys.DEPENDENCY_TREE_HASH: dep_tree_hash,
-                JSONKeys.INSTANCE_HASH: 'inst1',
-            },
-        ),
-    )
+    write_meta(entry_dir, make_record(state_hash, class_name, 'Data', dependency_tree_hash=dep_tree_hash))
     CachePathConstructor(entry_dir).params_path.write_text(json.dumps({}))
     CachePathConstructor(entry_dir).spec_path.write_text(json.dumps({}))
 
@@ -569,9 +532,9 @@ class _CleanSourceSetup:
         _write_code(self.registry, 'other_latest', 'OtherClass', '2026-03-01T00:00:00+00:00')
 
         # One tree snapshot referenced by an entry (contains h2)
-        _write_snap(self.registry, 'snap_ref', {'MyLoader': {'hash': 'h2'}})
+        write_tree(self.registry, 'snap_ref', {'MyLoader': {'hash': 'h2'}})
         # An orphan tree snapshot (no entry points to it)
-        _write_snap(self.registry, 'snap_orphan', {'MyLoader': {'hash': 'h1'}})
+        write_tree(self.registry, 'snap_orphan', {'MyLoader': {'hash': 'h1'}})
 
         # One live entry that references snap_ref (and through it, h2)
         _write_entry(self.cache, 'state_abc', 'snap_ref', 'MyLoader')

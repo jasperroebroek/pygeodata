@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import functools
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, ClassVar
 
+from pygeodata._version import FORMAT_VERSION
 from pygeodata.ast import (
     build_symbol_tables,
     find_names_in_ast_tree,
@@ -12,7 +14,7 @@ from pygeodata.ast import (
 from pygeodata.enums import JSONKeys
 from pygeodata.graph_types import ClassNode, DependencyGraph
 from pygeodata.hash import calculate_cls_source_hash, calculate_dict_hash
-from pygeodata.registries.registry_types import CodeState, TreeSnapshot
+from pygeodata.registries.registry_types import CodeState, TreeNode, TreeSnapshot
 
 if TYPE_CHECKING:
     import ast
@@ -239,10 +241,12 @@ class TrackedObject:
         d = cls._dependency_tree_dict()
         return TreeSnapshot(
             dependency_tree_hash=cls.get_dependency_tree_hash(),
-            nodes=d[JSONKeys.NODES],
-            call_edges=d[JSONKeys.CALL_EDGES],
-            inheritance_edges=d[JSONKeys.INHERITANCE_EDGES],
+            nodes={name: TreeNode(**node) for name, node in d[JSONKeys.NODES].items()},
+            call_edges=[(s, t) for s, t in d[JSONKeys.CALL_EDGES]],
+            inheritance_edges=[(s, t) for s, t in d[JSONKeys.INHERITANCE_EDGES]],
             root_class=cls.get_class_name(),
+            registered_at=datetime.now(UTC).isoformat(),
+            format_version=FORMAT_VERSION,
         )
 
     @classmethod
@@ -259,6 +263,8 @@ class TrackedObject:
             source_hash=calculate_cls_source_hash(cls),
             class_name=cls.get_class_name(),
             object_type=cls.object_type.get_class_name(),
+            registered_at=datetime.now(UTC).isoformat(),
+            format_version=FORMAT_VERSION,
         )
 
     @classmethod

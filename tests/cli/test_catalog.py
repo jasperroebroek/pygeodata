@@ -7,23 +7,16 @@ import pytest
 from click.testing import CliRunner
 
 from pygeodata.catalog import store
+from pygeodata.catalog.types import CatalogData
 from pygeodata.cli import cli
-from pygeodata.config import FORMAT_VERSION, get_config
-from pygeodata.enums import JSONKeys
+from pygeodata.config import get_config
 from pygeodata.spec import SpatialSpec
+from tests.fixtures.records import make_record, write_meta
 
 
 def write_entry(state_hash: str, class_name: str, spec_dict: dict) -> None:
     entry_dir = get_config().path_cache / state_hash
-    entry_dir.mkdir(parents=True, exist_ok=True)
-    meta = {
-        JSONKeys.CLASS_NAME: class_name,
-        JSONKeys.OBJECT_TYPE: 'Table',
-        JSONKeys.FORMAT_VERSION: FORMAT_VERSION,
-        JSONKeys.STATE_HASH: state_hash,
-        JSONKeys.SPEC_HASH: 'spec1',
-    }
-    (entry_dir / 'meta.json').write_text(json.dumps(meta), encoding='utf-8')
+    write_meta(entry_dir, make_record(state_hash, class_name))
     (entry_dir / 'spec.json').write_text(json.dumps(spec_dict), encoding='utf-8')
 
 
@@ -36,9 +29,9 @@ def test_catalog_build(tmp_path: Path, sample_spatial_spec: SpatialSpec) -> None
     assert result.exit_code == 0
     assert 'Indexed 2 entries' in result.output
 
-    catalog = store.load_catalog()
-    assert len(catalog['entries']) == 2
-    assert len(catalog['dimensions']['crs']) == 1
+    catalog = CatalogData.from_file(store.catalog_path())
+    assert len(catalog.entries) == 2
+    assert len(catalog.specs) == 1
 
 
 def test_catalog_build_prunes_missing_rows(tmp_path: Path, sample_spatial_spec: SpatialSpec) -> None:
@@ -53,7 +46,7 @@ def test_catalog_build_prunes_missing_rows(tmp_path: Path, sample_spatial_spec: 
     assert result.exit_code == 0
     assert 'pruned 1 entry' in result.output
 
-    assert len(store.load_catalog()['entries']) == 1
+    assert len(CatalogData.from_file(store.catalog_path()).entries) == 1
 
 
 def test_browse_flags_available() -> None:
@@ -80,7 +73,7 @@ def test_catalog_build_log_interval_flag(sample_spatial_spec: SpatialSpec) -> No
     assert result.exit_code == 0
     assert 'Indexed 2 entries' in result.output
 
-    assert len(store.load_catalog()['entries']) == 2
+    assert len(CatalogData.from_file(store.catalog_path()).entries) == 2
 
 
 def test_catalog_build_warns_on_missing_root(tmp_path: Path) -> None:

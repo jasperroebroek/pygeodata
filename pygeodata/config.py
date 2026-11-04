@@ -10,8 +10,6 @@ from pygeodata.enums import ObjectType
 from pygeodata.rasters import RasterCreationOptions
 from pygeodata.spec import SpatialSpec
 
-FORMAT_VERSION = 2
-
 
 @dataclass
 class Config:

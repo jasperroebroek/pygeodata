@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 from enum import StrEnum
 
-from pygeodata.catalog.types import EntryInfo, ParamRow
+from pygeodata.catalog.types import ParamRow
+from pygeodata.views.types import EntryInfo
 
 
 class FilterTarget(StrEnum):

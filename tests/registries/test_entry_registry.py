@@ -1,23 +1,23 @@
-"""Tests for EntryRegistry and EntryRecord serialisation.
+"""Tests for EntryRegistry and the EntryInfo payload.
 
-Covers: scan→records, disk-cache hit/miss by mtime, co-output resolution,
-hash-collision behaviour, EntryInfo.to_dict/from_dict round-trips (including
-the co_outputs no-recursion guarantee), and old-format cache degradation.
+Covers: scan→records, catalog hydration, entry dirs, hash-collision behaviour,
+and the EntryInfo.to_dict payload (including the co_outputs no-recursion guarantee).
 """
 
-import dataclasses
 import json
 from pathlib import Path
 
 import pytest
 
+from pygeodata._version import FORMAT_VERSION
 from pygeodata.catalog import store
-from pygeodata.catalog.types import EntryInfo, FileRef, SpecInfo
-from pygeodata.config import FORMAT_VERSION, get_config, set_config
+from pygeodata.catalog.types import FileRef, FileRole
+from pygeodata.config import get_config, set_config
 from pygeodata.enums import JSONKeys
 from pygeodata.registries.registry import EntryRegistry
-from pygeodata.registries.registry_types import EntryRecord
 from pygeodata.tracked_object import TrackedObject
+from pygeodata.views.types import EntryInfo, SpecInfo
+from tests.fixtures.records import make_record, write_meta
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -57,7 +57,11 @@ def write_hash_file(
 
     directory.mkdir(parents=True, exist_ok=True)
     resolver = CachePathConstructor(directory)
-    resolver.state_hash_path.write_text(json.dumps(state or {}))
+    state = {str(k): v for k, v in (state or {}).items()}
+    if JSONKeys.STATE_HASH in state:
+        write_meta(directory, make_record(**{'object_type': 'Data', **state}))
+    else:
+        resolver.state_hash_path.write_text(json.dumps(state))  # an incomplete, unreadable record
     resolver.params_path.write_text(json.dumps(params or {}))
     resolver.spec_path.write_text(json.dumps(spec or {}))
     if output_ext:
@@ -66,83 +70,7 @@ def write_hash_file(
 
 
 # ---------------------------------------------------------------------------
-# EntryRecord.from_file
-# ---------------------------------------------------------------------------
-
-
-def test_from_file_reads_identity(tmp_path):
-    d = tmp_path / 'data_processed' / 'MyLoader'
-    write_hash_file(
-        d,
-        'abc',
-        state={
-            JSONKeys.CLASS_NAME: 'MyLoader',
-            JSONKeys.OBJECT_TYPE: 'data',
-            JSONKeys.STATE_HASH: 'abc123',
-            JSONKeys.INSTANCE_HASH: 'inst1',
-            JSONKeys.DEPENDENCY_TREE_HASH: 'dep1',
-            JSONKeys.CO_OUTPUTS: ['x', 'y'],
-            JSONKeys.FORMAT_VERSION: FORMAT_VERSION,
-        },
-    )
-    rec = EntryRecord.from_file(d / 'meta.json')
-    assert rec.class_name == 'MyLoader'
-    assert rec.object_type == 'data'
-    assert rec.state_hash == 'abc123'
-    assert rec.instance_hash == 'inst1'
-    assert rec.dependency_tree_hash == 'dep1'
-    assert rec.co_output_hashes == ['x', 'y']
-    assert rec.format_version == FORMAT_VERSION
-    assert rec.params_path is not None
-    assert rec.params_path.name == 'parameters.json'
-
-
-def test_from_file_missing_raises(tmp_path):
-    d = tmp_path / 'data_processed' / 'MyLoader'
-    d.mkdir(parents=True)
-    import pytest
-
-    with pytest.raises(OSError):
-        EntryRecord.from_file(d / 'meta.json')
-
-
-def test_from_file_params_path_derivation(tmp_path):
-    d = tmp_path / 'data_processed' / 'MyLoader'
-    hash_path = write_hash_file(d, 'abc', state={JSONKeys.CLASS_NAME: 'MyLoader'})
-    rec = EntryRecord.from_file(hash_path)
-    assert rec.params_path is not None
-    assert rec.params_path.name == 'parameters.json'
-
-
-# ---------------------------------------------------------------------------
-# EntryRecord.to_dict / from_dict round-trip
-# ---------------------------------------------------------------------------
-
-
-def test_entry_record_round_trip(tmp_path):
-    hash_path = tmp_path / 'meta.json'
-    hash_path.write_text('{}')
-    rec = EntryRecord(
-        class_name='MyLoader',
-        hash_path=str(hash_path),
-        state_hash='abc123',
-        instance_hash='inst1',
-        dependency_tree_hash='dep1',
-        co_output_hashes=['x'],
-        object_type='data',
-        format_version=FORMAT_VERSION,
-    )
-    recovered = EntryRecord(**dataclasses.asdict(rec))
-    assert recovered.class_name == rec.class_name
-    assert recovered.state_hash == rec.state_hash
-    assert recovered.co_output_hashes == rec.co_output_hashes
-    assert recovered.format_version == rec.format_version
-    assert recovered.hash_path == str(hash_path)
-    assert recovered.params_path == hash_path.parent / 'parameters.json'
-
-
-# ---------------------------------------------------------------------------
-# EntryInfo.to_dict / from_dict round-trip
+# EntryInfo.to_dict
 # ---------------------------------------------------------------------------
 
 
@@ -150,6 +78,7 @@ def _make_entry_info(**kwargs) -> EntryInfo:
     defaults = dict(
         class_name='MyLoader',
         object_type='data',
+        entry_dir='/cache',
         params_path='/cache/file',
         spec_path=None,
         state_hash_path=None,
@@ -168,42 +97,15 @@ def _make_entry_info(**kwargs) -> EntryInfo:
     return EntryInfo(**defaults)
 
 
-@pytest.mark.parametrize(
-    'kwargs,check',
-    [
-        (
-            {},
-            lambda orig, rec: (
-                rec.class_name == orig.class_name
-                and rec.state_hash == orig.state_hash
-                and rec.params == orig.params
-                and rec.spec.crs == orig.spec.crs
-            ),
-        ),
-        (
-            {'spec': SpecInfo(bounds_latlon=(-90.0, -180.0, 90.0, 180.0))},
-            lambda orig, rec: (
-                isinstance(rec.spec.bounds_latlon, tuple) and rec.spec.bounds_latlon == (-90.0, -180.0, 90.0, 180.0)
-            ),
-        ),
-        (
-            {'primary_file': FileRef(label='out.tif', path='/data/out.tif', kind='raster')},
-            lambda orig, rec: (
-                rec.primary_file is not None
-                and rec.primary_file.label == 'out.tif'
-                and rec.primary_file.kind == 'raster'
-            ),
-        ),
-        (
-            {'primary_file': None},
-            lambda orig, rec: rec.primary_file is None,
-        ),
-    ],
-)
-def test_entry_info_round_trip(kwargs, check):
-    entry = _make_entry_info(**kwargs)
-    recovered = EntryInfo.from_dict(entry.to_dict())
-    assert check(entry, recovered)
+def test_entry_info_to_dict_renders_file_paths():
+    entry = _make_entry_info(
+        primary_file=FileRef(relpath='out.tif', kind='cube', role=FileRole.PRIMARY),
+        sidecar_files=[FileRef(relpath='sub/side.csv', kind='file', role=FileRole.SIDECAR)],
+    )
+    d = entry.to_dict()
+    assert d['primary_file'] == {'label': 'out.tif', 'path': '/cache/out.tif', 'kind': 'cube'}
+    assert d['sidecar_files'] == [{'label': 'side.csv', 'path': '/cache/sub/side.csv', 'kind': 'file'}]
+    assert _make_entry_info(primary_file=None).to_dict()['primary_file'] is None
 
 
 def test_entry_info_to_dict_excludes_co_outputs_terminates():
@@ -268,7 +170,7 @@ def test_entry_registry_missing_state_hash(tmp_path):
     d = tmp_path / 'data_processed' / 'MyLoader'
     write_hash_file(d, 'abc', state={JSONKeys.CLASS_NAME: 'MyLoader'})  # no STATE_HASH
     reg = EntryRegistry()
-    assert reg.diagnostics()['missing_state_hash'] == 1
+    assert reg.diagnostics()['unreadable_records'] == 1
 
 
 def test_entry_registry_collision_identical_silently_deduplicates(tmp_path):
@@ -315,6 +217,7 @@ def test_entry_registry_hydrates_from_catalog(tmp_path):
 
     reg = EntryRegistry()
     assert 'abc' in reg.records
+    assert reg.entry_dir('abc') == d.absolute()
     assert get_config().path_catalog.exists()
 
 
@@ -325,15 +228,9 @@ def test_entry_registry_disk_scan_without_catalog(tmp_path):
 
     reg = EntryRegistry()
     assert 'abc' in reg.records
+    assert reg.entry_dir('abc') == d
 
-    hash_path.write_text(
-        json.dumps(
-            {
-                JSONKeys.CLASS_NAME: 'MyLoader',
-                JSONKeys.STATE_HASH: 'abc_new',
-            },
-        ),
-    )
+    write_meta(hash_path.parent, make_record('abc_new', 'MyLoader', 'Data'))
 
     reg2 = EntryRegistry()
     assert 'abc_new' in reg2.records

@@ -85,8 +85,7 @@ class VersionRegistry:
             if snapshot is None:
                 continue
             for node in snapshot.nodes.values():
-                if isinstance(node, dict) and (h := node.get('hash')):
-                    index.setdefault(h, set()).add(dep_hash)
+                index.setdefault(node.hash, set()).add(dep_hash)
         return index
 
     @staticmethod
@@ -247,12 +246,12 @@ class VersionRegistry:
             snapshot = trees.get_snapshot_from_hash(dep_hash)
             if snapshot is None:
                 continue
-            nodes = [n for n in snapshot.nodes.values() if isinstance(n, dict) and n.get('hash')]
-            node_versions = [nv for n in nodes if (nv := source_hash_to_version.get(n['hash'])) is not None]
+            nodes = list(snapshot.nodes.values())
+            node_versions = [nv for n in nodes if (nv := source_hash_to_version.get(n.hash)) is not None]
             if node_versions:
                 result[dep_hash] = max(node_versions)
             elif initial_version is not None:
-                node_reg_times = [t for n in nodes if (t := src.get_mtime_from_hash(n['hash'])) is not None]
+                node_reg_times = [t for n in nodes if (t := src.get_mtime_from_hash(n.hash)) is not None]
                 max_reg = max(node_reg_times) if node_reg_times else None
                 assigned = initial_version
                 if max_reg is not None:
@@ -365,13 +364,8 @@ class VersionRegistry:
         if snapshot is None:
             return Staleness.UNKNOWN
         for class_name, node in snapshot.nodes.items():
-            if not isinstance(node, dict):
-                continue
-            stored_hash = node.get('hash')
-            if stored_hash is None:
-                continue
             current_hash = current.get(class_name)
-            if current_hash is not None and stored_hash != current_hash:
+            if current_hash is not None and node.hash != current_hash:
                 return Staleness.STALE
         return Staleness.CURRENT
 

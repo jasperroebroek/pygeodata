@@ -1,125 +1,121 @@
-"""JSON file access layer for the catalog (:attr:`~pygeodata.config.Config.path_catalog`).
+"""The only writer of the catalog (:attr:`~pygeodata.config.Config.path_catalog`).
 
 The catalog is an index of cache entries, never a source of truth: an entry only
 exists because its ``meta.json`` was written successfully, and entry validity stays
-defined by the JSON files on disk (see :mod:`pygeodata.cache`). The active
-``FORMAT_VERSION`` and a schema fingerprint are recorded in the file — a catalog
-written by a different version is treated as empty and rebuilt, never migrated.
-Entries are keyed by their content-addressed ``state_hash``, so concurrent writers
-producing the same hash converge on identical rows.
+defined by the files on disk (see :mod:`pygeodata.cache`). Its layout is the
+:class:`~pygeodata.catalog.types.CatalogData` contract. A catalog that is missing or
+outdated is rebuilt from the cache entries by the next write; one written by a newer
+pygeodata is never overwritten.
 
 All write paths are no-ops while ``catalog_enabled`` is False on the config —
-e.g. on shared filesystems. Incremental writes take a ``filelock`` and rewrite the
-file atomically (temp file + rename), which is safe on any local filesystem and
-needs no database locking protocol.
+e.g. on shared filesystems. Writes take a ``filelock`` and rewrite the file
+atomically (temp file + rename).
 
-Paths are stored relative to the cache root that contains the entry, so a catalog
-built on one machine resolves correctly on another that mounts the same cache at
-a different absolute location; entries outside every configured cache root fall
-back to absolute paths.
+Entry dirs are stored relative to the cache root of their object type, so a catalog
+built on one machine resolves on another that mounts the cache elsewhere; entries
+outside that root keep absolute paths.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
+import socket
 import time
+import uuid
 import warnings
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import msgspec
+
+from pygeodata._version import CATALOG_VERSION, FORMAT_VERSION, __version__
+from pygeodata.catalog.display import find_output_files, param_rows
+from pygeodata.catalog.types import (
+    CatalogData,
+    CatalogEntry,
+    CatalogHeader,
+    CatalogNewerError,
+    CatalogOutdatedError,
+    CatalogWriter,
+    Pin,
+    schema_fingerprint,
+)
+from pygeodata.config import get_config
+from pygeodata.enums import ObjectType
+from pygeodata.fileio import file_lock, read_typed_json, write_typed_json_atomic
+from pygeodata.paths import CachePathConstructor, CachePathResolver
+from pygeodata.records import EntryRecord, SpecRecord
+
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
-
-from pygeodata.catalog.dimensions import dimension_rows
-from pygeodata.catalog.display import EntryDisplay, entry_display
-from pygeodata.catalog.types import FileRole
-from pygeodata.config import FORMAT_VERSION, get_config
-from pygeodata.fileio import file_lock, write_json_atomic
-from pygeodata.paths import CachePathConstructor, CachePathResolver
-from pygeodata.registries.registry_types import EntryRecord
-from pygeodata.spec import SpatialSpec
 
 logger = logging.getLogger(__name__)
 
 BACKFILL_LOG_INTERVAL = 2000
-
-_META_FORMAT_VERSION = 'format_version'
-_META_SCHEMA_VERSION = 'schema_fingerprint'
-_ENTRY_KEYS = (
-    'class_name',
-    'object_type',
-    'source_hash',
-    'dependency_tree_hash',
-    'instance_hash',
-    'params_hash',
-    'spec_hash',
-    'crs_hash',
-    'transform_hash',
-    'bounds_hash',
-    'shape_hash',
-    'co_output_hashes',
-    'rows',
-    'linked_entries',
-    'dir_relpath',
-    'created_at',
-    'updated_at',
-)
-
-
-def schema_fingerprint() -> str:
-    """Fingerprint of the catalog's JSON structure — any layout change changes it.
-
-    No schema version numbers: the catalog is disposable, so a fingerprint mismatch
-    makes every load treat it as empty and the next backfill rebuilds it.
-    """
-    template = {
-        _META_FORMAT_VERSION: 0,
-        _META_SCHEMA_VERSION: '',
-        'entries': dict.fromkeys(_ENTRY_KEYS),
-        'files': [{'relpath': '', 'label': '', 'kind': '', 'role': ''}],
-        'dimensions': {'crs': {}, 'transforms': {}, 'bounds': {}, 'shapes': {}},
-    }
-    return hashlib.sha256(json.dumps(template, sort_keys=True).encode()).hexdigest()
 
 
 def catalog_path() -> Path:
     return get_config().path_catalog
 
 
-def _empty_catalog() -> dict[str, Any]:
-    return {
-        _META_FORMAT_VERSION: None,
-        _META_SCHEMA_VERSION: schema_fingerprint(),
-        'entries': {},
-        'files': {},
-        'dimensions': {'crs': {}, 'transforms': {}, 'bounds': {}, 'shapes': {}},
-    }
+def read_catalog() -> CatalogData | None:
+    """The catalog for readers; None when there is none or it is outdated.
 
-
-def load_catalog() -> dict[str, Any]:
-    """The catalog as a plain dict; a missing or outdated file yields an empty one."""
-    path = catalog_path()
-    if not path.is_file():
-        return _empty_catalog()
+    Raises :class:`~pygeodata.catalog.types.CatalogNewerError` for a catalog written by a newer pygeodata.
+    """
     try:
-        catalog = json.loads(path.read_text(encoding='utf-8'))
-    except (json.JSONDecodeError, OSError) as exc:
-        warnings.warn(f'Catalog unreadable, starting empty: {exc}', stacklevel=2)
-        return _empty_catalog()
-    if catalog.get(_META_FORMAT_VERSION) != FORMAT_VERSION or catalog.get(_META_SCHEMA_VERSION) != schema_fingerprint():
-        return _empty_catalog()
-    return catalog
+        return CatalogData.from_file(catalog_path())
+    except FileNotFoundError:
+        return None
+    except (OSError, CatalogOutdatedError) as exc:
+        warnings.warn(f'Catalog not used, reading the cache entries instead: {exc}', stacklevel=2)
+        return None
 
 
-def save_catalog(catalog: dict[str, Any]) -> None:
+def _writer() -> CatalogWriter:
+    return CatalogWriter(
+        root=str(catalog_path().parent.resolve()),
+        host=socket.gethostname(),
+        pygeodata=__version__,
+        written_at=time.time(),
+    )
+
+
+def _roots() -> dict[str, str]:
+    config = get_config()
+    return {t.value: str(config.get_cache_root(t).resolve()) for t in ObjectType}
+
+
+def _new_catalog(catalog_id: str | None = None) -> CatalogData:
+    header = CatalogHeader(
+        catalog_version=CATALOG_VERSION,
+        schema_fingerprint=schema_fingerprint(),
+        catalog_id=catalog_id or uuid.uuid4().hex,
+        writer=_writer(),
+        roots=_roots(),
+    )
+    return CatalogData(header=header, entries={}, specs={})
+
+
+def _load_for_write() -> tuple[CatalogData, bool]:
+    """The catalog to update, and whether it must first be rebuilt from the cache entries."""
+    try:
+        return CatalogData.from_file(catalog_path()), False
+    except FileNotFoundError:
+        return _new_catalog(), True
+    except CatalogOutdatedError as exc:
+        logger.info('Rebuilding the catalog: %s', exc)
+        return _new_catalog(exc.catalog_id), True
+
+
+def _save(catalog: CatalogData) -> None:
     path = catalog_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    catalog[_META_FORMAT_VERSION] = FORMAT_VERSION
-    catalog[_META_SCHEMA_VERSION] = schema_fingerprint()
-    write_json_atomic(path, catalog)
+    catalog.header.writer = _writer()
+    catalog.header.roots = _roots()
+    catalog.dump(path)
 
 
 @contextmanager
@@ -131,124 +127,65 @@ def _catalog_lock() -> Iterator[None]:
 
 
 # ---------------------------------------------------------------------------
-# Paths — cache-root relative, resolved against the local config
+# Entry dirs — relative to the local cache root of the entry's object type
 # ---------------------------------------------------------------------------
 
 
-def _relpath(entry_dir: Path) -> str:
-    """Relative to the cache root containing the entry; absolute when outside all roots."""
-    for root in get_config().cache_roots:
-        try:
-            return str(Path(entry_dir).resolve().relative_to(Path(root).resolve()))
-        except ValueError:  # noqa: PERF203 — a handful of roots; exception cost is irrelevant
-            continue
-    return str(Path(entry_dir).resolve())
-
-
-def entry_abs_path(dir_relpath: str, cache_roots: Iterable[Path] | None = None) -> Path:
-    """Resolve a stored relpath against the configured cache roots of this machine."""
-    path = Path(dir_relpath)
-    if path.is_absolute():
-        return path.resolve()
-    roots = tuple(get_config().cache_roots if cache_roots is None else cache_roots)
-    for root in roots:
-        if (root / path).exists():
-            return (root / path).resolve()
-    return (roots[0] / path).resolve() if roots else path
-
-
-# ---------------------------------------------------------------------------
-# Entry rows
-# ---------------------------------------------------------------------------
-
-
-def _entry_row(
-    entry_dir: Path,
-    record: EntryRecord,
-    dims: dict[str, Any],
-    display: EntryDisplay | None,
-) -> dict[str, Any]:
+def _cache_root(object_type: str) -> Path | None:
     try:
-        created_at = CachePathConstructor(Path(entry_dir)).state_hash_path.stat().st_mtime
+        return get_config().get_cache_root(ObjectType(object_type))
+    except ValueError:
+        return None
+
+
+def dir_relpath(entry_dir: Path, object_type: str) -> str:
+    resolved = Path(entry_dir).resolve()
+    root = _cache_root(object_type)
+    if root is not None:
+        try:
+            return str(resolved.relative_to(root.resolve()))
+        except ValueError:
+            pass
+    return str(resolved)
+
+
+def entry_dir(entry: CatalogEntry) -> Path:
+    """The entry's directory on this machine; touches no files."""
+    path = Path(entry.dir_relpath)
+    root = _cache_root(entry.record.object_type)
+    if path.is_absolute() or root is None:
+        return path
+    return (root / path).absolute()
+
+
+# ---------------------------------------------------------------------------
+# Entries
+# ---------------------------------------------------------------------------
+
+
+def catalog_entry(entry_path: Path, record: EntryRecord, params_json: dict[str, Any] | None) -> CatalogEntry:
+    rows, linked = param_rows(params_json) if params_json is not None else ([], [])
+    now = time.time()
+    try:
+        created_at = CachePathConstructor(entry_path).state_hash_path.stat().st_mtime
     except OSError:
-        created_at = None
-    return {
-        'state_hash': record.state_hash,
-        'class_name': record.class_name,
-        'object_type': record.object_type,
-        'source_hash': record.source_hash,
-        'dependency_tree_hash': record.dependency_tree_hash,
-        'instance_hash': record.instance_hash,
-        'params_hash': record.params_hash,
-        'spec_hash': record.spec_hash,
-        'crs_hash': dims['crs_hash'],
-        'transform_hash': dims['transform_hash'],
-        'bounds_hash': dims['bounds_hash'],
-        'shape_hash': dims['shape_hash'],
-        'co_output_hashes': list(record.co_output_hashes or []),
-        'rows': display.rows if display is not None else None,
-        'linked_entries': display.linked_entries if display is not None else None,
-        'dir_relpath': _relpath(entry_dir),
-        'created_at': created_at,
-        'updated_at': created_at,
-    }
-
-
-def _upsert_dims(catalog: dict[str, Any], dims: dict[str, Any]) -> None:
-    crs_row = dims['crs_row']
-    if crs_row is not None:
-        catalog['dimensions']['crs'][crs_row['crs_hash']] = crs_row['crs']
-    res_row = dims['resolution_row']
-    if res_row is not None:
-        catalog['dimensions']['transforms'][res_row['transform_hash']] = {
-            k: v for k, v in res_row.items() if k != 'transform_hash'
-        }
-    bounds_row = dims['bounds_row']
-    if bounds_row is not None:
-        catalog['dimensions']['bounds'][bounds_row['bounds_hash']] = {
-            k: v for k, v in bounds_row.items() if k != 'bounds_hash'
-        }
-    shape_row = dims['shape_row']
-    if shape_row is not None:
-        catalog['dimensions']['shapes'][shape_row['shape_hash']] = shape_row['shape']
-
-
-def _upsert_files(catalog: dict[str, Any], state_hash: str, display: EntryDisplay) -> None:
-    refs: list[dict[str, str]] = []
-    if display.primary is not None:
-        refs.append({**display.primary, 'role': FileRole.PRIMARY.value})
-    refs.extend({**sidecar, 'role': FileRole.SIDECAR.value} for sidecar in display.sidecars)
-    if refs:
-        catalog['files'][state_hash] = refs
-    else:
-        catalog['files'].pop(state_hash, None)
-
-
-def upsert_entry(
-    catalog: dict[str, Any],
-    entry_dir: Path,
-    record: EntryRecord,
-    spec: SpatialSpec | None,
-    display: EntryDisplay | None = None,
-) -> None:
-    """Insert or update one entry, its dimension rows, and its file refs — in memory."""
-    dims = dimension_rows(spec)
-    row = _entry_row(entry_dir, record, dims, display)
-    if row['state_hash'] is None:
-        return
-    _upsert_dims(catalog, dims)
-    existing = catalog['entries'].get(row['state_hash'], {'state_hash': row['state_hash']})
-    existing.update({key: row[key] for key in _ENTRY_KEYS})
-    catalog['entries'][row['state_hash']] = existing
-    if display is not None:
-        _upsert_files(catalog, row['state_hash'], display)
+        created_at = now
+    return CatalogEntry(
+        record=record,
+        dir_relpath=dir_relpath(entry_path, record.object_type),
+        rows=rows,
+        linked_entries=linked,
+        files=find_output_files(entry_path, record.class_name, record.object_type),
+        created_at=created_at,
+        updated_at=now,
+    )
 
 
 def iter_cache_records(
     cache_roots: Iterable[Path],
     format_version: int | None = None,
     skip_hashes: set[str] | None = None,
-) -> Iterator[tuple[Path, EntryRecord, SpatialSpec | None]]:
+) -> Iterator[tuple[Path, EntryRecord, SpecRecord | None]]:
     """Yield ``(entry_dir, record, spec)`` for every readable cache entry on disk.
 
     Skips entries written by a different ``format_version``: those are stale
@@ -262,72 +199,59 @@ def iter_cache_records(
             continue
         try:
             record = EntryRecord.from_file(meta_path)
-        except (OSError, json.JSONDecodeError, KeyError):
+        except (OSError, msgspec.DecodeError):
             continue
         if skip_hashes is not None and record.state_hash in skip_hashes:
             continue
-        if record.state_hash is None or record.class_name is None:
-            continue
         if format_version is not None and record.format_version != format_version:
             continue
-        spec = None
-        spec_path = CachePathConstructor.from_path(meta_path).spec_path
-        if spec_path.exists():
-            try:
-                spec = SpatialSpec.from_file(spec_path)
-            except Exception:  # noqa: BLE001 — unparseable spec.json leaves the dims nullable
-                spec = None
+        try:
+            spec = SpecRecord.from_file(CachePathConstructor.from_path(meta_path).spec_path)
+        except (OSError, msgspec.DecodeError):
+            spec = None
         yield meta_path.parent, record, spec
 
 
 def backfill(
-    catalog: dict[str, Any],
+    catalog: CatalogData,
     cache_roots: Iterable[Path],
     format_version: int | None = None,
     log_interval: int = BACKFILL_LOG_INTERVAL,
 ) -> int:
     """Index every cache entry missing from the catalog; returns the count indexed."""
-    known = set(catalog['entries'])
     count = 0
-    for entry_dir, record, spec in iter_cache_records(cache_roots, format_version=format_version, skip_hashes=known):
-        display = None
-        params_path = CachePathConstructor(entry_dir).params_path
-        if params_path.exists():
-            try:
-                params_json = json.loads(params_path.read_text(encoding='utf-8'))
-                display = entry_display(params_json, entry_dir, record.class_name, record.object_type)
-            except (OSError, json.JSONDecodeError):
-                display = None
-        upsert_entry(catalog, entry_dir, record, spec, display)
+    skip = set(catalog.entries)
+    for path, record, spec in iter_cache_records(cache_roots, format_version=format_version, skip_hashes=skip):
+        try:
+            params_json = json.loads(CachePathConstructor(path).params_path.read_text(encoding='utf-8'))
+        except (OSError, json.JSONDecodeError):
+            params_json = None
+        catalog.upsert(catalog_entry(path, record, params_json), spec)
         count += 1
         if log_interval and count % log_interval == 0:
             logger.info('Backfilled %d entries into the catalog', count)
     return count
 
 
-def prune_missing(catalog: dict[str, Any]) -> int:
+def prune_missing(catalog: CatalogData) -> int:
     """Delete entries whose entry dir (or its ``meta.json``) no longer exists."""
-    stale = [
+    return catalog.prune(
         state_hash
-        for state_hash, row in catalog['entries'].items()
-        if not CachePathConstructor(entry_abs_path(row['dir_relpath'])).state_hash_path.exists()
-    ]
-    for state_hash in stale:
-        catalog['entries'].pop(state_hash, None)
-        catalog['files'].pop(state_hash, None)
-    return len(stale)
+        for state_hash, entry in catalog.entries.items()
+        if not CachePathConstructor(entry_dir(entry)).state_hash_path.exists()
+    )
 
 
-def bootstrap_rows(catalog: dict[str, Any]) -> list[dict[str, Any]]:
+def bootstrap_rows(catalog: CatalogData) -> list[CatalogEntry]:
     """Most recent entry per class — the browser's instant first payload.
 
     ``created_at`` is the ``meta.json`` mtime, used for ordering only.
     """
-    latest: dict[str, dict[str, Any]] = {}
-    for row in catalog['entries'].values():
-        current = latest.get(row['class_name'])
-        if current is None or (row['created_at'] or 0) >= (current['created_at'] or 0):
-            latest[row['class_name']] = row
+    latest: dict[str, CatalogEntry] = {}
+    for entry in catalog.entries.values():
+        current = latest.get(entry.record.class_name)
+        if current is None or entry.created_at >= current.created_at:
+            latest[entry.record.class_name] = entry
     return [latest[class_name] for class_name in sorted(latest)]
 
 
@@ -337,45 +261,39 @@ def bootstrap_rows(catalog: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def index_entry(
-    entry_dir: Path,
+    entry_path: Path,
     record: EntryRecord,
-    spec: SpatialSpec | None,
+    spec: SpecRecord,
     params_json: dict[str, Any] | None = None,
 ) -> None:
-    """Upsert one entry and its dimensions; a failed write warns and never fails the render.
-
-    The display payload is derived inside the catalog from ``params_json`` —
-    callers pass data only.
-    """
+    """Upsert one entry and its spec; a failed write warns and never fails the render."""
     if not get_config().catalog_enabled:
         return
-    display = None
-    if params_json is not None:
-        try:
-            display = entry_display(params_json, entry_dir, record.class_name, record.object_type)
-        except OSError as exc:
-            warnings.warn(f'Catalog write failed for {record.state_hash}: {exc}', stacklevel=2)
-            return
     try:
+        entry = catalog_entry(entry_path, record, params_json)
         with _catalog_lock():
-            catalog = load_catalog()
-            upsert_entry(catalog, entry_dir, record, spec, display)
-            save_catalog(catalog)
-    except OSError as exc:
+            catalog, rebuild = _load_for_write()
+            if rebuild:
+                backfill(catalog, get_config().cache_roots, format_version=FORMAT_VERSION)
+            catalog.upsert(entry, spec)
+            _save(catalog)
+    except (OSError, CatalogNewerError) as exc:
         warnings.warn(f'Catalog write failed for {record.state_hash}: {exc}', stacklevel=2)
 
 
 def reconcile() -> int:
     """Prune entries whose cache entry no longer exists; warns and returns 0 on failure."""
-    if not get_config().catalog_enabled:
+    if not get_config().catalog_enabled or not catalog_path().is_file():
         return 0
     try:
         with _catalog_lock():
-            catalog = load_catalog()
+            catalog, rebuild = _load_for_write()
+            if rebuild:
+                backfill(catalog, get_config().cache_roots, format_version=FORMAT_VERSION)
             pruned = prune_missing(catalog)
-            if pruned:
-                save_catalog(catalog)
-    except OSError as exc:
+            if pruned or rebuild:
+                _save(catalog)
+    except (OSError, CatalogNewerError) as exc:
         warnings.warn(f'Catalog prune failed: {exc}', stacklevel=2)
         return 0
     return pruned
@@ -393,10 +311,10 @@ def refresh(
     if not get_config().catalog_enabled:
         return 0, 0
     with _catalog_lock():
-        catalog = load_catalog()
+        catalog, _ = _load_for_write()
         indexed = backfill(catalog, cache_roots, format_version=format_version)
         pruned = prune_missing(catalog) if prune else 0
-        save_catalog(catalog)
+        _save(catalog)
     return indexed, pruned
 
 
@@ -413,27 +331,26 @@ def pins_path() -> Path:
     return catalog.with_name(f'{catalog.stem}.pins.json')
 
 
-def _load_pins() -> list[dict[str, Any]]:
+def _load_pins() -> list[Pin]:
     path = pins_path()
     if not path.is_file():
         return []
     try:
-        pins = json.loads(path.read_text(encoding='utf-8'))
-    except (json.JSONDecodeError, OSError) as exc:
+        return read_typed_json(path, list[Pin])
+    except (OSError, msgspec.DecodeError) as exc:
         warnings.warn(f'Pins file unreadable, starting empty: {exc}', stacklevel=2)
         return []
-    return pins if isinstance(pins, list) else []
 
 
-def _save_pins(pins: list[dict[str, Any]]) -> None:
+def _save_pins(pins: list[Pin]) -> None:
     path = pins_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    write_json_atomic(path, pins)
+    write_typed_json_atomic(path, pins)
 
 
 def pinned_hashes() -> list[str]:
     """Pinned state hashes, oldest pin first."""
-    return [pin['state_hash'] for pin in sorted(_load_pins(), key=lambda pin: pin['pinned_at'])]
+    return [pin.state_hash for pin in sorted(_load_pins(), key=lambda pin: pin.pinned_at)]
 
 
 def set_pinned(state_hash: str, pinned: bool) -> None:
@@ -441,8 +358,8 @@ def set_pinned(state_hash: str, pinned: bool) -> None:
     with file_lock(pins_path().with_suffix('.lock')):
         pins = _load_pins()
         if pinned:
-            if not any(pin['state_hash'] == state_hash for pin in pins):
-                pins.append({'state_hash': state_hash, 'pinned_at': time.time()})
+            if not any(pin.state_hash == state_hash for pin in pins):
+                pins.append(Pin(state_hash=state_hash, pinned_at=time.time()))
         else:
-            pins = [pin for pin in pins if pin['state_hash'] != state_hash]
+            pins = [pin for pin in pins if pin.state_hash != state_hash]
         _save_pins(pins)

@@ -6,6 +6,7 @@ import pytest
 from pygeodata.enums import JSONKeys
 from pygeodata.registries.registry import SourceRegistry
 from pygeodata.registries.versioning import VersionRegistry
+from tests.fixtures.records import write_tree
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -32,15 +33,6 @@ def _write_snapshot(
                 JSONKeys.REGISTERED_AT: mtime,
             },
         ),
-        encoding='utf-8',
-    )
-
-
-def _write_tree(registry: Path, dep_hash: str, nodes: dict) -> None:
-    snapshot_dir = registry / 'snapshots' / dep_hash
-    snapshot_dir.mkdir(parents=True, exist_ok=True)
-    (snapshot_dir / 'tree.json').write_text(
-        json.dumps({JSONKeys.NODES: nodes, JSONKeys.TREE: {}}),
         encoding='utf-8',
     )
 
@@ -168,7 +160,7 @@ def two_version_registry(tmp_path: Path):
     _write_snapshot(registry, 'h1', 'MyLoader', mtime='2026-01-01T00:00:00+00:00')
     _write_snapshot(registry, 'h2', 'MyLoader', mtime='2026-06-01T00:00:00+00:00')
     _write_snapshot(registry, 'd1', 'MyDep', mtime='2026-03-01T00:00:00+00:00')
-    _write_tree(
+    write_tree(
         registry,
         'snapshot_pre',
         {
@@ -176,7 +168,7 @@ def two_version_registry(tmp_path: Path):
             'MyDep': {'hash': 'd1', 'object_type': 'Data'},
         },
     )
-    _write_tree(
+    write_tree(
         registry,
         'snapshot_post',
         {
@@ -222,7 +214,7 @@ def test_snapshot_with_unknown_node_hash_assigned_to_initial(tmp_path: Path) -> 
     registry = tmp_path / '.source'
     _write_snapshot(registry, 'h1', 'A', mtime='2026-01-01T00:00:00+00:00')
     _write_snapshot(registry, 'h2', 'A', mtime='2026-06-01T00:00:00+00:00')
-    _write_tree(registry, 'snap1', {'A': {'hash': 'UNKNOWN_HASH'}})
+    write_tree(registry, 'snap1', {'A': {'hash': 'UNKNOWN_HASH'}})
     vr = VersionRegistry(registry)
     initial = vr.versions[-1]
     assert vr.version_for_dep_hash('snap1') == initial
@@ -232,7 +224,7 @@ def test_no_changes_produces_only_initial(tmp_path: Path) -> None:
     """Single registration per class → no change events → only one group (v1)."""
     registry = tmp_path / '.source'
     _write_snapshot(registry, 'h1', 'A', mtime='2026-01-01T00:00:00+00:00')
-    _write_tree(registry, 'snap1', {'A': {'hash': 'h1'}})
+    write_tree(registry, 'snap1', {'A': {'hash': 'h1'}})
     vr = VersionRegistry(registry)
     assert len(vr.versions) == 1
     assert vr.version_number(vr.versions[0]) == 1
@@ -243,7 +235,7 @@ def test_snapshot_using_change_hash_assigned_to_its_group(tmp_path: Path) -> Non
     registry = tmp_path / '.source'
     _write_snapshot(registry, 'h1', 'A', mtime='2026-01-01T00:00:00+00:00')
     _write_snapshot(registry, 'h2', 'A', mtime='2026-06-01T00:00:00+00:00')
-    _write_tree(registry, 'snap1', {'A': {'hash': 'h2'}})
+    write_tree(registry, 'snap1', {'A': {'hash': 'h2'}})
     vr = VersionRegistry(registry)
     v1 = vr.versions[0]
     assert vr.version_for_dep_hash('snap1') == v1

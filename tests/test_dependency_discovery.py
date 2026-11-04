@@ -1,6 +1,7 @@
 import ast
 import json
 import textwrap
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -135,7 +136,12 @@ def test_initialize_class_code_state_heals_missing_tree_file() -> None:
 def test_update_registry_records_revert() -> None:
     update_registry(LoaderA)
     current = calculate_cls_source_hash(LoaderA)
-    newer = CodeState(source_hash='otherhash', class_name='LoaderA', object_type='Data')
+    newer = CodeState(
+        source_hash='otherhash',
+        class_name='LoaderA',
+        object_type='Data',
+        registered_at=datetime.now(UTC).isoformat(),
+    )
     other = CodeRegistryPathConstructor.from_source_hash(newer.source_hash)
     other.directory.mkdir(parents=True)
     newer.dump(other.meta_path)

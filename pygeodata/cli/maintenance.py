@@ -2,10 +2,11 @@ from pathlib import Path
 
 import click
 
+from pygeodata._version import FORMAT_VERSION
 from pygeodata.cache import clean_cache, clean_lock_files, clean_source_registry
 from pygeodata.catalog.store import BACKFILL_LOG_INTERVAL, refresh
 from pygeodata.cli.common import _check_roots_readable, _import_options, _import_project_modules
-from pygeodata.config import FORMAT_VERSION, get_config
+from pygeodata.config import get_config
 
 
 @click.group('catalog')

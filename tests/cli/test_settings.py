@@ -6,8 +6,8 @@ import pytest
 from click.testing import CliRunner
 
 from pygeodata.cli import cli
-from pygeodata.config import FORMAT_VERSION, get_config
-from pygeodata.enums import JSONKeys
+from pygeodata.config import get_config
+from tests.fixtures.records import make_record, write_meta
 
 SETTINGS_MODULE = 'pygeodata_settings'
 
@@ -20,18 +20,7 @@ def _pop_settings_module() -> None:
 
 
 def _write_entry(entry_dir: Path, state_hash: str) -> None:
-    entry_dir.mkdir(parents=True, exist_ok=True)
-    (entry_dir / 'meta.json').write_text(
-        json.dumps(
-            {
-                JSONKeys.CLASS_NAME: 'SettingsLoader',
-                JSONKeys.OBJECT_TYPE: 'Table',
-                JSONKeys.FORMAT_VERSION: FORMAT_VERSION,
-                JSONKeys.STATE_HASH: state_hash,
-            },
-        ),
-        encoding='utf-8',
-    )
+    write_meta(entry_dir, make_record(state_hash, 'SettingsLoader', 'Table'))
     (entry_dir / 'spec.json').write_text(json.dumps({'crs': 'EPSG:4326'}), encoding='utf-8')
 
 

@@ -1,32 +1,15 @@
 from __future__ import annotations
 
-import dataclasses
-import json
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from enum import Enum
 from functools import total_ordering
-from pathlib import Path
-from typing import Self
+from typing import TYPE_CHECKING, Self
 
-from pygeodata.config import FORMAT_VERSION
-from pygeodata.enums import JSONKeys
-from pygeodata.fileio import write_json_atomic
-from pygeodata.paths import CachePathConstructor
+from pygeodata.fileio import read_typed_json, write_typed_json_atomic
 
-
-def read_format_version(path: Path) -> int | None:
-    try:
-        data = json.loads(path.read_text(encoding='utf-8'))
-    except (OSError, json.JSONDecodeError):
-        return None
-    version = data.get(JSONKeys.FORMAT_VERSION) if isinstance(data, dict) else None
-    return version if isinstance(version, int) else None
-
-
-def is_current_format(path: Path) -> bool:
-    return read_format_version(path) == FORMAT_VERSION
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class ChangeStatus(str, Enum):
@@ -79,78 +62,30 @@ class CodeEvent:
         }
 
 
-@dataclass
-class EntryRecord:
-    """Core identity data for one cache entry.
-
-    Mirrors CodeState / TreeSnapshot — keyed by state_hash in EntryRegistry.
-    Browser display fields (rows, spec strings, linked entries, primary file)
-    live in EntryInfo in catalog/entry_catalog.py.
-
-    """
-
-    class_name: str | None = None
-    source_hash: str | None = None
-    dependency_tree_hash: str | None = None
-    instance_hash: str | None = None
-    params_hash: str | None = None
-    spec_hash: str | None = None
-    state_hash: str | None = None
-    object_type: str | None = None
-    hash_path: str | None = field(default=None, compare=False)
-    co_output_hashes: list[str] = field(default_factory=list)
-    format_version: int | None = None
-
-    @property
-    def is_current_format(self) -> bool:
-        return self.format_version == FORMAT_VERSION
-
-    @property
-    def params_path(self) -> Path | None:
-        if self.hash_path is None:
-            return None
-        return CachePathConstructor.from_path(Path(self.hash_path)).params_path
-
-    @classmethod
-    def from_file(cls, hash_path: Path) -> EntryRecord:
-        data = json.loads(hash_path.read_text(encoding='utf-8'))
-        return cls(
-            class_name=data.get(JSONKeys.CLASS_NAME),
-            hash_path=str(hash_path),
-            object_type=data.get(JSONKeys.OBJECT_TYPE),
-            state_hash=data.get(JSONKeys.STATE_HASH),
-            instance_hash=data.get(JSONKeys.INSTANCE_HASH),
-            params_hash=data.get(JSONKeys.PARAMS_HASH),
-            spec_hash=data.get(JSONKeys.SPEC_HASH),
-            source_hash=data.get(JSONKeys.SOURCE_HASH),
-            dependency_tree_hash=data.get(JSONKeys.DEPENDENCY_TREE_HASH),
-            co_output_hashes=data.get(JSONKeys.CO_OUTPUTS, []),
-            format_version=data.get(JSONKeys.FORMAT_VERSION),
-        )
-
-    def dump(self, path: Path) -> None:
-        d = dataclasses.asdict(self)
-        d.pop('hash_path', None)
-        write_json_atomic(path, d, indent=4)
+@dataclass(frozen=True, slots=True)
+class TreeNode:
+    hash: str
+    object_type: str
 
 
 @dataclass(slots=True)
 class TreeSnapshot:
     dependency_tree_hash: str
-    nodes: dict[str, dict]
-    call_edges: list[list[str]]
-    inheritance_edges: list[list[str]]
+    nodes: dict[str, TreeNode]
+    call_edges: list[tuple[str, str]]
+    inheritance_edges: list[tuple[str, str]]
     root_class: str
-    registered_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    format_version: int = field(default=FORMAT_VERSION)
+    registered_at: str
+    # absent in the file: written before format versioning
+    format_version: int = 0
 
     def get_source_hash(self, class_name: str) -> str | None:
         node = self.nodes.get(class_name)
-        return node.get('hash') if isinstance(node, dict) else None
+        return node.hash if node is not None else None
 
     def get_object_type(self, class_name: str) -> str | None:
         node = self.nodes.get(class_name)
-        return node.get(JSONKeys.OBJECT_TYPE) if isinstance(node, dict) else None
+        return node.object_type if node is not None else None
 
     def get_call_dependencies(self) -> list[str]:
         """Direct call dependencies of the root class."""
@@ -161,20 +96,11 @@ class TreeSnapshot:
         return sorted({t for s, t in self.inheritance_edges if s == self.root_class})
 
     def dump(self, path: Path) -> None:
-        write_json_atomic(path, dataclasses.asdict(self), indent=4)
+        write_typed_json_atomic(path, self, indent=4)
 
     @classmethod
     def from_file(cls, path: Path) -> Self:
-        data = json.loads(path.read_text(encoding='utf-8'))
-        return cls(
-            dependency_tree_hash=data.get(JSONKeys.DEPENDENCY_TREE_HASH, ''),
-            nodes=data.get(JSONKeys.NODES, {}),
-            call_edges=data.get(JSONKeys.CALL_EDGES, []),
-            inheritance_edges=data.get(JSONKeys.INHERITANCE_EDGES, []),
-            root_class=data.get(JSONKeys.ROOT_CLASS, ''),
-            registered_at=data.get(JSONKeys.REGISTERED_AT, ''),
-            format_version=data.get(JSONKeys.FORMAT_VERSION, 0),
-        )
+        return read_typed_json(path, cls)
 
 
 @dataclass(slots=True)
@@ -182,22 +108,16 @@ class CodeState:
     source_hash: str
     class_name: str
     object_type: str
-    registered_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    format_version: int = field(default=FORMAT_VERSION)
+    registered_at: str
+    # absent in the file: written before format versioning
+    format_version: int = 0
 
     def dump(self, path: Path) -> None:
-        write_json_atomic(path, dataclasses.asdict(self), indent=4)
+        write_typed_json_atomic(path, self, indent=4)
 
     @classmethod
     def from_file(cls, path: Path) -> Self:
-        data = json.loads(path.read_text(encoding='utf-8'))
-        return cls(
-            source_hash=data[JSONKeys.SOURCE_HASH],
-            class_name=data[JSONKeys.CLASS_NAME],
-            object_type=data[JSONKeys.OBJECT_TYPE],
-            registered_at=data[JSONKeys.REGISTERED_AT],
-            format_version=data.get(JSONKeys.FORMAT_VERSION, 0),
-        )
+        return read_typed_json(path, cls)
 
 
 @total_ordering

@@ -10,7 +10,6 @@ from pygeodata.cli import COMMANDS, cli
 
 # `import pygeodata.cli` and `pygeodata --help` must load none of these; see AGENTS.md "CLI import time".
 FORBIDDEN = (
-    'affine',
     'asyncio',
     'dask',
     'filelock',

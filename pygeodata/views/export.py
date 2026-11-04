@@ -6,10 +6,10 @@ import tarfile
 from collections.abc import Callable
 from pathlib import Path
 
-from pygeodata.catalog.display import find_primary_and_sidecar_files
-from pygeodata.catalog.types import EntryInfo
+from pygeodata.catalog.display import find_output_files
 from pygeodata.paths import CachePathConstructor, CodeRegistryPathConstructor
 from pygeodata.registries.registry import TreeRegistry
+from pygeodata.views.types import EntryInfo
 
 
 def _cache_files_for_entry(
@@ -53,7 +53,7 @@ def _snapshot_and_code_files(
 
     files = [(trees.get_tree_path(dep_hash), f'snapshots/{dep_hash}/tree.json')]
 
-    src_hashes = {node.get('hash') for node in tree.nodes.values() if isinstance(node, dict) and node.get('hash')}
+    src_hashes = {node.hash for node in tree.nodes.values()}
     for src_hash in src_hashes - seen_src_hashes:
         seen_src_hashes.add(src_hash)
         code_dir = CodeRegistryPathConstructor.from_source_hash(src_hash).directory
@@ -130,10 +130,10 @@ def single_entry_tar_path(
     if not path_allowed(str(cache_dir)):
         return None, None, False
 
-    primary, _ = find_primary_and_sidecar_files(cache_dir, entry.class_name, entry.object_type)
-    if primary is None:
+    files = find_output_files(cache_dir, entry.class_name, entry.object_type)
+    if not files:
         return None, None, False
-    data_path = Path(primary.path)
+    data_path = cache_dir / files[0].relpath
 
     if data_path.is_dir():
         return data_path, f'{data_path.name}.tar', True

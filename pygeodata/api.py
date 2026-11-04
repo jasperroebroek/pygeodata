@@ -147,8 +147,6 @@ def load_from_hash(
     if full_hash is None:
         raise KeyError(f'No entry found for hash prefix {state_hash!r}')
     record = registry.records[full_hash]
-    if record.hash_path is None:
-        raise FileNotFoundError(f'Entry {full_hash!r} has no hash_path')
     cls = TrackedObject.find_object_class(record.class_name)
     if cls is None:
         raise RuntimeError(
@@ -159,7 +157,7 @@ def load_from_hash(
     if params is not None:
         for k, v in params.items():
             setattr(instance, k, v)
-    resolver = CachePathConstructor.from_path(Path(record.hash_path))
+    resolver = CachePathConstructor(registry.entry_dir(full_hash))
     if filename is not None:
         path = resolver.directory / filename
         if not path.exists():
@@ -171,5 +169,5 @@ def load_from_hash(
     except AttributeError as e:
         raise TypeError(
             f'{cls.__name__}._load requires instance attributes that are not set. '
-            f'{_params_hint(record.params_path, cls)}',
+            f'{_params_hint(resolver.params_path, cls)}',
         ) from e

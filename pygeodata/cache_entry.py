@@ -2,14 +2,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import msgspec
+
+from pygeodata._version import FORMAT_VERSION
 from pygeodata.catalog.store import index_entry
-from pygeodata.config import FORMAT_VERSION
-from pygeodata.fileio import write_json_atomic
+from pygeodata.fileio import read_format_version, write_json_atomic
 from pygeodata.hash import calculate_cls_source_hash
 from pygeodata.paths import CachePathConstructor
-from pygeodata.registries.registry_types import EntryRecord
+from pygeodata.records import EntryRecord
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from pygeodata.artifact import Artifact
     from pygeodata.spec import SpatialSpec
 
@@ -35,29 +39,29 @@ def write_entry(artifact: Artifact, spec: SpatialSpec, co_outputs: tuple[str, ..
         spec_hash=spec.get_hash(),
         state_hash=state_hash,
         object_type=artifact.object_type.get_class_name(),
-        hash_path=str(paths.state_hash_path),
         co_output_hashes=list(co_outputs),
         format_version=FORMAT_VERSION,
     )
     record.dump(paths.state_hash_path)
-    index_entry(paths.directory, record, spec, params_json)
+    index_entry(paths.directory, record, spec.to_record(), params_json)
+
+
+def _read_current_record(meta_path: Path) -> EntryRecord | None:
+    """The entry's record, or None when it is absent, unreadable or in an older format."""
+    if read_format_version(meta_path) != FORMAT_VERSION:
+        return None
+    try:
+        return EntryRecord.from_file(meta_path)
+    except (OSError, msgspec.DecodeError):
+        return None
 
 
 def read_state_hash(artifact: Artifact, spec: SpatialSpec) -> str | None:
-    meta_path = artifact.resolve_cache_paths(spec).state_hash_path
-    if not meta_path.exists():
-        return None
-    return EntryRecord.from_file(meta_path).state_hash
+    record = _read_current_record(artifact.resolve_cache_paths(spec).state_hash_path)
+    return record.state_hash if record is not None else None
 
 
 def is_cache_valid(artifact: Artifact, spec: SpatialSpec) -> bool:
     """``meta.json`` exists, is in the current format and records the artifact's current state hash."""
-    meta_path = artifact.resolve_cache_paths(spec).state_hash_path
-    if not meta_path.exists():
-        return False
-    record = EntryRecord.from_file(meta_path)
-    return (
-        record.is_current_format
-        and record.state_hash is not None
-        and record.state_hash == artifact.get_state_hash(spec)
-    )
+    record = _read_current_record(artifact.resolve_cache_paths(spec).state_hash_path)
+    return record is not None and record.state_hash == artifact.get_state_hash(spec)

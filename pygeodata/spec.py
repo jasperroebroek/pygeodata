@@ -1,18 +1,19 @@
 from __future__ import annotations
 
-import json
 import math
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+import msgspec
 import numpy as np
 
 from pygeodata.enums import SpecKeys
 from pygeodata.hash import calculate_dict_hash
+from pygeodata.records import SpecRecord
 
-# pyproj, affine, rasterio and fiona are imported inside the functions that need them: they are
+# pyproj, rasterio and fiona are imported inside the functions that need them: they are
 # heavy, and importing spec (which most of pygeodata, the CLI included, does) must not load them.
 
 if TYPE_CHECKING:
@@ -212,8 +213,8 @@ class SpatialSpec:
             return None
 
         height, width = self.shape
-        x0, y0 = self.transform * (0, 0)
-        x1, y1 = self.transform * (width, height)
+        x0, y0 = self.transform @ (0, 0)
+        x1, y1 = self.transform @ (width, height)
         return BoundingBox(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
 
     @property
@@ -246,25 +247,17 @@ class SpatialSpec:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SpatialSpec:
-        from affine import Affine
+        return cls.from_record(msgspec.convert(data, SpecRecord))
 
-        crs_raw = data.get(SpecKeys.CRS)
-        crs = _crs_from_string(crs_raw) if crs_raw else None
-        transform_d = data.get(SpecKeys.TRANSFORM)
-        transform = (
-            Affine(
-                transform_d['a'],
-                transform_d['b'],
-                transform_d['c'],
-                transform_d['d'],
-                transform_d['e'],
-                transform_d['f'],
-            )
-            if transform_d
-            else None
-        )
-        shape = data.get(SpecKeys.SHAPE)
-        return cls(crs=crs, transform=transform, shape=tuple(shape) if shape else None)
+    @classmethod
+    def from_record(cls, record: SpecRecord) -> SpatialSpec:
+        crs = _crs_from_string(record.crs) if record.crs else None
+        return cls(crs=crs, transform=record.transform, shape=record.shape)
+
+    def to_record(self) -> SpecRecord:
+        crs = self.crs.to_string() if self.crs is not None else None
+        shape = (int(self.shape[0]), int(self.shape[1])) if self.shape is not None else None
+        return SpecRecord(crs=crs, transform=self.transform, shape=shape)
 
     @classmethod
     def from_raster_file(cls, path: str | Path) -> SpatialSpec:
@@ -282,7 +275,7 @@ class SpatialSpec:
 
     @classmethod
     def from_file(cls, path: str | Path) -> SpatialSpec:
-        return cls.from_dict(json.loads(Path(path).read_text(encoding='utf-8')))
+        return cls.from_record(SpecRecord.from_file(Path(path)))
 
     def __repr__(self):
         transform_str = (

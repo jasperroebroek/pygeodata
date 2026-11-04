@@ -1,6 +1,7 @@
 import pytest
 
-from pygeodata.catalog.filters import (
+from pygeodata.catalog.types import ParamRow
+from pygeodata.views.filters import (
     Filter,
     FilterOperator,
     FilterTarget,
@@ -10,7 +11,7 @@ from pygeodata.catalog.filters import (
     parse_filters,
     row_matches_filter,
 )
-from pygeodata.catalog.types import EntryInfo, ParamRow, SpecInfo
+from pygeodata.views.types import EntryInfo, SpecInfo
 
 
 def make_row(
@@ -40,6 +41,7 @@ def make_entry(
         record_id='abc',
         class_name=class_name,
         object_type='Data',
+        entry_dir='/data',
         params_path='/data/parameters.json',
         spec_path=None,
         state_hash_path=None,

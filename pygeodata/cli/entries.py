@@ -3,19 +3,20 @@ import sys
 from pathlib import Path
 
 import click
+import msgspec
 
-from pygeodata.catalog.entry_catalog import _enrich_params_path
-from pygeodata.catalog.filters import Filter, FilterOperator, FilterTarget, entry_matches_filters, prescan_text
-from pygeodata.catalog.types import ParamRowType, SpecInfo
+from pygeodata.catalog.types import ParamRowType
 from pygeodata.cli.common import _fmt_hash, _import_options, _import_project_modules, _resolve_record
 from pygeodata.enums import Staleness
 from pygeodata.paths import CachePathConstructor
+from pygeodata.records import EntryRecord, SpecRecord
 from pygeodata.registries.registry import EntryRegistry
-from pygeodata.registries.registry_types import EntryRecord
 from pygeodata.registries.versioning import VersionRegistry
-from pygeodata.spec import SpatialSpec
 from pygeodata.staleness import dependency_staleness
 from pygeodata.tracked_object import TrackedObject
+from pygeodata.views.entries import _enrich_params_path
+from pygeodata.views.filters import Filter, FilterOperator, FilterTarget, entry_matches_filters, prescan_text
+from pygeodata.views.types import spec_info
 
 # ---------------------------------------------------------------------------
 # entry
@@ -183,8 +184,9 @@ def entry_list(
             continue
 
         # Fast pre-filter: cheap text scan before paying for full enrichment.
-        params_path = CachePathConstructor.from_path(Path(rec.hash_path)).params_path if rec.hash_path else None
-        if parsed_exprs and params_path:
+        paths = CachePathConstructor(reg.entry_dir(state_hash))
+        params_path = paths.params_path
+        if parsed_exprs:
             try:
                 params_blob = params_path.read_text(encoding='utf-8').lower() if params_path.exists() else ''
             except OSError:
@@ -193,7 +195,7 @@ def entry_list(
                 continue
 
         entry_info = None
-        if needs_enrich and params_path:
+        if needs_enrich:
             # Deliberately not going through _enrich_with_cache: that would consult the
             # browser's .dashboard_cache.json, whose upfront load is a fixed cost regardless
             # of how many entries are enriched. It only pays off for ~500 enriched entries, which
@@ -210,17 +212,15 @@ def entry_list(
                 continue
 
         if entry_info is not None:
-            spec_info = entry_info.spec
+            spec = entry_info.spec
         else:
-            spec_path = CachePathConstructor.from_path(Path(rec.hash_path)).spec_path if rec.hash_path else None
-            spec_dict = json.loads(spec_path.read_text(encoding='utf-8')) if spec_path and spec_path.exists() else {}
             try:
-                spec_info = SpecInfo.from_spec(SpatialSpec.from_dict(spec_dict)) if spec_dict else SpecInfo()
-            except Exception:  # noqa: BLE001
-                spec_info = SpecInfo()
-        crs_str = spec_info.crs or ''
-        res_str = spec_info.resolution or ''
-        bounds_str = spec_info.bounds_display or 'None'
+                spec = spec_info(SpecRecord.from_file(paths.spec_path))
+            except (OSError, msgspec.DecodeError):
+                spec = spec_info(None)
+        crs_str = spec.crs or ''
+        res_str = spec.resolution or ''
+        bounds_str = spec.bounds_display or 'None'
         output_rows.append(
             (
                 stale,
@@ -289,14 +289,13 @@ def entry_show(
     reg = EntryRegistry()
     state_hash, rec = _resolve_record(reg, hash_prefix)
 
-    resolver = CachePathConstructor.from_path(Path(rec.hash_path)) if rec.hash_path else None
+    resolver = CachePathConstructor(reg.entry_dir(state_hash))
 
     entry_info = None
-    if resolver:
-        try:
-            entry_info = _enrich_params_path(resolver.params_path, rec)
-        except Exception:  # noqa: BLE001
-            pass
+    try:
+        entry_info = _enrich_params_path(resolver.params_path, rec)
+    except Exception:  # noqa: BLE001
+        pass
 
     stale = _stale_indicator(rec, VersionRegistry())
     stale_label = {'S': 'dep stale', 'F': 'format stale', '?': 'unknown (class not loaded)'}.get(stale, 'ok')
@@ -325,16 +324,15 @@ def entry_show(
         click.echo()
         click.echo(f'Co-outputs   {", ".join(_fmt_hash(h, full_hash) for h in rec.co_output_hashes)}')
 
-    if resolver:
-        click.echo()
-        if entry_info and entry_info.primary_file:
-            click.echo(f'Output       {entry_info.primary_file.path}')
-        for f in entry_info.sidecar_files if entry_info else []:
-            click.echo(f'Sidecar      {f.path}')
-        click.echo(f'Params path  {resolver.params_path}')
-        click.echo(f'Hash path    {rec.hash_path}')
-        if resolver.spec_path.exists():
-            click.echo(f'Spec path    {resolver.spec_path}')
+    click.echo()
+    if entry_info and entry_info.primary_file:
+        click.echo(f'Output       {entry_info.file_path(entry_info.primary_file)}')
+    for f in entry_info.sidecar_files if entry_info else []:
+        click.echo(f'Sidecar      {entry_info.file_path(f)}')
+    click.echo(f'Params path  {resolver.params_path}')
+    click.echo(f'Hash path    {resolver.state_hash_path}')
+    if resolver.spec_path.exists():
+        click.echo(f'Spec path    {resolver.spec_path}')
 
     if show_params and entry_info and entry_info.params:
         click.echo()

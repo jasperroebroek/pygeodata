@@ -7,33 +7,23 @@ from pygeodata.cache import handle_invalid, hash_matches_live, prune_empty_dirs
 from pygeodata.enums import JSONKeys
 from pygeodata.paths import CachePathConstructor
 from tests.fixtures.data import EmptyLoader
+from tests.fixtures.records import make_record, write_meta
 
 # --- hash_matches_live ---
 
 
 def test_hash_matches_live_true(tmp_path: Path) -> None:
-    hash_file = tmp_path / 'meta.json'
-    hash_file.write_text(
-        json.dumps(
-            {
-                JSONKeys.CLASS_NAME: EmptyLoader.get_class_name(),
-                JSONKeys.DEPENDENCY_TREE_HASH: EmptyLoader.get_dependency_tree_hash(),
-            },
+    hash_file = write_meta(
+        tmp_path,
+        make_record(
+            class_name=EmptyLoader.get_class_name(), dependency_tree_hash=EmptyLoader.get_dependency_tree_hash()
         ),
     )
     assert hash_matches_live(hash_file) is True
 
 
 def test_hash_matches_live_false_wrong_hash(tmp_path: Path) -> None:
-    hash_file = tmp_path / 'meta.json'
-    hash_file.write_text(
-        json.dumps(
-            {
-                JSONKeys.CLASS_NAME: EmptyLoader.get_class_name(),
-                JSONKeys.DEPENDENCY_TREE_HASH: 'stale',
-            },
-        ),
-    )
+    hash_file = write_meta(tmp_path, make_record(class_name=EmptyLoader.get_class_name(), dependency_tree_hash='stale'))
     assert hash_matches_live(hash_file) is False
 
 
@@ -48,15 +38,7 @@ def test_hash_matches_live_missing_key(tmp_path: Path) -> None:
 
 
 def test_hash_matches_live_none_when_unregistered(tmp_path: Path) -> None:
-    hash_file = tmp_path / 'meta.json'
-    hash_file.write_text(
-        json.dumps(
-            {
-                JSONKeys.CLASS_NAME: 'NoSuchClass',
-                JSONKeys.DEPENDENCY_TREE_HASH: 'abc',
-            },
-        ),
-    )
+    hash_file = write_meta(tmp_path, make_record(class_name='NoSuchClass', dependency_tree_hash='abc'))
     assert hash_matches_live(hash_file) is None
 
 

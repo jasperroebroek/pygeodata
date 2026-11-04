@@ -131,7 +131,7 @@ Config
 The module-level constant ``FORMAT_VERSION`` records the integer cache format version.
 Cache entries written with a different ``FORMAT_VERSION`` are treated as stale.
 
-.. autodata:: pygeodata.config.FORMAT_VERSION
+.. autodata:: pygeodata._version.FORMAT_VERSION
    :no-index:
 
 

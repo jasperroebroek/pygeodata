@@ -6,8 +6,9 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from pygeodata.cli import cli
-from pygeodata.config import FORMAT_VERSION, get_config
+from pygeodata.config import get_config
 from pygeodata.enums import JSONKeys
+from tests.fixtures.records import make_record, write_meta
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -37,16 +38,10 @@ def invoke_import(archive: Path) -> str:
 
 def write_entry(state_hash: str, class_name: str) -> None:
     """Write a minimal meta.json for an entry in the configured cache dir."""
-    cache_dir = get_config().path_cache / state_hash
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    meta = {
-        JSONKeys.CLASS_NAME: class_name,
-        JSONKeys.OBJECT_TYPE: 'Data',
-        JSONKeys.DEPENDENCY_TREE_HASH: 'fakehash1234',
-        JSONKeys.FORMAT_VERSION: FORMAT_VERSION,
-        JSONKeys.STATE_HASH: state_hash,
-    }
-    (cache_dir / 'meta.json').write_text(json.dumps(meta), encoding='utf-8')
+    write_meta(
+        get_config().path_cache / state_hash,
+        make_record(state_hash, class_name, 'Data', dependency_tree_hash='fakehash1234'),
+    )
 
 
 # ---------------------------------------------------------------------------

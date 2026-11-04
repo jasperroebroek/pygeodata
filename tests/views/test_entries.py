@@ -1,7 +1,6 @@
-"""Tests for pygeodata.registry_browser.entry_catalog.
+"""Tests for pygeodata.views.entries.
 
 ProcessResult, _serialise_result, and _deserialise_result no longer exist.
-Round-trip coverage is now in test_entry_registry.py (EntryInfo.to_dict/from_dict).
 This file covers the display-enrichment helpers and discover_entries integration.
 """
 
@@ -10,13 +9,15 @@ from pathlib import Path
 
 import pytest
 
+from pygeodata._version import FORMAT_VERSION
 from pygeodata.catalog import store
-from pygeodata.catalog.entry_catalog import _enrich_params_path, discover_entries
-from pygeodata.config import FORMAT_VERSION, get_config, set_config
+from pygeodata.config import get_config, set_config
 from pygeodata.enums import JSONKeys
 from pygeodata.paths import CachePathConstructor
 from pygeodata.registries.registry import EntryRegistry
 from pygeodata.tracked_object import TrackedObject
+from pygeodata.views.entries import _enrich_params_path, discover_entries
+from tests.fixtures.records import make_record, write_meta
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -56,7 +57,11 @@ def write_cache_entry(
     directory.mkdir(parents=True, exist_ok=True)
     resolver = CachePathConstructor(directory)
     resolver.params_path.write_text(json.dumps(params or {}))
-    resolver.state_hash_path.write_text(json.dumps(state or {}))
+    state = {str(k): v for k, v in (state or {}).items()}
+    if JSONKeys.STATE_HASH in state:
+        write_meta(directory, make_record(**{'object_type': 'Data', **state}))
+    else:
+        resolver.state_hash_path.write_text(json.dumps(state))  # an incomplete, unreadable record
     resolver.spec_path.write_text(json.dumps(spec or {}))
     if output_ext:
         (directory / f'{stem}.{output_ext}').write_bytes(b'data')
@@ -88,7 +93,7 @@ def test_enrich_params_path_fields(tmp_path):
     params_path2 = write_cache_entry(d2, 'abc', state={JSONKeys.CLASS_NAME: 'MyLoader'})
     entry2 = _enrich_params_path(params_path2)
     assert entry2.state_hash is None
-    assert any('hash' in w.lower() for w in entry2.warnings)
+    assert any('meta.json' in w for w in entry2.warnings)
 
     # primary file present
     d3 = tmp_path / 'data_processed' / 'MyLoader3'
@@ -100,7 +105,7 @@ def test_enrich_params_path_fields(tmp_path):
     )
     entry3 = _enrich_params_path(params_path3)
     assert entry3.primary_file is not None
-    assert entry3.primary_file.label == 'abc.tif'
+    assert entry3.primary_file.relpath == 'abc.tif'
 
     # primary file absent
     d4 = tmp_path / 'data_processed' / 'MyLoader4'
@@ -116,7 +121,7 @@ def test_enrich_params_path_fields(tmp_path):
 
 def test_enrich_params_path_sidecar_files_surfaced(tmp_path):
     """A Table entry's declared .html output is primary; a sibling .csv is a sidecar,
-    not silently dropped (guards the entry_catalog.py primary-file-selection fix).
+    not silently dropped (guards the views/entries.py primary-file-selection fix).
     """
     d = tmp_path / 'tables' / 'MyTable'
     params_path = write_cache_entry(
@@ -129,8 +134,8 @@ def test_enrich_params_path_sidecar_files_surfaced(tmp_path):
 
     entry = _enrich_params_path(params_path)
     assert entry.primary_file is not None
-    assert entry.primary_file.label == 'my_table.html'
-    assert [f.label for f in entry.sidecar_files] == ['my_table.csv']
+    assert entry.primary_file.relpath == 'my_table.html'
+    assert [f.relpath for f in entry.sidecar_files] == ['my_table.csv']
 
 
 def test_enrich_params_path_no_sidecars_when_single_output(tmp_path):
@@ -199,7 +204,7 @@ def test_discover_entries_missing_state_hash_diagnostic(tmp_path):
         state={JSONKeys.CLASS_NAME: 'MyLoader'},  # no STATE_HASH
     )
     _, _, diag = discover_entries()
-    assert diag['missing_state_hash'] == 1
+    assert diag['unreadable_records'] == 1
 
 
 def test_discover_entries_co_outputs_resolved(tmp_path):

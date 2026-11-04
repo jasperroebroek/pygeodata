@@ -1,22 +1,23 @@
 """Entry display data: parameter rows, linked entries, and output-file refs.
 
-Computed once at write/backfill time and stored in the catalog, so import
-assembles :class:`~pygeodata.catalog.types.EntryInfo` from the DB without
+Computed once at write/backfill time and stored in the catalog, so readers
+assemble :class:`~pygeodata.views.types.EntryInfo` from the catalog without
 per-entry file reads. The disk files stay the source of truth; this module
 merely derives their display form.
 """
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pygeodata.catalog.params_index import flatten_params
-from pygeodata.catalog.types import FileRef
+from pygeodata.catalog.types import FileRef, FileRole, LinkedEntry, ParamRow
 from pygeodata.enums import ObjectType
 from pygeodata.paths import CachePathConstructor, classify_file
 from pygeodata.tracked_object import TrackedObject
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def preferred_ext(class_name: str | None, object_type: str | None) -> str | None:
@@ -36,67 +37,46 @@ def preferred_ext(class_name: str | None, object_type: str | None) -> str | None
     return f'.{ext}'.lower() if isinstance(ext, str) else None
 
 
-def find_primary_and_sidecar_files(
+def find_output_files(
     entry_dir: Path,
     class_name: str | None = None,
     object_type: str | None = None,
-) -> tuple[FileRef | None, list[FileRef]]:
-    """The entry's main output, preferring the file whose suffix the class declares, plus
-    every other output file in the directory as sidecars.
+) -> list[FileRef]:
+    """The entry's output files, relative to ``entry_dir``: the main output first, then sidecars.
 
-    A ``_process`` may write sidecars beside its declared output — a CSV next to a rendered HTML
-    table, say. Taking whatever ``iterdir`` yields first picks between them by filesystem order,
-    so one entry is classified 'table' and the next 'file' for the same class. Sorting breaks
-    the tie deterministically; the declared extension breaks it correctly. The remaining
-    candidates are not primary-file material but are still real outputs, so they are returned
-    as sidecars rather than silently dropped.
+    The main output is the file whose suffix the class declares. A ``_process`` may write sidecars
+    beside it, a CSV next to a rendered HTML table, say. Taking whatever ``iterdir`` yields first
+    picks between them by filesystem order, so one entry is classified 'table' and the next
+    'file' for the same class. Sorting breaks the tie deterministically; the declared extension
+    breaks it correctly. The other candidates are real outputs too, so they are kept as sidecars.
     """
     candidates = CachePathConstructor(entry_dir).output_paths()
     if not candidates:
-        return None, []
+        return []
 
     ext = preferred_ext(class_name, object_type)
-    path = next((p for p in candidates if p.suffix.lower() == ext), candidates[0])
-    primary = FileRef(label=path.name, path=str(path.resolve()), kind=classify_file(path))
-    sidecars = [FileRef(label=p.name, path=str(p.resolve()), kind=classify_file(p)) for p in candidates if p != path]
-    return primary, sidecars
+    primary = next((p for p in candidates if p.suffix.lower() == ext), candidates[0])
+    ordered = [primary, *(p for p in candidates if p != primary)]
+    return [
+        FileRef(
+            relpath=_relpath(p, entry_dir),
+            kind=classify_file(p),
+            role=FileRole.PRIMARY if p == primary else FileRole.SIDECAR,
+        )
+        for p in ordered
+    ]
 
 
-@dataclass
-class EntryDisplay:
-    """The per-entry display data stored in the catalog, all JSON-safe."""
-
-    rows: list[dict[str, Any]]
-    linked_entries: list[dict[str, Any]]
-    primary: dict[str, str] | None
-    sidecars: list[dict[str, str]]
-
-
-def _rel_file(ref: FileRef | None, entry_dir: Path) -> dict[str, str] | None:
-    if ref is None:
-        return None
+def _relpath(path: Path, entry_dir: Path) -> str:
     try:
-        # Both sides resolved: file paths are realpath'd, and entry dirs reached
-        # through a symlinked home (e.g. eos_user_home) must relativize against them.
-        relpath = str(Path(ref.path).resolve().relative_to(Path(entry_dir).resolve()))
+        # Both sides resolved: entry dirs reached through a symlinked home (e.g. eos_user_home)
+        # must relativize against the resolved file paths.
+        return str(path.resolve().relative_to(entry_dir.resolve()))
     except ValueError:
-        relpath = ref.path
-    return {'label': ref.label, 'relpath': relpath, 'kind': ref.kind}
+        return str(path.resolve())
 
 
-def entry_display(
-    params_json: dict[str, Any],
-    entry_dir: Path,
-    class_name: str | None = None,
-    object_type: str | None = None,
-) -> EntryDisplay:
-    """Derive the stored display data for one entry from its parameters and output files."""
-    linked: list = []
-    rows = [asdict(r) for r in flatten_params(params_json, linked_entries=linked)]
-    primary, sidecar_refs = find_primary_and_sidecar_files(entry_dir, class_name, object_type)
-    return EntryDisplay(
-        rows=rows,
-        linked_entries=[asdict(le) for le in linked],
-        primary=_rel_file(primary, entry_dir),
-        sidecars=[_rel_file(r, entry_dir) for r in sidecar_refs],
-    )
+def param_rows(params_json: dict[str, Any]) -> tuple[list[ParamRow], list[LinkedEntry]]:
+    linked: list[LinkedEntry] = []
+    rows = flatten_params(params_json, linked_entries=linked)
+    return rows, linked

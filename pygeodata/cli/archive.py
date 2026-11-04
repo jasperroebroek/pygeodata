@@ -5,11 +5,11 @@ from pathlib import Path
 
 import click
 
-from pygeodata.catalog.entry_catalog import discover_entries
-from pygeodata.catalog.export import collect_export_files, write_export_tar
 from pygeodata.cli.common import _import_options, _import_project_modules, _resolve_record
 from pygeodata.config import get_config
 from pygeodata.enums import JSONKeys, ObjectType
+from pygeodata.views.entries import discover_entries
+from pygeodata.views.export import collect_export_files, write_export_tar
 
 
 def _cache_root_from_tar(tar: tarfile.TarFile, hash_dir: str) -> Path | None:

@@ -9,20 +9,21 @@ Three registries, all keyed by resolved root path:
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterable
 from pathlib import Path
 
+import msgspec
+
 from pygeodata.catalog import store
-from pygeodata.config import FORMAT_VERSION, get_config
+from pygeodata.config import get_config
 from pygeodata.paths import (
-    CachePathConstructor,
     CachePathResolver,
     CodeRegistryPathConstructor,
     RegistryResolver,
     TreeRegistryPathConstructor,
 )
-from pygeodata.registries.registry_types import CodeState, EntryRecord, TreeSnapshot
+from pygeodata.records import EntryRecord
+from pygeodata.registries.registry_types import CodeState, TreeNode, TreeSnapshot
 
 
 def _resolve_prefix(keys: Iterable[str], prefix: str) -> str | None:
@@ -52,7 +53,7 @@ class SourceRegistry:
         for meta_path in RegistryResolver(self._registry_root).glob_source_paths():
             try:
                 state = CodeState.from_file(meta_path)
-            except (KeyError, ValueError):
+            except (OSError, msgspec.DecodeError):
                 continue
             if not state.class_name:
                 continue
@@ -144,7 +145,7 @@ class TreeRegistry:
         for path in RegistryResolver(self._registry_root).glob_tree_paths():
             try:
                 snapshot = TreeSnapshot.from_file(path)
-            except OSError:
+            except (OSError, msgspec.DecodeError):
                 continue
             self._hash_index[snapshot.dependency_tree_hash or path.parent.name] = snapshot
             if snapshot.root_class:
@@ -180,7 +181,7 @@ class TreeRegistry:
         snapshot = self._hash_index.get(dependency_hash)
         return snapshot.get_source_hash(class_name) if snapshot is not None else None
 
-    def get_nodes(self, dependency_hash: str) -> dict[str, dict] | None:
+    def get_nodes(self, dependency_hash: str) -> dict[str, TreeNode] | None:
         """Return the nodes dict for dep_hash, or None if tree is absent."""
         tree = self._hash_index.get(dependency_hash)
         return tree.nodes if tree is not None else None
@@ -207,9 +208,8 @@ class TreeRegistry:
 class EntryRegistry:
     """Per-root registry of cache entries, keyed by state_hash.
 
-    Hydrates from the catalog DB (``.catalog.db``) when it has entries;
-    scans cache roots for meta.json files otherwise.  Builds a hash index and
-    class index; the catalog replaces the old mtime-keyed disk cache.
+    Hydrates from the catalog (``.catalog.json``) when it has entries;
+    scans cache roots for meta.json files otherwise.
 
     state_hash is the unique key.  On collision:
     - If all identity fields match → silently deduplicate (same entry in two locations).
@@ -218,7 +218,7 @@ class EntryRegistry:
 
     Browser display fields (rows, spec strings, linked entries, primary file) are
     NOT populated here — that enrichment is done by
-    :func:`pygeodata.catalog.entry_catalog.discover_entries`.
+    :func:`pygeodata.views.entries.discover_entries`.
 
     ``paths`` sets the cache roots to scan.  When omitted, defaults to
     :attr:`config.cache_roots <pygeodata.config.Config.cache_roots>`.
@@ -226,6 +226,7 @@ class EntryRegistry:
 
     def __init__(self, paths: list[Path] | None = None) -> None:
         self._hash_index: dict[str, EntryRecord]
+        self._dirs: dict[str, Path]
         self._class_index: dict[str, list[str]]
         self._scanned: int
         self._missing: int
@@ -240,7 +241,7 @@ class EntryRegistry:
     def diagnostics(self) -> dict:
         return {
             'scanned_hash_paths': self._scanned,
-            'missing_state_hash': self._missing,
+            'unreadable_records': self._missing,
             'created_records': len(self._hash_index),
         }
 
@@ -254,6 +255,9 @@ class EntryRegistry:
 
     def get_record(self, state_hash: str) -> EntryRecord | None:
         return self._hash_index.get(state_hash)
+
+    def entry_dir(self, state_hash: str) -> Path | None:
+        return self._dirs.get(state_hash)
 
     def get_state_hashes(self, class_name: str) -> list[str]:
         return self._class_index.get(class_name, [])
@@ -269,56 +273,39 @@ class EntryRegistry:
         return _resolve_prefix(self._hash_index, prefix)
 
     def reload(self) -> None:
-        """Hydrate from the catalog DB when it has entries; scan disk otherwise."""
-        records = self._load_from_catalog()
-        if records is None:
-            records = self._scan_disk()
+        """Hydrate from the catalog when it has entries; scan disk otherwise."""
+        found = self._load_from_catalog()
+        if found is None:
+            found = self._scan_disk()
 
-        self._hash_index: dict[str, EntryRecord] = {}
-        self._class_index: dict[str, list[str]] = {}
-        self._scanned = len(records)
-        self._missing = sum(1 for r in records if r is None or r.state_hash is None)
-        for rec in records:
-            if rec is None or rec.state_hash is None:
+        self._hash_index = {}
+        self._dirs = {}
+        self._class_index = {}
+        self._scanned = len(found)
+        self._missing = sum(1 for item in found if item is None)
+        for item in found:
+            if item is None:
                 continue
+            rec, entry_dir = item
             if rec.state_hash in self._hash_index:
                 if rec != self._hash_index[rec.state_hash]:
                     raise ValueError(f'state_hash collision with divergent data for hash {rec.state_hash!r}')
                 continue
             self._hash_index[rec.state_hash] = rec
+            self._dirs[rec.state_hash] = entry_dir
             self._class_index.setdefault(rec.class_name, []).append(rec.state_hash)
 
-    def _load_from_catalog(self) -> list[EntryRecord] | None:
-        if not get_config().path_catalog.is_file():
+    def _load_from_catalog(self) -> list[tuple[EntryRecord, Path]] | None:
+        catalog = store.read_catalog()
+        if catalog is None or not catalog.entries:
             return None
-        catalog = store.load_catalog()
-        if not catalog['entries']:
-            return None
-        records = []
-        for row in catalog['entries'].values():
-            entry_dir = store.entry_abs_path(row['dir_relpath'])
-            records.append(
-                EntryRecord(
-                    class_name=row['class_name'],
-                    source_hash=row['source_hash'],
-                    dependency_tree_hash=row['dependency_tree_hash'],
-                    instance_hash=row['instance_hash'],
-                    params_hash=row['params_hash'],
-                    spec_hash=row['spec_hash'],
-                    state_hash=row['state_hash'],
-                    object_type=row['object_type'],
-                    hash_path=str(CachePathConstructor(entry_dir).state_hash_path),
-                    co_output_hashes=row['co_output_hashes'] or [],
-                    format_version=FORMAT_VERSION,
-                ),
-            )
-        return records
+        return [(entry.record, store.entry_dir(entry)) for entry in catalog.entries.values()]
 
-    def _scan_disk(self) -> list[EntryRecord]:
-        records: list[EntryRecord | None] = []
+    def _scan_disk(self) -> list[tuple[EntryRecord, Path] | None]:
+        found: list[tuple[EntryRecord, Path] | None] = []
         for path in self._cache_resolver().glob_meta_paths():
             try:
-                records.append(EntryRecord.from_file(path))
-            except (OSError, json.JSONDecodeError, KeyError):  # noqa: PERF203 — disk fallback, rare path
-                records.append(None)
-        return records
+                found.append((EntryRecord.from_file(path), path.parent))
+            except (OSError, msgspec.DecodeError):  # noqa: PERF203 — disk fallback, rare path
+                found.append(None)
+        return found

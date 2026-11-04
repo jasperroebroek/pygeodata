@@ -2,7 +2,6 @@ from pathlib import Path
 
 import click
 
-from pygeodata.catalog.class_catalog import discover_loaded_classes, merge_unloaded_classes
 from pygeodata.cli.common import (
     _apply_registry_path,
     _fmt_hash,
@@ -14,6 +13,7 @@ from pygeodata.cli.common import (
 from pygeodata.enums import ObjectType
 from pygeodata.registries.registry import EntryRegistry, SourceRegistry
 from pygeodata.registries.versioning import VersionRegistry
+from pygeodata.views.classes import discover_loaded_classes, merge_unloaded_classes
 
 # ---------------------------------------------------------------------------
 # classes

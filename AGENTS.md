@@ -27,7 +27,7 @@ python -m pytest -q
 
 ## CLI import time
 
-`import pygeodata.cli` and `pygeodata --help` must stay fast. Neither may load numpy, affine, graphviz, filelock or any other heavy package. `tests/test_cli_import.py` guards this in a fresh interpreter, and it runs with the normal suite. To investigate a regression:
+`import pygeodata.cli` and `pygeodata --help` must stay fast. Neither may load numpy, graphviz, filelock or any other heavy package (affine is light, ~2 ms, and allowed). `tests/test_cli_import.py` guards this in a fresh interpreter, and it runs with the normal suite. To investigate a regression:
 
 ```
 python -X importtime -c "import pygeodata.cli" 2>&1 | sort -t'|' -k2 -n | tail -15

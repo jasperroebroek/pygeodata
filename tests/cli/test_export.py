@@ -1,13 +1,12 @@
-import json
 import tarfile
 from pathlib import Path
 
 from click.testing import CliRunner
 
 from pygeodata.cli import cli
-from pygeodata.config import FORMAT_VERSION, get_config, set_config
-from pygeodata.enums import JSONKeys
+from pygeodata.config import get_config, set_config
 from pygeodata.paths import CachePathConstructor
+from tests.fixtures.records import make_record, write_meta
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -24,13 +23,7 @@ def write_full_entry(state_hash: str, class_name: str, object_type: str = 'Data'
     cache_dir = get_config().path_cache / state_hash
     cache_dir.mkdir(parents=True, exist_ok=True)
     resolver = CachePathConstructor(cache_dir)
-    meta = {
-        JSONKeys.CLASS_NAME: class_name,
-        JSONKeys.OBJECT_TYPE: object_type,
-        JSONKeys.FORMAT_VERSION: FORMAT_VERSION,
-        JSONKeys.STATE_HASH: state_hash,
-    }
-    resolver.state_hash_path.write_text(json.dumps(meta), encoding='utf-8')
+    write_meta(cache_dir, make_record(state_hash, class_name, object_type))
     resolver.params_path.write_text('{}', encoding='utf-8')
     resolver.spec_path.write_text('{}', encoding='utf-8')
     (cache_dir / f'output.{ext}').write_bytes(b'data')
