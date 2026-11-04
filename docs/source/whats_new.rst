@@ -13,6 +13,8 @@ Version 0.5.0 (unreleased)
   serialisation, and gives the same hash on every supported version.
 - Hashes made on Python 3.13 or 3.14 are unchanged.  **Projects run on Python
   3.11 or 3.12 see their entries go stale once** and recompute on the next run.
+- Python 3.11 to 3.15 are supported, and the full test suite runs on each of
+  them in CI.
 
 **The command line reads classes from source**
 
@@ -97,6 +99,10 @@ Version 0.5.0 (unreleased)
 
 **Fixes**
 
+- The catalog's schema fingerprint included the types' docstrings, whose
+  indentation Python 3.13 changed, so a catalog written on Python 3.11 or 3.12
+  looked like another schema to Python 3.13 or later (on a mirror: refused).
+  It now covers the structure only (catalog version 4).
 - ``clean_cache`` deleted entries of a class it does not know as "Hash wrong",
   even with ``delete_unregistered=False`` or when the deletion was declined.
   Such entries are now kept unless deletion is allowed and confirmed, and are
@@ -114,6 +120,30 @@ Version 0.5.0 (unreleased)
   ``pygeodata.views``; ``EntryRecord`` lives in ``pygeodata.records``;
   ``EntryInfo`` is gone.  Use the registry browser 0.5, which matches.
 
+
+Version 0.4.1
+-------------
+
+- Catalog, pins and file references follow a symlinked cache entry or catalog
+  file to its target.
+
+Version 0.4.0
+-------------
+
+- **Every cache entry is invalidated once**: the instance hash now includes the
+  class name, so co-output sibling classes with identical dependency trees no
+  longer share an entry (cache format 2).  Entries written by 0.3 are
+  recomputed when next needed; ``pygeodata clean-cache`` removes them.
+- The catalog is one portable JSON file (``.catalog.json``) with paths relative
+  to the cache roots, so a catalog built on one machine resolves on another;
+  pins live in ``.catalog.pins.json``.  SQLAlchemy and python-dotenv are no
+  longer dependencies.
+- Configuration comes from ``pygeodata_settings.py`` and
+  ``src/pygeodata_settings.py`` (all of them; a key set twice is an error) and
+  the global ``--settings`` option.  Environment-variable and ``.env``
+  configuration is removed.
+- New ``clean-locks`` command.
+- Requires Python 3.11.
 
 Version 0.3.0
 -------------
