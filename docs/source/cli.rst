@@ -251,6 +251,10 @@ print a legend for the ones that occur:
 
 Entries use ``F``, ``S`` and ``?``; classes use ``C``, ``D`` and ``?``.
 
+An entry or class not found in the project is never shown as current: the
+``.source/`` registry can still show it stale, but it only knows the code that
+last ran, not the code on disk.
+
 
 Example output
 --------------
@@ -263,11 +267,12 @@ that no longer exists.
 
 .. code-block:: text
 
+    ? OldTable      Table  EPSG:3035  1000m  33.5° N, 9.6° W → 58.2° N, 74.0° E  0f3c9a1b2c3d
     S RegionTable   Table  EPSG:3035  1000m  33.5° N, 9.6° W → 58.2° N, 74.0° E  92db8dbf65ab
     S RegionTable   Table  EPSG:3035  1000m  33.5° N, 9.6° W → 58.2° N, 74.0° E  d69e5318415e
     S SummaryTable  Table  EPSG:3035  1000m  33.5° N, 9.6° W → 58.2° N, 74.0° E  e731659fdfd5
 
-    S stale: its dependency tree changed
+    S stale: its dependency tree changed  ? unknown: class not found in the project
 
 ``classes``:
 

@@ -44,9 +44,14 @@ def test_unloaded_class_uses_versions() -> None:
     assert dependency_staleness('NotImported', 'h', live_tree_hash, versions) is Staleness.STALE
 
 
+def test_unloaded_class_is_never_current() -> None:
+    versions = _Versions({}, {'h': Staleness.CURRENT})
+    assert dependency_staleness('NotImported', 'h', live_tree_hash, versions) is Staleness.UNKNOWN
+
+
 def test_class_staleness_uses_newest_version() -> None:
-    versions = _Versions({'old': 1, 'new': 2}, {'old': Staleness.STALE, 'new': Staleness.CURRENT})
-    assert class_staleness('NotImported', ['old', 'new', ''], live_tree_hash, versions) is Staleness.CURRENT
+    versions = _Versions({'old': 1, 'new': 2}, {'old': Staleness.CURRENT, 'new': Staleness.STALE})
+    assert class_staleness('NotImported', ['old', 'new', ''], live_tree_hash, versions) is Staleness.STALE
 
 
 def test_class_staleness_without_versioned_hashes_is_unknown() -> None:

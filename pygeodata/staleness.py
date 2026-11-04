@@ -23,14 +23,18 @@ def dependency_staleness(
     current: Callable[[str], str | None],
     versions: VersionRegistry | None = None,
 ) -> Staleness:
-    """Compare with the class's current hash; for a class ``current`` does not know, ask ``versions`` when given."""
+    """Compare with the class's current hash.
+
+    For a class ``current`` does not know, ``versions`` can only show the entry stale: it compares
+    with the code that last ran, not the code on disk.
+    """
     if not dependency_tree_hash:
         return Staleness.UNKNOWN
     if (current_hash := current(class_name)) is not None:
         return Staleness.CURRENT if current_hash == dependency_tree_hash else Staleness.STALE
-    if versions is None:
-        return Staleness.UNKNOWN
-    return versions.dependency_staleness(dependency_tree_hash)
+    if versions is not None and versions.dependency_staleness(dependency_tree_hash) is Staleness.STALE:
+        return Staleness.STALE
+    return Staleness.UNKNOWN
 
 
 def class_staleness(
