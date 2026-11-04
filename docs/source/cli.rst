@@ -266,7 +266,9 @@ print a legend for the ones that occur:
 | *(blank)*  | Up to date                                               |
 +------------+----------------------------------------------------------+
 
-Entries use ``F``, ``S`` and ``?``; classes use ``C``, ``D`` and ``?``.
+Entries use ``F``, ``S`` and ``?``; classes use ``C``, ``D`` and ``?``.  A class
+is ``C`` or ``D`` when it has cache entries and none of them carries its current
+source hash or dependency tree hash; a class without entries is never stale.
 
 An entry or class not found in the project is never shown as current: the
 ``.source/`` registry can still show it stale, but it only knows the code that

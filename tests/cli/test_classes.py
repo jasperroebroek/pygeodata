@@ -24,7 +24,7 @@ def _patch_registries(
             ),
         ),
     )
-    monkeypatch.setattr('pygeodata.cli.classes.source_classes', lambda _analysis: discover())
+    monkeypatch.setattr('pygeodata.cli.classes.source_classes', lambda *_args: discover())
     monkeypatch.setattr('pygeodata.cli.classes.merge_unknown_classes', merge)
 
 

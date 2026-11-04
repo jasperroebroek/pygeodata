@@ -27,6 +27,11 @@ Version 0.5.0 (unreleased)
 - One set of staleness markers for every command (``F``, ``S``, ``C``, ``D``
   and ``?`` for a class not found in the project), with a legend for the
   markers shown.  ``N`` ("not loaded") is gone.
+- A class is ``C`` or ``D`` only when it has cache entries and none of them was
+  made by its current source or dependency tree.  This used to depend on the
+  ``.source/`` snapshots, which are written only when an entry is computed, so
+  deleting ``.source/`` or serving everything from the cache flagged current
+  classes; a class that never ran was flagged too.
 - New ``catalog info`` and ``entry list --type``.
 - The registry diagnostics say why entry dirs are not indexed: written by an
   older cache format, no ``meta.json`` (an interrupted run) or an unreadable

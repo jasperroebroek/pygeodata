@@ -62,5 +62,5 @@ class ClassInfo:
     class_graph_path: str | None = None
     class_registry_path: str | None = None
     class_tree_path: str | None = None
-    source_stale: bool = False  # the current source has not run yet (no code snapshot)
-    deps_stale: bool = False  # the current dependency tree has not run yet (no tree snapshot)
+    source_stale: bool = False  # it has cache entries, none made by its current source
+    deps_stale: bool = False  # it has cache entries, none made by its current dependency tree

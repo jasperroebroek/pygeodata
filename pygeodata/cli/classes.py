@@ -48,7 +48,7 @@ def classes_cmd(
     vreg = VersionRegistry()
     ereg = _entry_registry()
     src = SourceRegistry()
-    classes = source_classes(analysis) if analysis is not None else imported_classes()
+    classes = source_classes(analysis, ereg) if analysis is not None else imported_classes(ereg)
     classes = merge_unknown_classes(classes, ereg, _tree_hash_lookup(analysis), version_registry=vreg, src=src)
 
     # Apply type filter (case-insensitive exact match against object_type)

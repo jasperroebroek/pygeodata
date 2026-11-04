@@ -69,12 +69,20 @@ def source_info_from_disk(
     )
 
 
-def current_classes(facts: Mapping[str, ClassFacts], tree_hashes: Mapping[str, str]) -> dict[str, ClassInfo]:
-    """The classes whose current code is known, and whether that code has run yet."""
+def current_classes(
+    facts: Mapping[str, ClassFacts],
+    tree_hashes: Mapping[str, str],
+    entry_registry: EntryRegistry,
+) -> dict[str, ClassInfo]:
+    """The classes whose current code is known, and whether their cache entries were made by it.
+
+    A class is stale only when it has entries and none of them carries its current hash.
+    """
     classes: dict[str, ClassInfo] = {}
     for name, class_facts in facts.items():
         code = CodeRegistryPathConstructor.from_source_hash(class_facts.source_hash)
         tree = TreeRegistryPathConstructor.from_dep_tree_hash(tree_hashes[name])
+        records = [entry_registry.entries[h].record for h in entry_registry.get_state_hashes(name)]
         classes[name] = ClassInfo(
             class_name=name,
             object_type=class_facts.object_type,
@@ -85,22 +93,23 @@ def current_classes(facts: Mapping[str, ClassFacts], tree_hashes: Mapping[str, s
             class_graph_path=_existing(tree.graph_path),
             class_registry_path=_existing(code.meta_path),
             class_tree_path=_existing(tree.tree_path),
-            source_stale=not code.exists(),
-            deps_stale=not tree.exists(),
+            source_stale=bool(records) and all(r.source_hash != class_facts.source_hash for r in records),
+            deps_stale=bool(records) and all(r.dependency_tree_hash != tree_hashes[name] for r in records),
         )
     return classes
 
 
-def imported_classes() -> dict[str, ClassInfo]:
+def imported_classes(entry_registry: EntryRegistry) -> dict[str, ClassInfo]:
     registry = TrackedObject._registry
     return current_classes(
         {name: cls.get_facts() for name, cls in registry.items()},
         {name: cls.get_dependency_tree_hash() for name, cls in registry.items()},
+        entry_registry,
     )
 
 
-def source_classes(analysis: ProjectAnalysis) -> dict[str, ClassInfo]:
-    return current_classes(analysis.facts, analysis.tree_hashes)
+def source_classes(analysis: ProjectAnalysis, entry_registry: EntryRegistry) -> dict[str, ClassInfo]:
+    return current_classes(analysis.facts, analysis.tree_hashes, entry_registry)
 
 
 def merge_unknown_classes(
