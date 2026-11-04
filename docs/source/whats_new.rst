@@ -1,7 +1,7 @@
 What's new
 ==========
 
-Version 0.5.0 (unreleased)
+Version 0.5.0 (2026-11-05)
 --------------------------
 
 **Source hashes no longer depend on the Python version**
