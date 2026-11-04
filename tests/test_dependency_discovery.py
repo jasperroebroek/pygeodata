@@ -20,7 +20,7 @@ from tests.fixtures.data import Child, CircularLoader, HardcodedDependencyLoader
 
 
 def test_ast_hunter_finds_all_dependencies() -> None:
-    HardcodedDependencyLoader.get_all_dependencies.cache_clear()
+    HardcodedDependencyLoader.get_facts.cache_clear()
 
     deps = HardcodedDependencyLoader.get_all_dependencies()
     assert LoaderA in deps
@@ -28,12 +28,12 @@ def test_ast_hunter_finds_all_dependencies() -> None:
 
 
 def test_ast_does_not_include_self_as_dependency() -> None:
-    LoaderA.get_all_dependencies.cache_clear()
+    LoaderA.get_facts.cache_clear()
     assert LoaderA not in LoaderA.get_all_dependencies()
 
 
 def test_ast_includes_parent_class_in_mro() -> None:
-    Child.get_all_dependencies.cache_clear()
+    Child.get_facts.cache_clear()
     assert Parent in Child.get_all_dependencies()
 
 
@@ -135,7 +135,7 @@ def test_initialize_class_code_state_heals_missing_tree_file() -> None:
 
 def test_update_registry_records_revert() -> None:
     update_registry(LoaderA)
-    current = calculate_cls_source_hash(LoaderA)
+    current = LoaderA.get_facts().source_hash
     newer = CodeState(
         source_hash='otherhash',
         class_name='LoaderA',
@@ -240,14 +240,14 @@ def test_circular_dependency_in_hierarchy_hash_does_not_infinite_loop() -> None:
 
 
 def test_call_dependencies_distinct_from_inheritance() -> None:
-    Child.get_call_dependencies.cache_clear()
-    Child.get_inheritance_dependencies.cache_clear()
+    Child.get_facts.cache_clear()
+    Child.get_facts.cache_clear()
     assert Parent not in Child.get_call_dependencies()
     assert Parent in Child.get_inheritance_dependencies()
 
 
 def test_call_dependencies_finds_hardcoded_instantiation() -> None:
-    HardcodedDependencyLoader.get_call_dependencies.cache_clear()
+    HardcodedDependencyLoader.get_facts.cache_clear()
     assert LoaderA in HardcodedDependencyLoader.get_call_dependencies()
 
 
@@ -296,7 +296,7 @@ def test_has_dependencies_true_for_loader_with_deps() -> None:
 
 
 def test_has_dependencies_false_for_isolated_loader() -> None:
-    LoaderA.get_all_dependencies.cache_clear()
+    LoaderA.get_facts.cache_clear()
     assert not LoaderA.has_dependencies()
 
 

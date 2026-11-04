@@ -1,19 +1,34 @@
+from __future__ import annotations
+
 import json
 import sys
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 
 from pygeodata.catalog.types import ParamRowType
-from pygeodata.cli.common import _entry_registry, _fmt_hash, _import_options, _import_project_modules, _resolve_entry
-from pygeodata.enums import Staleness
+from pygeodata.cli.common import (
+    LEGEND,
+    _entry_registry,
+    _fmt_hash,
+    _import_options,
+    _legend,
+    _marker,
+    _project_source,
+    _resolve_entry,
+    _tree_hash_lookup,
+)
+from pygeodata.enums import ObjectType, Staleness
 from pygeodata.paths import CachePathConstructor
-from pygeodata.records import EntryRecord
 from pygeodata.registries.versioning import VersionRegistry
 from pygeodata.staleness import dependency_staleness
-from pygeodata.tracked_object import TrackedObject
 from pygeodata.views.filters import Filter, FilterOperator, FilterTarget, LogicMode, entry_matches_filters
 from pygeodata.views.types import spec_info
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from pygeodata.records import EntryRecord
 
 # ---------------------------------------------------------------------------
 # entry
@@ -29,15 +44,12 @@ def entry(ctx: click.Context, full_hash: bool) -> None:
     ctx.obj['full_hash'] = full_hash
 
 
-def _stale_indicator(rec: EntryRecord, vreg: VersionRegistry) -> str:
-    """Single-char staleness marker: F=format stale, S=dep stale, N=not loaded, blank=ok."""
+def _stale_indicator(rec: EntryRecord, current: Callable[[str], str | None], vreg: VersionRegistry) -> str:
+    """One :data:`~pygeodata.cli.common.LEGEND` code, or a blank when the entry is current."""
     if not rec.is_current_format:
         return 'F'
-    if dependency_staleness(rec.class_name, rec.dependency_tree_hash, vreg) is Staleness.STALE:
-        return 'S'
-    if TrackedObject.find_object_class(rec.class_name) is None:
-        return 'N'
-    return ' '
+    staleness = dependency_staleness(rec.class_name, rec.dependency_tree_hash, current, vreg)
+    return {Staleness.STALE: 'S', Staleness.UNKNOWN: '?'}.get(staleness, ' ')
 
 
 def _parse_filter_expr(expr: str) -> tuple[list[Filter], LogicMode] | None:
@@ -109,6 +121,13 @@ def _echo_param_rows(param_rows) -> None:
 @entry.command('list')
 @_import_options
 @click.option('--class', 'class_name', default=None, help='Filter by class name.')
+@click.option(
+    '--type',
+    'type_filter',
+    type=click.Choice(list(ObjectType), case_sensitive=False),
+    default=None,
+    help='Filter by object type.',
+)
 @click.option('--hide-stale', is_flag=True, default=False, help='Omit stale entries.')
 @click.option('--params', 'show_params', is_flag=True, default=False, help='Show parsed parameters under each entry.')
 @click.option(
@@ -131,6 +150,7 @@ def entry_list(
     do_import: bool,
     verbose_import: bool,
     class_name: str | None,
+    type_filter: str | None,
     hide_stale: bool,
     show_params: bool,
     filters: tuple[str, ...],
@@ -138,9 +158,7 @@ def entry_list(
     no_pager: bool,
 ) -> None:
     """List cache entries."""
-    if do_import:
-        n = _import_project_modules(Path.cwd(), verbose=verbose_import)
-        click.echo(f'Imported {n} module(s)')
+    current = _tree_hash_lookup(_project_source(do_import, verbose_import))
     full_hash: bool = ctx.obj.get('full_hash', False) or full_hash_sub
 
     parsed_exprs = [parsed for f in filters if (parsed := _parse_filter_expr(f)) is not None]
@@ -155,7 +173,9 @@ def entry_list(
     for state_hash, entry in sorted(reg.entries.items(), key=lambda kv: (kv[1].class_name, kv[0])):
         if class_name and entry.class_name != class_name:
             continue
-        stale = _stale_indicator(entry.record, vreg)
+        if type_filter and entry.object_type.lower() != type_filter.lower():
+            continue
+        stale = _stale_indicator(entry.record, current, vreg)
         if hide_stale and stale.strip():
             continue
         spec_record = reg.get_spec(state_hash)
@@ -187,20 +207,15 @@ def entry_list(
 
     lines = []
     for stale, cls, obj_type, crs, res, bounds, h, entry in output_rows:
-        if stale == 'F':
-            indicator = click.style('F', fg='red')
-        elif stale == 'S':
-            indicator = click.style('S', fg='yellow')
-        elif stale == 'N':
-            indicator = click.style('N', fg='bright_black')
-        else:
-            indicator = ' '
         lines.append(
-            f'{indicator} {cls:<{col_class}}  {obj_type:<{col_type}}  {crs:<{col_crs}}  {res:<{col_res}}  {bounds:<{col_bounds}}  {h}',
+            f'{_marker(stale)} {cls:<{col_class}}  {obj_type:<{col_type}}  {crs:<{col_crs}}  {res:<{col_res}}  {bounds:<{col_bounds}}  {h}',
         )
         if show_params or parsed_exprs:
             lines.extend(_format_param_rows(entry.rows))
 
+    legend = _legend(row[0] for row in output_rows)
+    if legend:
+        lines.extend(['', legend])
     output = '\n'.join(lines)
     if no_pager or not sys.stdout.isatty():
         click.echo(output)
@@ -223,9 +238,7 @@ def entry_show(
     full_hash_sub: bool,
 ) -> None:
     """Show detail for one entry (partial hash ok)."""
-    if do_import:
-        n = _import_project_modules(Path.cwd(), verbose=verbose_import)
-        click.echo(f'Imported {n} module(s)')
+    current = _tree_hash_lookup(_project_source(do_import, verbose_import))
     full_hash: bool = ctx.obj.get('full_hash', False) or full_hash_sub
     reg = _entry_registry()
     entry = _resolve_entry(reg, hash_prefix)
@@ -234,8 +247,8 @@ def entry_show(
     resolver = CachePathConstructor(entry_dir)
     spec = spec_info(reg.get_spec(entry.state_hash))
 
-    stale = _stale_indicator(rec, VersionRegistry())
-    stale_label = {'S': 'dep stale', 'F': 'format stale', 'N': 'unknown (class not loaded)'}.get(stale, 'ok')
+    stale = _stale_indicator(rec, current, VersionRegistry())
+    stale_label = LEGEND[stale][1] if stale in LEGEND else 'current'
 
     click.echo(f'Class        {rec.class_name}')
     click.echo(f'Type         {rec.object_type}')

@@ -10,19 +10,25 @@ from pygeodata.staleness import dependency_staleness
 from pygeodata.views.types import spec_info
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from pygeodata.catalog.types import CatalogEntry
     from pygeodata.registries.registry import EntryRegistry
 
 
-def stale_state_hashes(registry: EntryRegistry, version_registry: VersionRegistry | None = None) -> set[str]:
-    """Entries whose dependency tree has changed since they were computed."""
+def stale_state_hashes(
+    registry: EntryRegistry,
+    current: Callable[[str], str | None],
+    version_registry: VersionRegistry | None = None,
+) -> set[str]:
+    """Entries whose dependency tree has changed since they were computed; see :mod:`pygeodata.staleness`."""
     vreg = version_registry if version_registry is not None else VersionRegistry()
     staleness: dict[tuple[str, str], Staleness] = {}
     stale: set[str] = set()
     for state_hash, entry in registry.entries.items():
         key = (entry.class_name, entry.record.dependency_tree_hash)
         if key not in staleness:
-            staleness[key] = dependency_staleness(*key, vreg)
+            staleness[key] = dependency_staleness(*key, current, vreg)
         if staleness[key] is Staleness.STALE:
             stale.add(state_hash)
     return stale

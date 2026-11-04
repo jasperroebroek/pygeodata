@@ -3,8 +3,8 @@ from __future__ import annotations
 import dataclasses
 from typing import TYPE_CHECKING
 
+from pygeodata.dependencies import inheritance_dependencies
 from pygeodata.enums import Staleness
-from pygeodata.hash import calculate_cls_source_hash
 from pygeodata.paths import CodeRegistryPathConstructor, TreeRegistryPathConstructor
 from pygeodata.registries.registry import EntryRegistry, SourceRegistry, TreeRegistry
 from pygeodata.staleness import class_staleness
@@ -12,9 +12,12 @@ from pygeodata.tracked_object import TrackedObject
 from pygeodata.views.types import ClassInfo
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping
     from pathlib import Path
 
+    from pygeodata.dependencies import ClassFacts
     from pygeodata.registries.versioning import VersionRegistry
+    from pygeodata.static import StaticAnalysis
 
 
 def _existing(path: Path, resolve: bool = False) -> str | None:
@@ -39,7 +42,7 @@ def source_info_from_disk(
     registry = src if src is not None else SourceRegistry()
     latest = registry.get_latest_state_for_class(class_name)
     if latest is None:
-        return ClassInfo(class_name=class_name, object_type=None, loaded=False)
+        return ClassInfo(class_name=class_name, object_type=None, known=False)
 
     source_hash = latest.source_hash
     code_resolver = CodeRegistryPathConstructor.from_source_hash(source_hash)
@@ -49,7 +52,7 @@ def source_info_from_disk(
     info = ClassInfo(
         class_name=class_name,
         object_type=latest.object_type,
-        loaded=False,
+        known=False,
         class_source_path=_existing(code_resolver.source_path, resolve=True),
         class_registry_path=_existing(code_resolver.meta_path, resolve=True),
     )
@@ -66,47 +69,49 @@ def source_info_from_disk(
     )
 
 
-def discover_loaded_classes() -> dict[str, ClassInfo]:
+def current_classes(facts: Mapping[str, ClassFacts], tree_hashes: Mapping[str, str]) -> dict[str, ClassInfo]:
+    """The classes whose current code is known, and whether that code has run yet."""
     classes: dict[str, ClassInfo] = {}
-
-    for class_name, cls in TrackedObject._registry.items():
-        call_dependency_names = sorted(dep.get_class_name() for dep in cls.get_call_dependencies())
-        inheritance_dependency_names = sorted(dep.get_class_name() for dep in cls.get_inheritance_dependencies())
-
-        live_source_hash = calculate_cls_source_hash(cls)
-        code_resolver = CodeRegistryPathConstructor.from_source_hash(live_source_hash)
-        tree_resolver = TreeRegistryPathConstructor.from_dep_tree_hash(cls.get_dependency_tree_hash())
-
-        # Source is stale when the current source hash has no code snapshot yet
-        source_stale = not code_resolver.exists()
-        # Deps are stale when the current dep tree hash has no snapshot yet
-        deps_stale = not tree_resolver.exists()
-
-        classes[class_name] = ClassInfo(
-            class_name=class_name,
-            object_type=cls.object_type.get_class_name(),
-            loaded=True,
-            call_dependency_names=call_dependency_names,
-            inheritance_dependency_names=inheritance_dependency_names,
-            class_source_path=_existing(code_resolver.source_path),
-            class_graph_path=_existing(tree_resolver.graph_path),
-            class_registry_path=_existing(code_resolver.meta_path),
-            class_tree_path=_existing(tree_resolver.tree_path),
-            source_stale=source_stale,
-            deps_stale=deps_stale,
+    for name, class_facts in facts.items():
+        code = CodeRegistryPathConstructor.from_source_hash(class_facts.source_hash)
+        tree = TreeRegistryPathConstructor.from_dep_tree_hash(tree_hashes[name])
+        classes[name] = ClassInfo(
+            class_name=name,
+            object_type=class_facts.object_type,
+            known=True,
+            call_dependency_names=sorted(class_facts.call_deps),
+            inheritance_dependency_names=sorted(inheritance_dependencies(facts.__getitem__, name)),
+            class_source_path=_existing(code.source_path),
+            class_graph_path=_existing(tree.graph_path),
+            class_registry_path=_existing(code.meta_path),
+            class_tree_path=_existing(tree.tree_path),
+            source_stale=not code.exists(),
+            deps_stale=not tree.exists(),
         )
-
     return classes
 
 
-def merge_unloaded_classes(
+def imported_classes() -> dict[str, ClassInfo]:
+    registry = TrackedObject._registry
+    return current_classes(
+        {name: cls.get_facts() for name, cls in registry.items()},
+        {name: cls.get_dependency_tree_hash() for name, cls in registry.items()},
+    )
+
+
+def source_classes(analysis: StaticAnalysis) -> dict[str, ClassInfo]:
+    return current_classes(analysis.facts, analysis.tree_hashes)
+
+
+def merge_unknown_classes(
     classes: dict[str, ClassInfo],
     entry_registry: EntryRegistry,
+    current: Callable[[str], str | None],
     version_registry: VersionRegistry | None = None,
     src: SourceRegistry | None = None,
     trees: TreeRegistry | None = None,
 ) -> dict[str, ClassInfo]:
-    """Add the classes that have cache entries but are not loaded, from their registered source."""
+    """Add the classes that have cache entries but whose current code is unknown, from their snapshots."""
     merged = dict(classes)
     for class_name in entry_registry.class_names:
         if class_name in merged:
@@ -118,7 +123,7 @@ def merge_unloaded_classes(
                 entry_registry.entries[h].record.dependency_tree_hash
                 for h in entry_registry.get_state_hashes(class_name)
             )
-            deps_stale = class_staleness(class_name, dep_hashes, version_registry) is Staleness.STALE
+            deps_stale = class_staleness(class_name, dep_hashes, current, version_registry) is Staleness.STALE
         merged[class_name] = dataclasses.replace(
             info,
             object_type=info.object_type or entry_registry.get_object_type(class_name),

@@ -320,7 +320,7 @@ def _write_class_param_entry(spec: SpatialSpec) -> Path:
     return artifact.resolve_cache_paths(spec).state_hash_path
 
 
-@patch('pygeodata.hash.get_source_ast_tree')
+@patch('pygeodata.tracked_object.get_source_ast_tree')
 def test_class_param_change_detected_when_enabled(
     mock_ast_tree: MagicMock,
     sample_spatial_spec: SpatialSpec,
@@ -336,7 +336,7 @@ def test_class_param_change_detected_when_enabled(
     assert hash_matches_live(hash_path, check_class_params=True) is False
 
 
-@patch('pygeodata.hash.get_source_ast_tree')
+@patch('pygeodata.tracked_object.get_source_ast_tree')
 def test_class_param_change_invisible_when_disabled(
     mock_ast_tree: MagicMock,
     sample_spatial_spec: SpatialSpec,

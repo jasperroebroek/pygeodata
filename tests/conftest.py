@@ -1,4 +1,6 @@
 import json
+import sys
+from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -8,9 +10,12 @@ import xarray as xr
 from affine import Affine
 from pyproj import CRS
 
+from pygeodata.ast import get_module_ast_tree, get_parsed_source_code, get_source_ast_tree, get_source_code
 from pygeodata.config import set_config
 from pygeodata.enums import JSONKeys
+from pygeodata.hash import calculate_cls_source_hash
 from pygeodata.spec import SpatialSpec
+from pygeodata.tracked_object import TrackedObject
 from tests.fixtures.data import TEST_DATA_DIR, MultiOutputLoader, NestedLoader, SampleLoader
 
 
@@ -163,3 +168,25 @@ def registry_tmp_path(tmp_path):
         path_catalog=tmp_path / '.catalog.json',
     ):
         yield
+
+
+@pytest.fixture(autouse=True)
+def fresh_class_caches() -> Iterator[None]:
+    """Facts and hashes are cached per class; a test that patches a class's source must not leak them."""
+    yield
+    TrackedObject.clear_function_caches()
+    calculate_cls_source_hash.cache_clear()
+    for cached in (get_source_code, get_source_ast_tree, get_module_ast_tree, get_parsed_source_code):
+        cached.cache_clear()
+
+
+@pytest.fixture
+def isolated_imports() -> Iterator[None]:
+    """Undo importing a temporary project: its classes, its modules and its sys.path entry."""
+    registry = dict(TrackedObject._registry)
+    modules, path = set(sys.modules), list(sys.path)
+    yield
+    TrackedObject._registry = registry
+    for name in set(sys.modules) - modules:
+        del sys.modules[name]
+    sys.path[:] = path

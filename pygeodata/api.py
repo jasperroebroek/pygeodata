@@ -146,7 +146,8 @@ def load_from_hash(
     full_hash = registry.resolve_hash_prefix(state_hash)
     if full_hash is None:
         raise KeyError(f'No entry found for hash prefix {state_hash!r}')
-    record = registry.entries[full_hash].record
+    entry = registry.entries[full_hash]
+    record = entry.record
     cls = TrackedObject.find_object_class(record.class_name)
     if cls is None:
         raise RuntimeError(
@@ -162,7 +163,9 @@ def load_from_hash(
         path = resolver.directory / filename
         if not path.exists():
             raise FileNotFoundError(f'Output file {filename!r} not found in {resolver.directory}')
-    else:
+    elif record.ext is not None and entry.primary_file is not None:
+        path = resolver.directory / entry.primary_file.relpath
+    else:  # written before the output's extension was recorded
         path = _resolve_output_path(instance, resolver.directory, full_hash)
     try:
         return instance._load(path)

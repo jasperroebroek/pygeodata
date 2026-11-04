@@ -17,7 +17,7 @@ from pygeodata.records import EntryRecord
 from pygeodata.registries.registry import EntryRegistry, SourceRegistry, TreeRegistry
 from pygeodata.registries.writer import write_registry
 from pygeodata.staleness import dependency_staleness
-from pygeodata.tracked_object import TrackedObject
+from pygeodata.tracked_object import TrackedObject, live_tree_hash
 
 
 def read_cache_class_name(hash_path: Path) -> str | None:
@@ -73,7 +73,7 @@ def hash_matches_live(hash_path: Path, check_class_params: bool = False) -> bool
         record = EntryRecord.from_file(hash_path)
     except (OSError, msgspec.DecodeError):
         return False
-    staleness = dependency_staleness(record.class_name, record.dependency_tree_hash)
+    staleness = dependency_staleness(record.class_name, record.dependency_tree_hash, live_tree_hash)
     if staleness is Staleness.UNKNOWN:
         return None
     if staleness is Staleness.STALE:

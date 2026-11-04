@@ -12,8 +12,12 @@ from pygeodata.catalog.types import CatalogNewerError, CatalogOutdatedError
 from pygeodata.config import get_config
 from pygeodata.project import import_project_modules
 from pygeodata.registries.registry import EntryRegistry
+from pygeodata.static import StaticAnalysis, analyse_project, compare_with_imports
+from pygeodata.tracked_object import live_tree_hash
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
+
     from pygeodata.catalog.types import CatalogEntry
 
 
@@ -48,6 +52,49 @@ def _import_project_modules(root: Path, verbose: bool = False) -> int:
         for name, error in report.failed.items():
             click.echo(f'  skip {name}: {error}')
     return len(report.imported)
+
+
+def _project_source(do_import: bool, verbose: bool) -> StaticAnalysis | None:
+    """The project's classes read from source; None with ``--import-all``, whose imported classes serve instead.
+
+    Importing also reports every class where imports and source disagree.
+    """
+    analysis = analyse_project(Path.cwd())
+    for problem in analysis.problems:
+        click.echo(f'Warning: {problem}', err=True)
+    if not do_import:
+        return analysis
+    n = _import_project_modules(Path.cwd(), verbose=verbose)
+    click.echo(f'Imported {n} module(s)')
+    for message in compare_with_imports(analysis):
+        click.echo(f'Warning: {message}', err=True)
+    return None
+
+
+def _tree_hash_lookup(analysis: StaticAnalysis | None) -> Callable[[str], str | None]:
+    return analysis.tree_hashes.get if analysis is not None else live_tree_hash
+
+
+# One legend for every staleness marker the CLI prints.
+LEGEND = {
+    'F': ('red', 'written by another pygeodata format'),
+    'S': ('yellow', 'stale: its dependency tree changed'),
+    'C': ('red', 'source changed since it last ran'),
+    'D': ('yellow', 'dependencies changed since it last ran'),
+    '?': ('bright_black', 'unknown: class not found in the project'),
+}
+
+
+def _marker(code: str) -> str:
+    return click.style(code, fg=LEGEND[code][0]) if code in LEGEND else ' '
+
+
+def _legend(codes: Iterable[str]) -> str | None:
+    present = set(codes)
+    used = [code for code in LEGEND if code in present]
+    if not used:
+        return None
+    return '  '.join(f'{_marker(code)} {LEGEND[code][1]}' for code in used)
 
 
 def _check_roots_readable(roots: tuple[Path, ...]) -> None:

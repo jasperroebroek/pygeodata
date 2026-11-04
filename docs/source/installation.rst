@@ -4,8 +4,9 @@ Installation
 Requirements
 ------------
 
-pygeodata requires Python 3.10 or later. The core dependencies are installed
-automatically:
+pygeodata requires Python 3.11 or later. Cache hashes are the same on every
+supported Python version, so a cache can be shared between machines running
+different versions. The core dependencies are installed automatically:
 
 - `rioxarray <https://corteva.github.io/rioxarray/>`_ — raster I/O via rasterio
 - `geopandas <https://geopandas.org/>`_ — vector data
@@ -13,6 +14,8 @@ automatically:
 - `fiona <https://fiona.readthedocs.io/>`_ — vector file I/O backend
 - `pyarrow <https://arrow.apache.org/docs/python/>`_ — GeoParquet support
 - `filelock <https://py-filelock.readthedocs.io/>`_ — safe concurrent cache writes
+- `msgspec <https://jcristharif.com/msgspec/>`_ — typed catalog and metadata files
+- `click <https://click.palletsprojects.com/>`_ — the ``pygeodata`` command line
 
 Installing
 ----------

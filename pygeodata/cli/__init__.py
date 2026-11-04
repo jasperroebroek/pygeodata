@@ -7,7 +7,10 @@ from pygeodata.cli._lazy import LazyGroup
 COMMANDS: dict[str, tuple[str, str]] = {
     'browse': ('pygeodata.cli.browse:browse', 'Launch the registry browser.'),
     'catalog': ('pygeodata.cli.maintenance:catalog_group', 'Inspect and rebuild the .catalog.json cache catalog.'),
-    'classes': ('pygeodata.cli.classes:classes_cmd', 'Show staleness for all loaded and known classes.'),
+    'classes': (
+        'pygeodata.cli.classes:classes_cmd',
+        "Show staleness for the project's classes and those with cache entries.",
+    ),
     'clean-cache': ('pygeodata.cli.maintenance:clean_cache_cmd', 'Remove stale or invalid cache entries.'),
     'clean-locks': (
         'pygeodata.cli.maintenance:clean_locks_cmd',

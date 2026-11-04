@@ -17,9 +17,11 @@
       ~SpatialSpec.from_dict
       ~SpatialSpec.from_file
       ~SpatialSpec.from_raster_file
+      ~SpatialSpec.from_record
       ~SpatialSpec.from_shape_file
       ~SpatialSpec.get_hash
       ~SpatialSpec.to_dict
+      ~SpatialSpec.to_record
    
    
 

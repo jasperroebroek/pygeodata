@@ -27,6 +27,7 @@
       ~Table.get_dependency_tree
       ~Table.get_dependency_tree_hash
       ~Table.get_ext
+      ~Table.get_facts
       ~Table.get_file_stem
       ~Table.get_filename
       ~Table.get_inheritance_dependencies
@@ -42,22 +43,13 @@
       ~Table.get_src_path
       ~Table.get_state_hash
       ~Table.has_dependencies
-      ~Table.is_cache_valid
       ~Table.is_processed
-      ~Table.is_processed_hash_present
-      ~Table.is_registry_valid
+      ~Table.is_registered
       ~Table.plot_runtime_execution_graph
       ~Table.process
-      ~Table.processed_path_exists
-      ~Table.read_state_hash
       ~Table.resolve_cache_paths
       ~Table.resolve_spec
       ~Table.to_code_state
-      ~Table.update_registry
-      ~Table.write_cache_metadata
-      ~Table.write_parameters
-      ~Table.write_registry
-      ~Table.write_spec
    
    
 

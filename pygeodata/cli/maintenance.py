@@ -1,3 +1,5 @@
+from collections import Counter
+from datetime import UTC, datetime
 from pathlib import Path
 
 import click
@@ -5,8 +7,9 @@ import click
 from pygeodata._version import FORMAT_VERSION
 from pygeodata.cache import clean_cache, clean_lock_files, clean_source_registry
 from pygeodata.catalog.store import refresh
-from pygeodata.cli.common import _check_roots_readable, _import_options, _import_project_modules
+from pygeodata.cli.common import _check_roots_readable, _entry_registry, _import_options, _import_project_modules
 from pygeodata.config import get_config
+from pygeodata.project import import_project_modules
 
 
 @click.group('catalog')
@@ -53,8 +56,34 @@ def catalog_build_cmd(
     click.echo(f'Catalog: {config.path_catalog}')
 
 
+@catalog_group.command('info')
+def catalog_info_cmd() -> None:
+    """Show where the catalog was written, what it holds, and how it differs from disk."""
+    registry = _entry_registry()
+    header, status = registry.header, registry.status
+    writer = header.writer
+    written_at = datetime.fromtimestamp(writer.written_at, tz=UTC).astimezone().strftime('%Y-%m-%d %H:%M')
+    click.echo(f'Catalog      {get_config().path_catalog}')
+    click.echo(f'ID           {header.catalog_id}  (version {header.catalog_version})')
+    click.echo(f'Written      {written_at} by pygeodata {writer.pygeodata} (Python {writer.python}) on {writer.host}')
+    click.echo(f'From root    {writer.root}')
+    mode = 'read-only: written from another project root' if status.read_only else 'writable'
+    click.echo(f'Mode         {mode}')
+    counts = Counter(entry.object_type for entry in registry.entries.values())
+    click.echo(f'Entries      {len(registry.entries)}  ({", ".join(f"{t}: {n}" for t, n in sorted(counts.items()))})')
+    diff = status.diff
+    if diff.unindexed:
+        click.echo(f'Not indexed  {len(diff.unindexed)} entry dir(s) on disk')
+    if diff.missing:
+        click.echo(
+            f'Missing      {len(diff.missing)} entr{"y" if len(diff.missing) == 1 else "ies"} without an entry dir',
+        )
+    for root in diff.unavailable_roots:
+        click.echo(f'Unavailable  {root} (missing or empty; its entries are kept)')
+
+
 @click.command('clean-cache')
-@_import_options
+@click.option('--verbose-import', is_flag=True, default=False, help='Print each module imported.')
 @click.option(
     '--dry-run/--no-dry-run',
     default=True,
@@ -75,16 +104,29 @@ def catalog_build_cmd(
     ),
 )
 def clean_cache_cmd(
-    do_import: bool,
     verbose_import: bool,
     dry_run: bool,
     delete_unregistered: bool,
     check_class_params: bool,
 ) -> None:
-    """Remove stale or invalid cache entries."""
-    if do_import:
-        n = _import_project_modules(Path.cwd(), verbose=verbose_import)
-        click.echo(f'Imported {n} module(s)')
+    """Remove stale or invalid cache entries.
+
+    Imports the project first: deciding what is stale needs its current classes. Nothing is deleted
+    when any project module fails to import, since its entries would look unregistered.
+    """
+    report = import_project_modules(Path.cwd())
+    click.echo(f'Imported {len(report.imported)} module(s)')
+    if verbose_import:
+        for name in report.imported:
+            click.echo(f'  imported {name}')
+    if report.failed:
+        failures = '\n'.join(f'  {name}: {error}' for name, error in report.failed.items())
+        if not dry_run:
+            raise click.ClickException(f'Not deleting anything: these project modules failed to import:\n{failures}')
+        click.echo(
+            f'Warning: these project modules failed to import, so a real run would refuse:\n{failures}',
+            err=True,
+        )
     clean_cache(
         dry_run=dry_run,
         delete_unregistered=delete_unregistered,

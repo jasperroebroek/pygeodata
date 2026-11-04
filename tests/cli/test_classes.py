@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -23,8 +24,14 @@ def _patch_registries(
             ),
         ),
     )
-    monkeypatch.setattr('pygeodata.cli.classes.discover_loaded_classes', discover)
-    monkeypatch.setattr('pygeodata.cli.classes.merge_unloaded_classes', merge)
+    monkeypatch.setattr('pygeodata.cli.classes.source_classes', lambda _analysis: discover())
+    monkeypatch.setattr('pygeodata.cli.classes.merge_unknown_classes', merge)
+
+
+@pytest.fixture(autouse=True)
+def empty_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The CLI reads the project's classes from the working directory."""
+    monkeypatch.chdir(tmp_path)
 
 
 def _identity_merge(classes: dict[str, ClassInfo], *_args: object, **_kwargs: object) -> dict[str, ClassInfo]:
@@ -32,7 +39,7 @@ def _identity_merge(classes: dict[str, ClassInfo], *_args: object, **_kwargs: ob
 
 
 def test_classes_no_classes_found(monkeypatch: pytest.MonkeyPatch) -> None:
-    """With an empty registry and no loaded classes, prints 'No classes found.'."""
+    """With no classes in the project or the cache, prints 'No classes found.'."""
     monkeypatch.setattr('pygeodata.tracked_object.TrackedObject._registry', {})
 
     runner = CliRunner()
@@ -43,11 +50,11 @@ def test_classes_no_classes_found(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_classes_loaded_class_appears(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A loaded, current class is printed with a space indicator and 'loaded' label."""
+    """A current class is printed without a marker."""
     mock_info = ClassInfo(
         class_name='MyLoader',
         object_type='Data',
-        loaded=True,
+        known=True,
         call_dependency_names=[],
         inheritance_dependency_names=[],
         source_stale=False,
@@ -60,8 +67,7 @@ def test_classes_loaded_class_appears(monkeypatch: pytest.MonkeyPatch) -> None:
     result = runner.invoke(cli, ['classes'])
 
     assert result.exit_code == 0, result.output
-    assert 'MyLoader' in result.output
-    assert 'loaded' in result.output
+    assert '    MyLoader' in result.output
     assert 'Data' in result.output
 
 
@@ -70,7 +76,7 @@ def test_classes_stale_exits_nonzero(monkeypatch: pytest.MonkeyPatch) -> None:
     mock_info = ClassInfo(
         class_name='StaleClass',
         object_type='Figure',
-        loaded=True,
+        known=True,
         source_stale=True,
         deps_stale=False,
     )
@@ -85,8 +91,8 @@ def test_classes_stale_exits_nonzero(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_classes_hide_current_omits_fresh(monkeypatch: pytest.MonkeyPatch) -> None:
     """--hide-current omits classes with no staleness."""
-    fresh = ClassInfo(class_name='FreshOne', object_type='Data', loaded=True)
-    stale = ClassInfo(class_name='StaleOne', object_type='Data', loaded=True, source_stale=True)
+    fresh = ClassInfo(class_name='FreshOne', object_type='Data', known=True)
+    stale = ClassInfo(class_name='StaleOne', object_type='Data', known=True, source_stale=True)
     _patch_registries(monkeypatch, lambda: {'FreshOne': fresh, 'StaleOne': stale}, _identity_merge)
 
     runner = CliRunner()
@@ -98,8 +104,8 @@ def test_classes_hide_current_omits_fresh(monkeypatch: pytest.MonkeyPatch) -> No
 
 def test_classes_type_filter(monkeypatch: pytest.MonkeyPatch) -> None:
     """--type DATA filters to Data classes only."""
-    data_cls = ClassInfo(class_name='DataClass', object_type='Data', loaded=True)
-    fig_cls = ClassInfo(class_name='FigureClass', object_type='Figure', loaded=True)
+    data_cls = ClassInfo(class_name='DataClass', object_type='Data', known=True)
+    fig_cls = ClassInfo(class_name='FigureClass', object_type='Figure', known=True)
     _patch_registries(monkeypatch, lambda: {'DataClass': data_cls, 'FigureClass': fig_cls}, _identity_merge)
 
     runner = CliRunner()

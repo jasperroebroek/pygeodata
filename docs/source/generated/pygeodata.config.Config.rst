@@ -14,6 +14,7 @@
    .. autosummary::
    
       ~Config.__init__
+      ~Config.get_cache_root
       ~Config.update
    
    
@@ -25,8 +26,10 @@
    .. autosummary::
    
       ~Config.cache_roots
+      ~Config.catalog_enabled
       ~Config.num_threads
       ~Config.path_cache
+      ~Config.path_catalog
       ~Config.path_figures
       ~Config.path_registry
       ~Config.path_tables

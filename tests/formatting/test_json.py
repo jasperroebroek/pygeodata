@@ -44,7 +44,7 @@ def test_tracked_instance_still_serialises_as_instance() -> None:
     assert JSONKeys.DEPENDENCY_TREE_HASH not in result
 
 
-@patch('pygeodata.hash.get_source_ast_tree')
+@patch('pygeodata.tracked_object.get_source_ast_tree')
 def test_state_hash_changes_when_class_valued_param_changes(
     mock_ast_tree: MagicMock,
     sample_spatial_spec,

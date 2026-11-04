@@ -7,7 +7,6 @@ import msgspec
 from pygeodata._version import FORMAT_VERSION
 from pygeodata.catalog.store import index_entry
 from pygeodata.fileio import read_format_version, write_json_atomic
-from pygeodata.hash import calculate_cls_source_hash
 from pygeodata.paths import CachePathConstructor
 from pygeodata.records import EntryRecord
 
@@ -32,7 +31,7 @@ def write_entry(artifact: Artifact, spec: SpatialSpec, co_outputs: tuple[str, ..
     write_json_atomic(paths.spec_path, spec.to_dict(), indent=4)
     record = EntryRecord(
         class_name=artifact.get_class_name(),
-        source_hash=calculate_cls_source_hash(type(artifact)),
+        source_hash=type(artifact).get_facts().source_hash,
         dependency_tree_hash=artifact.get_dependency_tree_hash(),
         instance_hash=artifact.get_instance_hash(),
         params_hash=artifact.get_params_hash(),

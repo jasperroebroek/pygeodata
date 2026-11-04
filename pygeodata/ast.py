@@ -7,6 +7,11 @@ from pathlib import Path
 from pygeodata.graph_types import SymbolTables
 
 
+def parse_class_source(source: str) -> ast.Module:
+    """``source`` is the class's own lines, decorators included, as ``inspect.getsource`` returns them."""
+    return ast.parse(textwrap.dedent(source))
+
+
 @functools.cache
 def get_source_code(cls: type) -> str:
     return textwrap.dedent(inspect.getsource(cls))
@@ -25,8 +30,7 @@ def get_module_ast_tree(cls: type) -> ast.AST:
 @functools.cache
 def get_source_ast_tree(cls: type) -> ast.AST:
     try:
-        source = get_source_code(cls)
-        return ast.parse(source)
+        return parse_class_source(get_source_code(cls))
     except (TypeError, OSError) as err:
         raise OSError(
             'AST Parsing failed. Caching is disabled. You are likely in a REPL/Notebook environment. Use standard .py files.',

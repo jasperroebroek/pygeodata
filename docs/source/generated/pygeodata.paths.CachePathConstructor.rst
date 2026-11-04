@@ -16,8 +16,8 @@
       ~CachePathConstructor.__init__
       ~CachePathConstructor.from_path
       ~CachePathConstructor.from_state_hash
-      ~CachePathConstructor.iterdir
       ~CachePathConstructor.mkdir
+      ~CachePathConstructor.output_paths
    
    
 
@@ -28,6 +28,7 @@
    .. autosummary::
    
       ~CachePathConstructor.execution_graph_path
+      ~CachePathConstructor.lock_path
       ~CachePathConstructor.params_path
       ~CachePathConstructor.spec_path
       ~CachePathConstructor.state_hash_path

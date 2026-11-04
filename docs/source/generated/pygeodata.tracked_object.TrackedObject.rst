@@ -24,6 +24,7 @@
       ~TrackedObject.get_dependency_graph
       ~TrackedObject.get_dependency_tree
       ~TrackedObject.get_dependency_tree_hash
+      ~TrackedObject.get_facts
       ~TrackedObject.get_inheritance_dependencies
       ~TrackedObject.get_instance_hash
       ~TrackedObject.get_instance_state
@@ -33,10 +34,8 @@
       ~TrackedObject.get_registered_objects
       ~TrackedObject.get_source_ast_tree
       ~TrackedObject.has_dependencies
-      ~TrackedObject.is_registry_valid
+      ~TrackedObject.is_registered
       ~TrackedObject.to_code_state
-      ~TrackedObject.update_registry
-      ~TrackedObject.write_registry
    
    
 

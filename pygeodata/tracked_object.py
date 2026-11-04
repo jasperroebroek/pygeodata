@@ -5,20 +5,23 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from pygeodata._version import FORMAT_VERSION
-from pygeodata.ast import (
-    build_symbol_tables,
-    find_names_in_ast_tree,
-    get_module_ast_tree,
-    get_source_ast_tree,
+from pygeodata.ast import build_symbol_tables, get_module_ast_tree, get_source_ast_tree
+from pygeodata.dependencies import (
+    ClassFacts,
+    call_dependencies,
+    dependency_tree,
+    dependency_tree_dict,
+    inheritance_dependencies,
 )
 from pygeodata.enums import JSONKeys
 from pygeodata.graph_types import ClassNode, DependencyGraph
-from pygeodata.hash import calculate_cls_source_hash, calculate_dict_hash
+from pygeodata.hash import calculate_ast_hash, calculate_dict_hash
 from pygeodata.registries.registry_types import CodeState, TreeNode, TreeSnapshot
 
 if TYPE_CHECKING:
     import ast
 
+    from pygeodata.dependencies import FactsLookup
     from pygeodata.spec import SpatialSpec
 
 
@@ -152,81 +155,59 @@ class TrackedObject:
         return get_source_ast_tree(cls)
 
     @classmethod
-    @functools.cache
-    def get_call_dependencies(cls) -> set[type[TrackedObject]]:
-        cls_module_tree = get_module_ast_tree(cls)
-        tables = build_symbol_tables(cls_module_tree)
+    def is_registered(cls) -> bool:
+        return TrackedObject._registry.get(cls.get_class_name()) is cls
 
-        cls_tree = cls.get_source_ast_tree()
-        names = find_names_in_ast_tree(
-            tree=cls_tree,
-            tables=tables,
-            valid_names=set(cls._registry),
-            exclude_bases=True,
+    @classmethod
+    @functools.cache
+    def get_facts(cls) -> ClassFacts:
+        """The class as :mod:`pygeodata.dependencies` sees it; the tracked names are those registered now."""
+        name = cls.get_class_name()
+        class_tree = cls.get_source_ast_tree()
+        return ClassFacts(
+            name=name,
+            object_type=cls.object_type.get_class_name(),
+            source_hash=calculate_ast_hash(class_tree),
+            call_deps=call_dependencies(
+                class_tree,
+                build_symbol_tables(get_module_ast_tree(cls)),
+                set(cls._registry),
+                name,
+            ),
+            bases=frozenset(
+                base.get_class_name()
+                for base in cls.__bases__
+                if isinstance(base, type) and issubclass(base, TrackedObject) and base.is_registered()
+            ),
         )
 
-        return {
-            dep_cls for name in names if (dep_cls := cls.find_object_class(name)) is not None and dep_cls is not cls
-        }
+    @classmethod
+    def _facts(cls) -> FactsLookup:
+        """Facts of this class and of the registered classes, computed on first use."""
+        own = cls.get_class_name()
+        return lambda name: cls.get_facts() if name == own else cls._registry[name].get_facts()
 
     @classmethod
-    @functools.cache
+    def get_call_dependencies(cls) -> set[type[TrackedObject]]:
+        return {cls._registry[name] for name in cls.get_facts().call_deps}
+
+    @classmethod
     def get_inheritance_dependencies(cls) -> set[type[TrackedObject]]:
-        return {base for base in cls.__mro__ if base != cls and base in cls._registry.values()}
+        return {cls._registry[name] for name in inheritance_dependencies(cls._facts(), cls.get_class_name())}
 
     @classmethod
-    @functools.cache
     def get_all_dependencies(cls) -> set[type[TrackedObject]]:
         return cls.get_call_dependencies() | cls.get_inheritance_dependencies()
 
     @classmethod
     def has_dependencies(cls) -> bool:
-        return bool(cls.get_all_dependencies())
-
-    @classmethod
-    def _traverse(cls, make_node):
-        """DFS over the dependency graph, returning (nodes, call_edges, inheritance_edges).
-
-        ``make_node`` converts a TrackedObject class to whatever node representation
-        the caller needs — e.g. a ClassNode for graphs, a str name for snapshots.
-        """
-        nodes = set()
-        call_edges = set()
-        inheritance_edges = set()
-
-        def visit(current_cls):
-            node = make_node(current_cls)
-            if node in nodes:
-                return
-            nodes.add(node)
-            for dep_cls in current_cls.get_call_dependencies():
-                dep_node = make_node(dep_cls)
-                call_edges.add((node, dep_node))
-                visit(dep_cls)
-            for dep_cls in current_cls.get_inheritance_dependencies():
-                dep_node = make_node(dep_cls)
-                inheritance_edges.add((node, dep_node))
-                visit(dep_cls)
-
-        visit(cls)
-        return nodes, call_edges, inheritance_edges
+        facts = cls.get_facts()
+        return bool(facts.call_deps or facts.bases)
 
     @classmethod
     @functools.cache
     def _dependency_tree_dict(cls) -> dict:
-        """Raw tree data dict — shared by get_dependency_tree_hash and get_dependency_tree."""
-        names, call_edges, inheritance_edges = cls._traverse(lambda c: c.get_class_name())
-        return {
-            JSONKeys.NODES: {
-                name: {
-                    'hash': calculate_cls_source_hash(cls._registry[name]),
-                    JSONKeys.OBJECT_TYPE: cls._registry[name].object_type.get_class_name(),
-                }
-                for name in names
-            },
-            JSONKeys.CALL_EDGES: sorted([s, t] for s, t in call_edges),
-            JSONKeys.INHERITANCE_EDGES: sorted([s, t] for s, t in inheritance_edges),
-        }
+        return dependency_tree_dict(cls._facts(), cls.get_class_name())
 
     @classmethod
     @functools.cache
@@ -252,15 +233,22 @@ class TrackedObject:
     @classmethod
     def get_dependency_graph(cls) -> DependencyGraph:
         """Build a typed graph of all :class:`TrackedObject` dependencies from this class."""
-        nodes, call_edges, inheritance_edges = cls._traverse(
-            lambda c: ClassNode(cls=c, name=c.get_class_name(), color=c.color),
+        tree = dependency_tree(cls._facts(), cls.get_class_name())
+
+        def node(name: str) -> ClassNode:
+            node_cls = cls if name == cls.get_class_name() else cls._registry[name]
+            return ClassNode(cls=node_cls, name=name, color=node_cls.color)
+
+        return DependencyGraph(
+            nodes={node(name) for name in tree.nodes},
+            call_edges={(node(s), node(t)) for s, t in tree.call_edges},
+            inheritance_edges={(node(s), node(t)) for s, t in tree.inheritance_edges},
         )
-        return DependencyGraph(nodes=nodes, call_edges=call_edges, inheritance_edges=inheritance_edges)
 
     @classmethod
     def to_code_state(cls) -> CodeState:
         return CodeState(
-            source_hash=calculate_cls_source_hash(cls),
+            source_hash=cls.get_facts().source_hash,
             class_name=cls.get_class_name(),
             object_type=cls.object_type.get_class_name(),
             registered_at=datetime.now(UTC).isoformat(),
@@ -273,3 +261,9 @@ class TrackedObject:
             attr = getattr(cls, attr_name, None)
             if callable(attr) and hasattr(attr, 'cache_clear'):
                 attr.cache_clear()
+
+
+def live_tree_hash(class_name: str) -> str | None:
+    """The current dependency tree hash of a registered (imported) class; None for any other."""
+    cls = TrackedObject.find_object_class(class_name)
+    return cls.get_dependency_tree_hash() if cls is not None else None

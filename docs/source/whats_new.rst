@@ -1,6 +1,70 @@
 What's new
 ==========
 
+Version 0.5.0 (unreleased)
+--------------------------
+
+**Source hashes no longer depend on the Python version**
+
+- A class's source hash used to hash :func:`ast.dump`, whose output differs
+  between Python 3.11, 3.12, 3.13 and 3.15, so upgrading Python silently made
+  every cache entry stale.  It now hashes
+  :func:`~pygeodata.hash.canonical_ast_dump`, pygeodata's own frozen
+  serialisation, and gives the same hash on every supported version.
+- Hashes made on Python 3.13 or 3.14 are unchanged.  **Projects run on Python
+  3.11 or 3.12 see their entries go stale once** and recompute on the next run.
+
+**The command line reads classes from source**
+
+- ``classes``, ``entry list`` and ``entry show`` derive every class's source
+  hash and dependency tree by parsing the project's ``.py`` files, without
+  running any project code.  They are fast, need none of the project's heavy
+  dependencies, and work on a read-only copy of a project.  ``--import-all``
+  imports the modules instead and warns where the imports and the source
+  disagree.  See :doc:`cli`.
+- One set of staleness markers for every command (``F``, ``S``, ``C``, ``D``
+  and ``?`` for a class not found in the project), with a legend for the
+  markers shown.  ``N`` ("not loaded") is gone.
+- New ``catalog info`` and ``entry list --type``.
+- ``clean-cache`` always imports the project, and refuses to delete anything
+  when a project module fails to import.
+- Project modules are imported under their real module names, so relative and
+  cross-module imports work; a package that happened to share its name with a
+  data directory (such as ``src/figures/``) is no longer skipped.
+- ``import pygeodata.cli`` no longer loads numpy; ``pygeodata --help`` takes
+  about 0.1 s.
+
+**Catalog**
+
+- The catalog (``.catalog.json``) is a typed, versioned contract.  Its header
+  records which machine, root, pygeodata and Python version wrote it; see it
+  with ``pygeodata catalog info``.
+- Readers keep the catalog in sync with the cache by themselves: entries
+  written outside the pipeline are indexed, and removed ones are dropped.  A
+  catalog written from another root (a synced mirror) is only ever read, never
+  rewritten.
+- Rows whose cache root is missing or empty are kept rather than pruned, so an
+  unmounted drive no longer empties the catalog.
+- ``meta.json`` records the output's extension, so the primary output file is
+  no longer guessed.
+- ``catalog build --log-interval`` is removed.
+
+**Fixes**
+
+- ``export`` includes zarr outputs; ``clean-cache`` no longer deletes
+  subfolders of valid entries; a single-entry download never returns
+  ``meta.json``.
+- Going back to an older version of a class is recorded in ``.source/``, so the
+  registry's latest version is the code that last ran.
+- Every metadata, registry, catalog and pins write is atomic.
+
+**Breaking changes for code importing pygeodata internals**
+
+- The presentation code moved from ``pygeodata.catalog`` to
+  ``pygeodata.views``; ``EntryRecord`` lives in ``pygeodata.records``;
+  ``EntryInfo`` is gone.  Use the registry browser 0.5, which matches.
+
+
 Version 0.3.0
 -------------
 

@@ -260,11 +260,20 @@ Hashing utilities
 These functions underpin the four-level hash chain
 (*source_hash → dep_tree_hash → instance_hash → state_hash*).
 
+Source hashes do not depend on the Python version: they hash
+:func:`~pygeodata.hash.canonical_ast_dump`, pygeodata's own frozen
+serialisation of the class's AST, not :func:`ast.dump`, whose output changes
+between Python versions. ``tests/test_hash.py`` pins this.
+
 .. autosummary::
    :toctree: generated/
 
+   pygeodata.hash.canonical_ast_dump
    pygeodata.hash.calculate_cls_source_hash
    pygeodata.hash.calculate_dict_hash
+
+.. autofunction:: pygeodata.hash.canonical_ast_dump
+   :no-index:
 
 .. autofunction:: pygeodata.hash.calculate_cls_source_hash
    :no-index:

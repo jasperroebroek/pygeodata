@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import click
 
 from pygeodata.cli.common import (
@@ -8,13 +6,16 @@ from pygeodata.cli.common import (
     _fmt_hash,
     _full_hash_option,
     _import_options,
-    _import_project_modules,
+    _legend,
+    _marker,
+    _project_source,
     _registry_option,
+    _tree_hash_lookup,
 )
 from pygeodata.enums import ObjectType
 from pygeodata.registries.registry import SourceRegistry
 from pygeodata.registries.versioning import VersionRegistry
-from pygeodata.views.classes import discover_loaded_classes, merge_unloaded_classes
+from pygeodata.views.classes import imported_classes, merge_unknown_classes, source_classes
 
 # ---------------------------------------------------------------------------
 # classes
@@ -40,18 +41,15 @@ def classes_cmd(
     full_hash: bool,
     registry_path: str | None,
 ) -> None:
-    """Show staleness for all loaded and known classes."""
+    """Show staleness for the project's classes and those with cache entries."""
     _apply_registry_path(registry_path)
 
-    if do_import:
-        n = _import_project_modules(Path.cwd(), verbose=verbose_import)
-        click.echo(f'Imported {n} module(s)')
-
+    analysis = _project_source(do_import, verbose_import)
     vreg = VersionRegistry()
     ereg = _entry_registry()
     src = SourceRegistry()
-    classes = discover_loaded_classes()
-    classes = merge_unloaded_classes(classes, ereg, version_registry=vreg, src=src)
+    classes = source_classes(analysis) if analysis is not None else imported_classes()
+    classes = merge_unknown_classes(classes, ereg, _tree_hash_lookup(analysis), version_registry=vreg, src=src)
 
     # Apply type filter (case-insensitive exact match against object_type)
     if type_filter:
@@ -83,29 +81,33 @@ def classes_cmd(
     ordered_types = [t for t in type_order if t in by_type] + other_types
 
     any_stale = False
+    markers: set[str] = set()
     for object_type in ordered_types:
         class_names = sorted(by_type[object_type])
         click.echo(f'── {object_type} ({len(class_names)}) ──')
         col = max(len(cn) for cn in class_names)
         for class_name in class_names:
             info = classes[class_name]
-            if info.source_stale:
-                any_stale = True
-                indicator = click.style('C', fg='red')
+            if not info.known:
+                marker = '?'
+            elif info.source_stale:
+                marker = 'C'
             elif info.deps_stale:
-                any_stale = True
-                indicator = click.style('D', fg='yellow')
-            elif not info.loaded:
-                indicator = click.style('N', fg='bright_black')
+                marker = 'D'
             else:
-                indicator = ' '
-            loaded_label = 'loaded' if info.loaded else 'unloaded'
+                marker = ' '
+            any_stale = any_stale or marker in ('C', 'D')
+            markers.add(marker)
             src_hash = stored_hashes.get(class_name)
             src_str = f'src:{_fmt_hash(src_hash, full_hash)}' if src_hash else 'src:—'
             all_deps = info.call_dependency_names + info.inheritance_dependency_names
             deps_str = f'deps:[{", ".join(all_deps)}]' if all_deps else 'deps:—'
-            click.echo(f'  {indicator} {class_name:<{col}}  {loaded_label}  {src_str}  {deps_str}')
+            click.echo(f'  {_marker(marker)} {class_name:<{col}}  {src_str}  {deps_str}')
         click.echo()
+
+    legend = _legend(markers)
+    if legend:
+        click.echo(legend)
 
     if any_stale:
         raise SystemExit(1)

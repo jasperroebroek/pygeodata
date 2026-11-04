@@ -90,6 +90,7 @@ class CatalogWriter:
     root: str
     host: str
     pygeodata: str
+    python: str
     written_at: float
 
 

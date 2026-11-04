@@ -1,0 +1,354 @@
+{
+ "AnnAssign": [
+  "target",
+  "annotation",
+  "value",
+  "simple"
+ ],
+ "Assert": [
+  "test",
+  "msg"
+ ],
+ "Assign": [
+  "targets",
+  "value",
+  "type_comment"
+ ],
+ "AsyncFor": [
+  "target",
+  "iter",
+  "body",
+  "orelse",
+  "type_comment"
+ ],
+ "AsyncFunctionDef": [
+  "name",
+  "args",
+  "body",
+  "decorator_list",
+  "returns",
+  "type_comment",
+  "type_params"
+ ],
+ "AsyncWith": [
+  "items",
+  "body",
+  "type_comment"
+ ],
+ "Attribute": [
+  "value",
+  "attr",
+  "ctx"
+ ],
+ "AugAssign": [
+  "target",
+  "op",
+  "value"
+ ],
+ "Await": [
+  "value"
+ ],
+ "BinOp": [
+  "left",
+  "op",
+  "right"
+ ],
+ "BoolOp": [
+  "op",
+  "values"
+ ],
+ "Call": [
+  "func",
+  "args",
+  "keywords"
+ ],
+ "ClassDef": [
+  "name",
+  "bases",
+  "keywords",
+  "body",
+  "decorator_list",
+  "type_params"
+ ],
+ "Compare": [
+  "left",
+  "ops",
+  "comparators"
+ ],
+ "Constant": [
+  "value",
+  "kind"
+ ],
+ "Delete": [
+  "targets"
+ ],
+ "Dict": [
+  "keys",
+  "values"
+ ],
+ "DictComp": [
+  "key",
+  "value",
+  "generators"
+ ],
+ "ExceptHandler": [
+  "type",
+  "name",
+  "body"
+ ],
+ "Expr": [
+  "value"
+ ],
+ "Expression": [
+  "body"
+ ],
+ "For": [
+  "target",
+  "iter",
+  "body",
+  "orelse",
+  "type_comment"
+ ],
+ "FormattedValue": [
+  "value",
+  "conversion",
+  "format_spec"
+ ],
+ "FunctionDef": [
+  "name",
+  "args",
+  "body",
+  "decorator_list",
+  "returns",
+  "type_comment",
+  "type_params"
+ ],
+ "FunctionType": [
+  "argtypes",
+  "returns"
+ ],
+ "GeneratorExp": [
+  "elt",
+  "generators"
+ ],
+ "Global": [
+  "names"
+ ],
+ "If": [
+  "test",
+  "body",
+  "orelse"
+ ],
+ "IfExp": [
+  "test",
+  "body",
+  "orelse"
+ ],
+ "Import": [
+  "names"
+ ],
+ "ImportFrom": [
+  "module",
+  "names",
+  "level"
+ ],
+ "Interactive": [
+  "body"
+ ],
+ "Interpolation": [
+  "value",
+  "str",
+  "conversion",
+  "format_spec"
+ ],
+ "JoinedStr": [
+  "values"
+ ],
+ "Lambda": [
+  "args",
+  "body"
+ ],
+ "List": [
+  "elts",
+  "ctx"
+ ],
+ "ListComp": [
+  "elt",
+  "generators"
+ ],
+ "Match": [
+  "subject",
+  "cases"
+ ],
+ "MatchAs": [
+  "pattern",
+  "name"
+ ],
+ "MatchClass": [
+  "cls",
+  "patterns",
+  "kwd_attrs",
+  "kwd_patterns"
+ ],
+ "MatchMapping": [
+  "keys",
+  "patterns",
+  "rest"
+ ],
+ "MatchOr": [
+  "patterns"
+ ],
+ "MatchSequence": [
+  "patterns"
+ ],
+ "MatchSingleton": [
+  "value"
+ ],
+ "MatchStar": [
+  "name"
+ ],
+ "MatchValue": [
+  "value"
+ ],
+ "Module": [
+  "body",
+  "type_ignores"
+ ],
+ "Name": [
+  "id",
+  "ctx"
+ ],
+ "NamedExpr": [
+  "target",
+  "value"
+ ],
+ "Nonlocal": [
+  "names"
+ ],
+ "ParamSpec": [
+  "name",
+  "default_value"
+ ],
+ "Raise": [
+  "exc",
+  "cause"
+ ],
+ "Return": [
+  "value"
+ ],
+ "Set": [
+  "elts"
+ ],
+ "SetComp": [
+  "elt",
+  "generators"
+ ],
+ "Slice": [
+  "lower",
+  "upper",
+  "step"
+ ],
+ "Starred": [
+  "value",
+  "ctx"
+ ],
+ "Subscript": [
+  "value",
+  "slice",
+  "ctx"
+ ],
+ "TemplateStr": [
+  "values"
+ ],
+ "Try": [
+  "body",
+  "handlers",
+  "orelse",
+  "finalbody"
+ ],
+ "TryStar": [
+  "body",
+  "handlers",
+  "orelse",
+  "finalbody"
+ ],
+ "Tuple": [
+  "elts",
+  "ctx"
+ ],
+ "TypeAlias": [
+  "name",
+  "type_params",
+  "value"
+ ],
+ "TypeIgnore": [
+  "lineno",
+  "tag"
+ ],
+ "TypeVar": [
+  "name",
+  "bound",
+  "default_value"
+ ],
+ "TypeVarTuple": [
+  "name",
+  "default_value"
+ ],
+ "UnaryOp": [
+  "op",
+  "operand"
+ ],
+ "While": [
+  "test",
+  "body",
+  "orelse"
+ ],
+ "With": [
+  "items",
+  "body",
+  "type_comment"
+ ],
+ "Yield": [
+  "value"
+ ],
+ "YieldFrom": [
+  "value"
+ ],
+ "alias": [
+  "name",
+  "asname"
+ ],
+ "arg": [
+  "arg",
+  "annotation",
+  "type_comment"
+ ],
+ "arguments": [
+  "posonlyargs",
+  "args",
+  "vararg",
+  "kwonlyargs",
+  "kw_defaults",
+  "kwarg",
+  "defaults"
+ ],
+ "comprehension": [
+  "target",
+  "iter",
+  "ifs",
+  "is_async"
+ ],
+ "keyword": [
+  "arg",
+  "value"
+ ],
+ "match_case": [
+  "pattern",
+  "guard",
+  "body"
+ ],
+ "withitem": [
+  "context_expr",
+  "optional_vars"
+ ]
+}

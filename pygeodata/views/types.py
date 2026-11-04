@@ -54,12 +54,13 @@ class CodeClassState:
 class ClassInfo:
     class_name: str
     object_type: str | None
-    loaded: bool
+    # whether its current code is known (from source or imports), or only its registered snapshots
+    known: bool
     call_dependency_names: list[str] = field(default_factory=list)
     inheritance_dependency_names: list[str] = field(default_factory=list)
     class_source_path: str | None = None
     class_graph_path: str | None = None
     class_registry_path: str | None = None
     class_tree_path: str | None = None
-    source_stale: bool = False  # live source hash ≠ stored source hash
-    deps_stale: bool = False  # live dependency_tree_hash ≠ stored dependency_tree_hash
+    source_stale: bool = False  # the current source has not run yet (no code snapshot)
+    deps_stale: bool = False  # the current dependency tree has not run yet (no tree snapshot)

@@ -65,13 +65,13 @@ def test_staleness_is_evaluated_once_per_class_and_dependency_tree(monkeypatch: 
     write_entry('a3', dependency_tree_hash='new')
     calls: list[tuple[str, str]] = []
 
-    def fake_staleness(class_name: str, dep_hash: str, _vreg: object) -> Staleness:
+    def fake_staleness(class_name: str, dep_hash: str, _current: object, _vreg: object) -> Staleness:
         calls.append((class_name, dep_hash))
         return Staleness.STALE if dep_hash == 'old' else Staleness.CURRENT
 
     monkeypatch.setattr(views_entries, 'dependency_staleness', fake_staleness)
 
-    assert stale_state_hashes(EntryRegistry(), version_registry=object()) == {'a1', 'a2'}
+    assert stale_state_hashes(EntryRegistry(), {}.get, version_registry=object()) == {'a1', 'a2'}
     assert sorted(calls) == [('MyLoader', 'new'), ('MyLoader', 'old')]
 
 

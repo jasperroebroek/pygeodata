@@ -27,6 +27,7 @@
       ~Artifact.get_dependency_tree
       ~Artifact.get_dependency_tree_hash
       ~Artifact.get_ext
+      ~Artifact.get_facts
       ~Artifact.get_file_stem
       ~Artifact.get_filename
       ~Artifact.get_inheritance_dependencies
@@ -42,22 +43,13 @@
       ~Artifact.get_src_path
       ~Artifact.get_state_hash
       ~Artifact.has_dependencies
-      ~Artifact.is_cache_valid
       ~Artifact.is_processed
-      ~Artifact.is_processed_hash_present
-      ~Artifact.is_registry_valid
+      ~Artifact.is_registered
       ~Artifact.plot_runtime_execution_graph
       ~Artifact.process
-      ~Artifact.processed_path_exists
-      ~Artifact.read_state_hash
       ~Artifact.resolve_cache_paths
       ~Artifact.resolve_spec
       ~Artifact.to_code_state
-      ~Artifact.update_registry
-      ~Artifact.write_cache_metadata
-      ~Artifact.write_parameters
-      ~Artifact.write_registry
-      ~Artifact.write_spec
    
    
 

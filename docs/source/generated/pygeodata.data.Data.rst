@@ -27,6 +27,7 @@
       ~Data.get_dependency_tree
       ~Data.get_dependency_tree_hash
       ~Data.get_ext
+      ~Data.get_facts
       ~Data.get_file_stem
       ~Data.get_filename
       ~Data.get_inheritance_dependencies
@@ -42,23 +43,14 @@
       ~Data.get_src_path
       ~Data.get_state_hash
       ~Data.has_dependencies
-      ~Data.is_cache_valid
       ~Data.is_processed
-      ~Data.is_processed_hash_present
-      ~Data.is_registry_valid
+      ~Data.is_registered
       ~Data.load
       ~Data.plot_runtime_execution_graph
       ~Data.process
-      ~Data.processed_path_exists
-      ~Data.read_state_hash
       ~Data.resolve_cache_paths
       ~Data.resolve_spec
       ~Data.to_code_state
-      ~Data.update_registry
-      ~Data.write_cache_metadata
-      ~Data.write_parameters
-      ~Data.write_registry
-      ~Data.write_spec
    
    
 

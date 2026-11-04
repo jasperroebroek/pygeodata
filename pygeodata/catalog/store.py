@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import platform
 import socket
 import time
 import uuid
@@ -77,6 +78,7 @@ def _writer() -> CatalogWriter:
         root=_local_root(),
         host=socket.gethostname(),
         pygeodata=__version__,
+        python=platform.python_version(),
         written_at=time.time(),
     )
 

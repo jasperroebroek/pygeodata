@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 from pygeodata.ast import get_source_code
 from pygeodata.fileio import write_bytes_atomic
 from pygeodata.graphs import plot_class_dependency_graph
-from pygeodata.hash import calculate_cls_source_hash
 from pygeodata.paths import CodeRegistryPathConstructor, TreeRegistryPathConstructor
 from pygeodata.registries.registry import SourceRegistry
 
@@ -19,7 +18,7 @@ def _is_code_registry_current(cls: type[TrackedObject], registry: SourceRegistry
     The second condition also catches a revert: an older hash that exists on disk but is not
     the latest registration.
     """
-    source_hash = calculate_cls_source_hash(cls)
+    source_hash = cls.get_facts().source_hash
     latest = registry.get_latest_state_for_class(cls.get_class_name())
     return (
         CodeRegistryPathConstructor.from_source_hash(source_hash).source_path.exists()

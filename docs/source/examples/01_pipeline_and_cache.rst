@@ -189,10 +189,11 @@ rooted at ``SlopeLoader``. This includes the source hashes of
 Changing ``ElevationLoader``\ ’s code changes this hash even if
 ``SlopeLoader`` is untouched.
 
-**``instance_hash``** — SHA-256 of ``{class_name, dependency_tree_hash, params}``.
-Two ``SlopeLoader`` instances with different ``elevation`` values have
-different instance hashes. Co-output sibling classes that share an identical
-dependency tree are distinct too, because the class name is part of the state.
+**``instance_hash``** — SHA-256 of
+``{class_name, dependency_tree_hash, params}``. Two ``SlopeLoader``
+instances with different ``elevation`` values have different instance
+hashes. Co-output sibling classes that share an identical dependency
+tree are distinct too, because the class name is part of the state.
 Spec-independent.
 
 **``state_hash``** — SHA-256 of ``{instance_hash, spec}``. This is the

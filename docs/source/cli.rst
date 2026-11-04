@@ -20,6 +20,32 @@ All commands that accept a hash value also accept a **truncated prefix** —
 any unique prefix is resolved automatically.  An ambiguous prefix produces a
 clear error listing the candidates.
 
+Where classes come from
+-----------------------
+
+Staleness compares each cache entry with the project's *current* classes.  By
+default the CLI reads them **from source**: it parses the project's ``.py``
+files — those in the working directory and in its packages (directories with an
+``__init__.py``; ``tests``, virtual environments, build and data directories are
+skipped) — and derives every class's source hash and dependency tree without
+running any project code.  This is fast, needs none of the project's heavy
+dependencies, and works on a read-only mirror of a project.
+
+``--import-all`` imports those modules instead and uses the imported classes.
+It also warns about every class where the imports and the source disagree —
+for example a class created dynamically, which source reading cannot see.
+
+Source hashes do not depend on the Python version, so a mirror may run a
+different Python than the machine that wrote the cache.
+
+``clean-cache`` always imports the project: it deletes entries, so it refuses a
+real run when any project module fails to import, since that module's entries
+would otherwise look unregistered.
+
+
+Commands
+--------
+
 .. code-block:: text
 
     pygeodata
@@ -40,19 +66,28 @@ clear error listing the candidates.
     │     --import-all            Import all .py files from cwd before starting
     │     --verbose-import        Print each module imported (with --import-all)
     │
-    ├── catalog build
-    │     Index every cache entry into the catalog JSON.
-    │     --cache-root TEXT       Cache root to index (repeatable); defaults to
-    │                             the configured cache roots
-    │     --prune / --no-prune    Also drop entries whose cache entry no longer
-    │                             exists (default: prune)
-    │     --import-all            Import all .py files from cwd first, so
-    │                             project settings propagate to the config
-    │     --verbose-import        Print each module imported (with --import-all)
+    ├── catalog
+    │   Inspect and rebuild the .catalog.json cache catalog.
+    │   │
+    │   ├── build
+    │   │     Index every cache entry into the catalog JSON.
+    │   │     --cache-root PATH       Cache root to index (repeatable); defaults to
+    │   │                             the configured cache roots
+    │   │     --prune / --no-prune    Also drop entries whose cache entry no longer
+    │   │                             exists (default: prune)
+    │   │     --import-all            Import the project's modules first
+    │   │     --verbose-import        Print each module imported (with --import-all)
+    │   │
+    │   └── info
+    │         Show where the catalog was written (root, host, pygeodata and
+    │         Python version), whether this machine may write it, its entry
+    │         counts per type, and how it differs from disk.
     │
     ├── classes
-    │     Show staleness for all loaded and known classes, grouped by type.
-    │     --import-all            Import all .py files from cwd first
+    │     Show staleness for the project's classes and those with cache
+    │     entries, grouped by type.  Exits 1 when anything is stale.
+    │     --import-all            Import the project's modules instead of
+    │                             reading them from source
     │     --verbose-import        Print each module imported (with --import-all)
     │     --type TEXT             Filter to one object type: Data, Table,
     │                             Figure, or TrackedObject (case-insensitive)
@@ -61,7 +96,9 @@ clear error listing the candidates.
     │     --registry TEXT         Path to .source/ registry root
     │
     ├── clean-cache
-    │     Remove stale or invalid cache entries.
+    │     Remove stale or invalid cache entries.  Always imports the project,
+    │     and refuses a real run when any project module fails to import.
+    │     --verbose-import          Print each module imported
     │     --dry-run / --no-dry-run  Actually delete files with --no-dry-run
     │                               (default is a dry run)
     │     --delete-unregistered / --no-delete-unregistered
@@ -84,8 +121,20 @@ clear error listing the candidates.
     │     --dry-run / --no-dry-run  Actually delete files with --no-dry-run
     │                               (default is a dry run)
     │
+    ├── export ARCHIVE [HASH_PREFIXES ...]
+    │     Export cache entries to an uncompressed pygeodata archive.  Pass one
+    │     selector: hash prefixes, --class, --type, or --all.
+    │     --class TEXT            Export all entries of this class
+    │     --type TEXT             Export all entries of one object type: Data,
+    │                             Table, or Figure (case-insensitive)
+    │     --all                   Export every cache entry
+    │     --snapshots / --no-snapshots
+    │                             Include the code and dep-tree snapshots that
+    │                             reproduce the entries (default: included)
+    │
     ├── import ARCHIVE
-    │     Import a pygeodata .tar.gz export archive into the current project.
+    │     Import a pygeodata export archive (compressed or not) into the
+    │     current project.
     │
     ├── versions
     │     Show the full version timeline: every group with its changed classes
@@ -146,101 +195,119 @@ clear error listing the candidates.
     │         --hash TEXT         Dep-tree hash to look up (prefix ok)  [required]
     │
     └── entry
-        Inspect cache entries.  Options on the group itself apply to all subcommands.
-        --import-all            Import all .py files from cwd before scanning
-                                (required to resolve staleness when classes have deps)
-        --verbose-import        Print each module imported (with --import-all)
+        Inspect cache entries.
         --full-hash             Print full hashes instead of 12-char prefixes
         │
         ├── list
-        │     List all cache entries with staleness indicator, CRS, resolution, bounds,
-        │     and hash.  Columns are aligned; use grep to filter further.
+        │     One row per cache entry: staleness, class, type, CRS, resolution,
+        │     bounds and state hash.  Paged in a terminal.
+        │     --import-all        Import the project's modules instead of
+        │                         reading them from source
+        │     --verbose-import    Print each module imported (with --import-all)
         │     --class TEXT        Show only entries of this class
-        │     --hide-stale        Omit entries with any staleness indicator
+        │     --type [data|table|figure]
+        │                         Show only entries of one object type
+        │     --hide-stale        Omit entries with any staleness marker
+        │     --params            Show the parsed parameters under each entry
+        │     --filter EXPR       Filter entries (repeatable, ANDed); see below
+        │     --no-pager          Print directly to stdout
         │
         └── show HASH_PREFIX
-              Show full detail for one cache entry: identity, staleness, spatial spec,
-              co-outputs, file paths, and params JSON.  Hash prefix ok.
-              --no-params         Omit params JSON from output
+              Full detail for one cache entry: identity, staleness, spatial
+              spec, co-outputs, file paths and params JSON.
+              --import-all        As for list
+              --verbose-import    As for list
+              --params / --no-params
+                                  Omit the params JSON with --no-params
 
 
-Staleness indicators
---------------------
+``--filter`` takes ``[target:]value``, optionally prefixed with ``!`` (NOT) or
+joined with ``|`` (OR).  Targets: ``class``, ``crs``, ``key``, ``value``,
+``path``, ``key_group`` (default: all of them).  For example
+``--filter "value:RF|value:KMEANS"`` or ``--filter "!ElevationLoader"``.
 
-Shown in the first column of ``entry list`` and in the ``Staleness`` line of
-``entry show``:
 
-+------------+------------------------------------------------------+
-| Indicator  | Meaning                                              |
-+============+======================================================+
-| ``S``      | Dependency-tree hash has changed — entry is stale    |
-+------------+------------------------------------------------------+
-| ``F``      | Cache format version mismatch                        |
-+------------+------------------------------------------------------+
-| ``N``      | Class not loaded in this process — staleness unknown |
-+------------+------------------------------------------------------+
-| *(blank)*  | Up to date                                           |
-+------------+------------------------------------------------------+
+Staleness markers
+-----------------
 
-Pass ``--import-all`` to the ``entry`` group to import project modules and
-resolve ``N`` into ``S`` or blank.
+``entry list``, ``entry show`` and ``classes`` share one set of markers, and
+print a legend for the ones that occur:
+
++------------+----------------------------------------------------------+
+| Marker     | Meaning                                                  |
++============+==========================================================+
+| ``F``      | Entry written by another pygeodata cache format          |
++------------+----------------------------------------------------------+
+| ``S``      | Entry is stale: its dependency tree changed              |
++------------+----------------------------------------------------------+
+| ``C``      | Class's source changed since it last ran                 |
++------------+----------------------------------------------------------+
+| ``D``      | Class's dependencies changed since it last ran           |
++------------+----------------------------------------------------------+
+| ``?``      | Unknown: the class is not found in the project           |
++------------+----------------------------------------------------------+
+| *(blank)*  | Up to date                                               |
++------------+----------------------------------------------------------+
+
+Entries use ``F``, ``S`` and ``?``; classes use ``C``, ``D`` and ``?``.
 
 
 Example output
 --------------
 
-``entry list`` (with ``--import-all`` so staleness is resolved):
+A project with ``RegionTable`` edited since its entries were written,
+``SummaryTable`` depending on it, and cache entries of ``OldTable``, a class
+that no longer exists.
+
+``entry list``:
 
 .. code-block:: text
 
-    S AspectLoader                             Data    EPSG:3035  1000m  29.9° N, 19.9° W → 63.8° N, 69.0° E  cc71cf42816b
-      AspectLoader                             Data    EPSG:3035  1000m  29.9° N, 19.9° W → 63.8° N, 69.0° E  e8d7f06bb04c
-      BenchmarkSlopeLoader                     Data    EPSG:3035  1000m  29.9° N, 19.9° W → 63.8° N, 69.0° E  171fb6572c5d
-      BioClimaticVariablesLoader               Data    EPSG:3035  1000m  29.9° N, 19.9° W → 63.8° N, 69.0° E  7480992da0e6
+    S RegionTable   Table  EPSG:3035  1000m  33.5° N, 9.6° W → 58.2° N, 74.0° E  92db8dbf65ab
+    S RegionTable   Table  EPSG:3035  1000m  33.5° N, 9.6° W → 58.2° N, 74.0° E  d69e5318415e
+    S SummaryTable  Table  EPSG:3035  1000m  33.5° N, 9.6° W → 58.2° N, 74.0° E  e731659fdfd5
 
-``entry show`` — a stale entry:
+    S stale: its dependency tree changed
+
+``classes``:
 
 .. code-block:: text
 
-    Class        AspectLoader
-    Type         Data
-    State hash   cc71cf42816b
-    Instance     3c444c0eface
-    Dep hash     ab48e7305e06
-    Staleness    dep stale
+    ── Table (3) ──
+      ? OldTable      src:—  deps:—
+      C RegionTable   src:2fc288140504  deps:—
+      D SummaryTable  src:aae5ee56b09b  deps:[RegionTable]
+
+    C source changed since it last ran  D dependencies changed since it last ran  ? unknown: class not found in the project
+
+``entry show e731``:
+
+.. code-block:: text
+
+    Class        SummaryTable
+    Type         Table
+    State hash   e731659fdfd5
+    Instance     04c57a022268
+    Dep hash     20203262c88e
+    Staleness    stale: its dependency tree changed
 
     CRS          EPSG:3035
     Resolution   1000m
-    Shape        [4358, 5379]
-    Bounds       29.9° N, 19.9° W → 63.8° N, 69.0° E
+    Shape        (4100, 5000)
+    Bounds       33.5° N, 9.6° W → 58.2° N, 74.0° E
 
-    Output       data_processed/cc71cf42816b.../aspect_loader.tif
-    Params path  data_processed/cc71cf42816b.../parameters.json
-    Hash path    data_processed/cc71cf42816b.../meta.json
-    Spec path    data_processed/cc71cf42816b.../spec.json
+    Output       tables/e731659fdfd5.../summary_table.html
+    Params path  tables/e731659fdfd5.../parameters.json
+    Hash path    tables/e731659fdfd5.../meta.json
+    Spec path    tables/e731659fdfd5.../spec.json
 
-``entry show`` — a fresh entry with params:
+``catalog info``:
 
 .. code-block:: text
 
-    Class        BioClimaticVariablesLoader
-    Type         Data
-    State hash   ff862faa1d94
-    Instance     90cdd0320676
-    Dep hash     f8a005796723
-    Staleness    ok
-
-    CRS          EPSG:3035
-    Resolution   1000m
-    Shape        [4358, 5379]
-    Bounds       29.9° N, 19.9° W → 63.8° N, 69.0° E
-
-    Output       data_processed/ff862faa1d94.../bio_climatic_variables_loader.tif
-    Params path  data_processed/ff862faa1d94.../parameters.json
-    Hash path    data_processed/ff862faa1d94.../meta.json
-    Spec path    data_processed/ff862faa1d94.../spec.json
-
-    Params
-    {
-      "variable": 4
-    }
+    Catalog      .catalog.json
+    ID           021031be84f944a89ff66ec45663f962  (version 3)
+    Written      2026-11-04 14:06 by pygeodata 0.5.0 (Python 3.14.4) on laptop.local
+    From root    /home/user/project
+    Mode         writable
+    Entries      4  (Table: 4)

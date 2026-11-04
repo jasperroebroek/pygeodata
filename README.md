@@ -35,7 +35,7 @@ slope     = load(SlopeLoader())
 
 Every `Data`, `Table`, or `Figure` class is fingerprinted by hashing the AST of its source code, the ASTs of all its transitive dependencies, and its parameter values. That fingerprint, combined with the spatial spec, is the cache key. If it matches what's on disk, the cached file is returned. If not, the class is reprocessed and the new fingerprint is written.
 
-The hash is AST-based, not text-based: reformatting your code or editing a comment never triggers a rerun.
+The hash is AST-based, not text-based: reformatting your code or editing a comment never triggers a rerun. It is also independent of the Python version — pygeodata serialises the AST itself — so a cache stays valid when you upgrade Python or share it with a machine running another version.
 
 ```
 source_hash      SHA256(AST of the class)
@@ -223,6 +223,15 @@ pygeodata clean-cache --no-dry-run           # apply
 pygeodata clean-cache --check-class-params   # also validate class-valued params
 pygeodata clean-source                 # preview
 pygeodata clean-source --no-dry-run    # apply
+```
+
+The rest of the command line inspects state without running anything. It reads your classes from source by default — no project code is executed, so it also works on a read-only copy of a project without its heavy dependencies; `--import-all` imports the modules instead:
+
+```bash
+pygeodata classes                 # staleness per class: C source changed, D deps changed
+pygeodata entry list              # one row per cache entry: S stale, F other format, ? unknown class
+pygeodata entry show cc71cf       # full detail for one entry (any unique hash prefix)
+pygeodata catalog info            # who wrote the catalog, and how it differs from disk
 ```
 
 ```python
