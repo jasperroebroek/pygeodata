@@ -1,13 +1,12 @@
 import io
-import json
 import tarfile
 from pathlib import Path
 
+import msgspec
 from click.testing import CliRunner
 
 from pygeodata.cli import cli
 from pygeodata.config import get_config
-from pygeodata.enums import JSONKeys
 from tests.fixtures.records import make_record, write_meta
 
 # ---------------------------------------------------------------------------
@@ -27,7 +26,7 @@ def make_tar(tmp_path: Path, members: dict[str, bytes]) -> Path:
 
 
 def meta_json(class_name: str = 'SimpleLoader', object_type: str = 'Data') -> bytes:
-    return json.dumps({JSONKeys.CLASS_NAME: class_name, JSONKeys.OBJECT_TYPE: object_type}).encode()
+    return msgspec.json.encode(make_record('abc123', class_name, object_type))
 
 
 def invoke_import(archive: Path) -> str:

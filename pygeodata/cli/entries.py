@@ -3,19 +3,16 @@ import sys
 from pathlib import Path
 
 import click
-import msgspec
 
 from pygeodata.catalog.types import ParamRowType
-from pygeodata.cli.common import _fmt_hash, _import_options, _import_project_modules, _resolve_record
+from pygeodata.cli.common import _entry_registry, _fmt_hash, _import_options, _import_project_modules, _resolve_entry
 from pygeodata.enums import Staleness
 from pygeodata.paths import CachePathConstructor
-from pygeodata.records import EntryRecord, SpecRecord
-from pygeodata.registries.registry import EntryRegistry
+from pygeodata.records import EntryRecord
 from pygeodata.registries.versioning import VersionRegistry
 from pygeodata.staleness import dependency_staleness
 from pygeodata.tracked_object import TrackedObject
-from pygeodata.views.entries import _enrich_params_path
-from pygeodata.views.filters import Filter, FilterOperator, FilterTarget, entry_matches_filters, prescan_text
+from pygeodata.views.filters import Filter, FilterOperator, FilterTarget, LogicMode, entry_matches_filters
 from pygeodata.views.types import spec_info
 
 # ---------------------------------------------------------------------------
@@ -43,8 +40,8 @@ def _stale_indicator(rec: EntryRecord, vreg: VersionRegistry) -> str:
     return ' '
 
 
-def _parse_filter_expr(expr: str) -> list[tuple[list, str]]:
-    """Parse a single --filter expression into (filters, logic_mode) pairs.
+def _parse_filter_expr(expr: str) -> tuple[list[Filter], LogicMode] | None:
+    """Parse a single --filter expression into its filters and how they combine.
 
     Syntax:
       [!] [target:]value  (| [!] [target:]value)*
@@ -55,52 +52,34 @@ def _parse_filter_expr(expr: str) -> list[tuple[list, str]]:
       "value:RF|value:KMEANS"    → value contains RF OR value contains KMEANS
       "!ElevationLoader"         → ALL not-contains ElevationLoader
       "!RF|KMEANS"               → NOT(RF OR KMEANS)  [! applies to whole OR group]
-
-    Returns a list of (filters, logic_mode) to be ANDed together by the caller.
     """
-    _target_map = {
-        'class': FilterTarget.CLASS,
-        'crs': FilterTarget.CRS,
-        'key': FilterTarget.KEY,
-        'value': FilterTarget.VALUE,
-        'path': FilterTarget.PATH,
-        'key_group': FilterTarget.KEY_GROUP,
-    }
-
     expr = expr.strip()
-    negate = False
-    if expr.startswith('!'):
-        negate = True
+    negate = expr.startswith('!')
+    if negate:
         expr = expr[1:].strip()
 
     parts = [p.strip() for p in expr.split('|') if p.strip()]
     if not parts:
-        return []
+        return None
 
     filters = []
     for part in parts:
+        target = FilterTarget.ALL
+        value = part
         if ':' in part:
             raw_target, _, value = part.partition(':')
-            target = _target_map.get(raw_target.strip().lower(), FilterTarget.ALL)
-            value = value.strip()
-        else:
-            target = FilterTarget.ALL
-            value = part.strip()
-        filters.append(Filter(target=target, operator=FilterOperator.CONTAINS, value=value))
+            try:
+                target = FilterTarget(raw_target.strip().lower())
+            except ValueError:
+                choices = ', '.join(FilterTarget)
+                raise click.BadParameter(
+                    f'unknown target {raw_target!r}; choose from {choices}',
+                    param_hint='--filter',
+                ) from None
+        filters.append(Filter(target=target, operator=FilterOperator.CONTAINS, value=value.strip()))
 
-    logic_mode = 'NOT' if negate else ('OR' if len(filters) > 1 else 'AND')
-    return [(filters, logic_mode)]
-
-
-def _entry_matches_all_exprs(
-    class_name: str,
-    entry_info,
-    parsed_exprs: list[tuple[list, str]],
-) -> bool:
-    """Return True if entry satisfies all parsed filter expressions (AND between exprs)."""
-    return all(
-        entry_matches_filters(class_name, entry_info, filters, logic_mode) for filters, logic_mode in parsed_exprs
-    )
+    mode = LogicMode.NOT if negate else (LogicMode.OR if len(filters) > 1 else LogicMode.AND)
+    return filters, mode
 
 
 def _format_param_rows(param_rows) -> list[str]:
@@ -164,73 +143,35 @@ def entry_list(
         click.echo(f'Imported {n} module(s)')
     full_hash: bool = ctx.obj.get('full_hash', False) or full_hash_sub
 
-    parsed_exprs = [pair for f in filters for pair in _parse_filter_expr(f)]
-    needs_enrich = bool(parsed_exprs) or show_params
+    parsed_exprs = [parsed for f in filters if (parsed := _parse_filter_expr(f)) is not None]
 
-    reg = EntryRegistry()
-    records = reg.records
-
-    if not records:
+    reg = _entry_registry()
+    if not reg.entries:
         click.echo('No entries found.')
         return
 
     vreg = VersionRegistry()
     output_rows = []
-    for state_hash, rec in sorted(records.items(), key=lambda kv: (kv[1].class_name or '', kv[0])):
-        if class_name and rec.class_name != class_name:
+    for state_hash, entry in sorted(reg.entries.items(), key=lambda kv: (kv[1].class_name, kv[0])):
+        if class_name and entry.class_name != class_name:
             continue
-        stale = _stale_indicator(rec, vreg)
+        stale = _stale_indicator(entry.record, vreg)
         if hide_stale and stale.strip():
             continue
-
-        # Fast pre-filter: cheap text scan before paying for full enrichment.
-        paths = CachePathConstructor(reg.entry_dir(state_hash))
-        params_path = paths.params_path
-        if parsed_exprs:
-            try:
-                params_blob = params_path.read_text(encoding='utf-8').lower() if params_path.exists() else ''
-            except OSError:
-                params_blob = ''
-            if not prescan_text(rec.class_name or '', params_blob, parsed_exprs):
-                continue
-
-        entry_info = None
-        if needs_enrich:
-            # Deliberately not going through _enrich_with_cache: that would consult the
-            # browser's .dashboard_cache.json, whose upfront load is a fixed cost regardless
-            # of how many entries are enriched. It only pays off for ~500 enriched entries, which
-            # is not common yet. Change as needed.
-            try:
-                entry_info = _enrich_params_path(params_path, rec)
-            except Exception:  # noqa: BLE001
-                pass
-
-        if parsed_exprs:
-            if entry_info is None:
-                continue
-            if not _entry_matches_all_exprs(rec.class_name or '', entry_info, parsed_exprs):
-                continue
-
-        if entry_info is not None:
-            spec = entry_info.spec
-        else:
-            try:
-                spec = spec_info(SpecRecord.from_file(paths.spec_path))
-            except (OSError, msgspec.DecodeError):
-                spec = spec_info(None)
-        crs_str = spec.crs or ''
-        res_str = spec.resolution or ''
-        bounds_str = spec.bounds_display or 'None'
+        spec_record = reg.get_spec(state_hash)
+        if not all(entry_matches_filters(entry, spec_record, flts, mode) for flts, mode in parsed_exprs):
+            continue
+        spec = spec_info(spec_record)
         output_rows.append(
             (
                 stale,
-                rec.class_name or '?',
-                rec.object_type or '',
-                crs_str,
-                res_str,
-                bounds_str,
+                entry.class_name,
+                entry.object_type,
+                spec.crs or '',
+                spec.resolution or '',
+                spec.bounds_display or 'None',
                 _fmt_hash(state_hash, full_hash),
-                entry_info,
+                entry,
             ),
         )
 
@@ -245,7 +186,7 @@ def entry_list(
     col_bounds = max((len(r[5]) for r in output_rows), default=0)
 
     lines = []
-    for stale, cls, obj_type, crs, res, bounds, h, entry_info in output_rows:
+    for stale, cls, obj_type, crs, res, bounds, h, entry in output_rows:
         if stale == 'F':
             indicator = click.style('F', fg='red')
         elif stale == 'S':
@@ -257,8 +198,8 @@ def entry_list(
         lines.append(
             f'{indicator} {cls:<{col_class}}  {obj_type:<{col_type}}  {crs:<{col_crs}}  {res:<{col_res}}  {bounds:<{col_bounds}}  {h}',
         )
-        if (show_params or parsed_exprs) and entry_info is not None and entry_info.rows:
-            lines.extend(_format_param_rows(entry_info.rows))
+        if show_params or parsed_exprs:
+            lines.extend(_format_param_rows(entry.rows))
 
     output = '\n'.join(lines)
     if no_pager or not sys.stdout.isatty():
@@ -286,55 +227,52 @@ def entry_show(
         n = _import_project_modules(Path.cwd(), verbose=verbose_import)
         click.echo(f'Imported {n} module(s)')
     full_hash: bool = ctx.obj.get('full_hash', False) or full_hash_sub
-    reg = EntryRegistry()
-    state_hash, rec = _resolve_record(reg, hash_prefix)
-
-    resolver = CachePathConstructor(reg.entry_dir(state_hash))
-
-    entry_info = None
-    try:
-        entry_info = _enrich_params_path(resolver.params_path, rec)
-    except Exception:  # noqa: BLE001
-        pass
+    reg = _entry_registry()
+    entry = _resolve_entry(reg, hash_prefix)
+    rec = entry.record
+    entry_dir = reg.entry_dir(entry.state_hash)
+    resolver = CachePathConstructor(entry_dir)
+    spec = spec_info(reg.get_spec(entry.state_hash))
 
     stale = _stale_indicator(rec, VersionRegistry())
-    stale_label = {'S': 'dep stale', 'F': 'format stale', '?': 'unknown (class not loaded)'}.get(stale, 'ok')
+    stale_label = {'S': 'dep stale', 'F': 'format stale', 'N': 'unknown (class not loaded)'}.get(stale, 'ok')
 
     click.echo(f'Class        {rec.class_name}')
-    click.echo(f'Type         {rec.object_type or "unknown"}')
-    click.echo(f'State hash   {_fmt_hash(state_hash, full_hash)}')
-    if rec.instance_hash:
-        click.echo(f'Instance     {_fmt_hash(rec.instance_hash, full_hash)}')
-    if rec.dependency_tree_hash:
-        click.echo(f'Dep hash     {_fmt_hash(rec.dependency_tree_hash, full_hash)}')
+    click.echo(f'Type         {rec.object_type}')
+    click.echo(f'State hash   {_fmt_hash(rec.state_hash, full_hash)}')
+    click.echo(f'Instance     {_fmt_hash(rec.instance_hash, full_hash)}')
+    click.echo(f'Dep hash     {_fmt_hash(rec.dependency_tree_hash, full_hash)}')
     click.echo(f'Staleness    {stale_label}')
 
-    if entry_info:
-        spec = entry_info.spec
-        if spec.crs or spec.resolution or spec.shape:
-            click.echo()
-            if spec.crs:
-                click.echo(f'CRS          {spec.crs}')
-            click.echo(f'Resolution   {spec.resolution_display or "None"}')
-            if spec.shape:
-                click.echo(f'Shape        {spec.shape}')
-            click.echo(f'Bounds       {spec.bounds_display or "None"}')
+    if spec.crs or spec.resolution or spec.shape:
+        click.echo()
+        if spec.crs:
+            click.echo(f'CRS          {spec.crs}')
+        click.echo(f'Resolution   {spec.resolution_display or "None"}')
+        if spec.shape:
+            click.echo(f'Shape        {spec.shape}')
+        click.echo(f'Bounds       {spec.bounds_display or "None"}')
 
     if rec.co_output_hashes:
         click.echo()
         click.echo(f'Co-outputs   {", ".join(_fmt_hash(h, full_hash) for h in rec.co_output_hashes)}')
 
     click.echo()
-    if entry_info and entry_info.primary_file:
-        click.echo(f'Output       {entry_info.file_path(entry_info.primary_file)}')
-    for f in entry_info.sidecar_files if entry_info else []:
-        click.echo(f'Sidecar      {entry_info.file_path(f)}')
+    if entry.primary_file:
+        click.echo(f'Output       {entry_dir / entry.primary_file.relpath}')
+    for f in entry.sidecar_files:
+        click.echo(f'Sidecar      {entry_dir / f.relpath}')
     click.echo(f'Params path  {resolver.params_path}')
     click.echo(f'Hash path    {resolver.state_hash_path}')
     if resolver.spec_path.exists():
         click.echo(f'Spec path    {resolver.spec_path}')
 
-    if show_params and entry_info and entry_info.params:
-        click.echo()
-        click.echo('Params')
-        click.echo(json.dumps(entry_info.params, indent=2))
+    if show_params:
+        try:
+            params = json.loads(resolver.params_path.read_text(encoding='utf-8'))
+        except (OSError, json.JSONDecodeError):
+            params = None
+        if params:
+            click.echo()
+            click.echo('Params')
+            click.echo(json.dumps(params, indent=2))

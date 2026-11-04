@@ -1,10 +1,10 @@
 """Read-side of the registry tree and the entry cache.
 
-Three registries, all keyed by resolved root path:
-
     SourceRegistry  — scans .source/code/*/source.json, indexes by class name
-    TreeRegistry    — scans .source/snapshots/*/tree.json, indexes directory names, reads tree.json lazily
-    EntryRegistry   — scans cache roots for meta.json, owns EntryInfo/GroupInfo
+    TreeRegistry    — scans .source/snapshots/*/tree.json, indexes by dependency tree hash
+    EntryRegistry   — index over the catalog of cache entries
+
+Each is built once and never changes; build a new one to see newer data.
 """
 
 from __future__ import annotations
@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING
 import msgspec
 
 from pygeodata.catalog import store
-from pygeodata.config import get_config
 from pygeodata.paths import (
     CodeRegistryPathConstructor,
     RegistryResolver,
@@ -26,7 +25,8 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
     from pathlib import Path
 
-    from pygeodata.records import EntryRecord
+    from pygeodata.catalog.types import CatalogData, CatalogEntry, CatalogHeader
+    from pygeodata.records import SpecRecord
 
 
 def _resolve_prefix(keys: Iterable[str], prefix: str) -> str | None:
@@ -38,8 +38,7 @@ class SourceRegistry:
     """Index of code states, scanned from .source/code/*/source.json.
 
     States are indexed by class name and kept sorted oldest-first by
-    registered_at.  Call :meth:`reload` to re-scan in place; held references
-    remain valid.
+    registered_at.
 
     ``registry_root`` overrides the config registry path.  When omitted,
     defaults to ``get_config().path_registry``.
@@ -47,11 +46,6 @@ class SourceRegistry:
 
     def __init__(self, registry_root: Path | None = None) -> None:
         self._registry_root = registry_root
-        self._class_index: dict[str, list[CodeState]]
-        self._hash_index: dict[str, CodeState]
-        self.reload()
-
-    def reload(self) -> None:
         self._class_index: dict[str, list[CodeState]] = {}
         for meta_path in RegistryResolver(self._registry_root).glob_source_paths():
             try:
@@ -127,23 +121,16 @@ class SourceRegistry:
 class TreeRegistry:
     """Index of dependency tree snapshots, scanned from .source/snapshots/*/tree.json.
 
-    Snapshots are indexed by dependency_hash. Call :meth:`reload` to
-    re-scan in place; held references remain valid.
+    Snapshots are indexed by dependency_hash.
 
     ``registry_root`` overrides the config registry path.  When omitted,
     defaults to ``get_config().path_registry``.
     """
 
     def __init__(self, registry_root: Path | None = None) -> None:
-        self._class_index: dict[str, list[TreeSnapshot]]
-        self._hash_index: dict[str, TreeSnapshot]
         self._registry_root = registry_root
-        self.reload()
-
-    def reload(self) -> None:
-        """Rescan snapshots/ and eagerly load all tree.json files."""
-        self._class_index = {}
-        self._hash_index = {}
+        self._class_index: dict[str, list[TreeSnapshot]] = {}
+        self._hash_index: dict[str, TreeSnapshot] = {}
 
         for path in RegistryResolver(self._registry_root).glob_tree_paths():
             try:
@@ -209,92 +196,71 @@ class TreeRegistry:
 
 
 class EntryRegistry:
-    """Per-root registry of cache entries, keyed by state_hash.
+    """Read-only index over the catalog of cache entries, keyed by state hash.
 
-    Hydrates from the catalog (``.catalog.json``) when it has entries;
-    scans cache roots for meta.json files otherwise.
-
-    state_hash is the unique key.  On collision:
-    - If all identity fields match → silently deduplicate (same entry in two locations).
-    - If any field differs → raise ValueError (hash collision with divergent data is a
-      serious integrity problem that must surface immediately).
-
-    Browser display fields (rows, spec strings, linked entries, primary file) are
-    NOT populated here — that enrichment is done by
-    :func:`pygeodata.views.entries.discover_entries`.
-
-    ``paths`` sets the cache roots to scan.  When omitted, defaults to
-    :attr:`config.cache_roots <pygeodata.config.Config.cache_roots>`.
+    Built from ``data`` when given, otherwise from :func:`~pygeodata.catalog.store.open_catalog`,
+    which brings a writable catalog up to date with the entry dirs first (``read_only`` as there).
+    Display assembly lives in :mod:`pygeodata.views`, staleness in :mod:`pygeodata.staleness`.
     """
 
-    def __init__(self, paths: list[Path] | None = None) -> None:
-        self._hash_index: dict[str, EntryRecord]
-        self._dirs: dict[str, Path]
-        self._class_index: dict[str, list[str]]
-        self._scanned: int
-        self._missing: int
-        self._paths = paths
-        self.reload()
-
-    def _cache_roots(self) -> tuple[Path, ...]:
-        return tuple(self._paths) if self._paths is not None else get_config().cache_roots
-
-    def diagnostics(self) -> dict:
-        return {
-            'scanned_hash_paths': self._scanned,
-            'unreadable_records': self._missing,
-            'created_records': len(self._hash_index),
-        }
+    def __init__(self, data: CatalogData | None = None, read_only: bool | None = None) -> None:
+        if data is None:
+            data, self.status = store.open_catalog(read_only)
+        else:
+            self.status = None
+        self._data = data
+        self._class_index: dict[str, list[str]] = {}
+        for state_hash, entry in data.entries.items():
+            self._class_index.setdefault(entry.class_name, []).append(state_hash)
 
     @property
-    def records(self) -> dict[str, EntryRecord]:
-        return self._hash_index
+    def header(self) -> CatalogHeader:
+        return self._data.header
+
+    @property
+    def entries(self) -> dict[str, CatalogEntry]:
+        return self._data.entries
+
+    @property
+    def specs(self) -> dict[str, SpecRecord]:
+        return self._data.specs
 
     @property
     def class_names(self) -> list[str]:
-        return list(self._class_index.keys())
+        return list(self._class_index)
 
-    def get_record(self, state_hash: str) -> EntryRecord | None:
-        return self._hash_index.get(state_hash)
+    def get_entry(self, state_hash: str) -> CatalogEntry | None:
+        return self._data.entries.get(state_hash)
+
+    def get_spec(self, state_hash: str) -> SpecRecord | None:
+        entry = self._data.entries.get(state_hash)
+        return self._data.specs.get(entry.record.spec_hash) if entry is not None else None
 
     def entry_dir(self, state_hash: str) -> Path | None:
-        return self._dirs.get(state_hash)
+        entry = self._data.entries.get(state_hash)
+        return store.entry_dir(entry) if entry is not None else None
 
     def get_state_hashes(self, class_name: str) -> list[str]:
         return self._class_index.get(class_name, [])
 
     def get_object_type(self, class_name: str) -> str | None:
         hashes = self._class_index.get(class_name)
-        if not hashes:
-            return None
-        return self._hash_index[hashes[0]].object_type
+        return self._data.entries[hashes[0]].object_type if hashes else None
+
+    def match_prefix(self, prefix: str) -> list[str]:
+        return [h for h in self._data.entries if h.startswith(prefix)]
 
     def resolve_hash_prefix(self, prefix: str) -> str | None:
         """Return the full state hash matching prefix, or None if zero or multiple match."""
-        return _resolve_prefix(self._hash_index, prefix)
+        return _resolve_prefix(self._data.entries, prefix)
 
-    def reload(self) -> None:
-        """Hydrate from the catalog when it has entries; scan disk otherwise."""
-        catalog = store.read_catalog()
-        stats = store.ScanStats()
-        if catalog is not None and catalog.entries:
-            found = [(entry.record, store.entry_dir(entry)) for entry in catalog.entries.values()]
-            stats.scanned = len(found)
-        else:
-            found = [
-                (record, entry_dir) for entry_dir, record in store.iter_cache_records(self._cache_roots(), stats=stats)
-            ]
-
-        self._hash_index = {}
-        self._dirs = {}
-        self._class_index = {}
-        self._scanned = stats.scanned
-        self._missing = stats.unreadable
-        for rec, entry_dir in found:
-            if rec.state_hash in self._hash_index:
-                if rec != self._hash_index[rec.state_hash]:
-                    raise ValueError(f'state_hash collision with divergent data for hash {rec.state_hash!r}')
-                continue
-            self._hash_index[rec.state_hash] = rec
-            self._dirs[rec.state_hash] = entry_dir
-            self._class_index.setdefault(rec.class_name, []).append(rec.state_hash)
+    def diagnostics(self) -> dict:
+        diff = self.status.diff if self.status is not None else None
+        return {
+            'entries': len(self._data.entries),
+            'catalog_id': self._data.header.catalog_id,
+            'read_only': self.status.read_only if self.status is not None else None,
+            'unindexed_dirs': len(diff.unindexed) if diff else 0,
+            'missing_dirs': len(diff.missing) if diff else 0,
+            'unavailable_roots': [str(r) for r in diff.unavailable_roots] if diff else [],
+        }

@@ -82,3 +82,16 @@ def test_catalog_build_errors_on_unreadable_root() -> None:
         assert 'not readable' in result.output
     finally:
         root.chmod(0o755)
+
+
+def test_entry_list_on_an_outdated_mirror_catalog_is_a_clean_error() -> None:
+    catalog = store._new_catalog()
+    catalog.header.catalog_version = 1
+    catalog.header.writer.root = '/eos/elsewhere'
+    catalog.dump(get_config().path_catalog)
+
+    result = CliRunner().invoke(cli, ['entry', 'list'])
+
+    assert result.exit_code == 1
+    assert 'pygeodata catalog build' in result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)

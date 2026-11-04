@@ -1,11 +1,26 @@
+from __future__ import annotations
+
+import dataclasses
+from typing import TYPE_CHECKING
+
 from pygeodata.enums import Staleness
 from pygeodata.hash import calculate_cls_source_hash
 from pygeodata.paths import CodeRegistryPathConstructor, TreeRegistryPathConstructor
 from pygeodata.registries.registry import EntryRegistry, SourceRegistry, TreeRegistry
-from pygeodata.registries.versioning import VersionRegistry
 from pygeodata.staleness import class_staleness
 from pygeodata.tracked_object import TrackedObject
-from pygeodata.views.types import ClassInfo, EntryInfo
+from pygeodata.views.types import ClassInfo
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from pygeodata.registries.versioning import VersionRegistry
+
+
+def _existing(path: Path, resolve: bool = False) -> str | None:
+    if not path.exists():
+        return None
+    return str(path.resolve() if resolve else path)
 
 
 def source_info_from_disk(
@@ -27,38 +42,27 @@ def source_info_from_disk(
         return ClassInfo(class_name=class_name, object_type=None, loaded=False)
 
     source_hash = latest.source_hash
-    code_resolver = CodeRegistryPathConstructor.from_source_hash(source_hash) if source_hash else None
-    meta_path = code_resolver.meta_path if code_resolver else None
-
-    call_dep_names: list[str] = []
-    inh_dep_names: list[str] = []
-    graph_path_str: str | None = None
-    tree_path_str: str | None = None
+    code_resolver = CodeRegistryPathConstructor.from_source_hash(source_hash)
 
     trees = trees if trees is not None else TreeRegistry()
-    snapshot = trees.get_snapshot_for_source_hash(class_name, source_hash) if source_hash else None
-    if snapshot is not None:
-        call_dep_names = trees.get_call_dependencies(snapshot.dependency_tree_hash)
-        inh_dep_names = trees.get_inheritance_dependencies(snapshot.dependency_tree_hash)
-        tree_path = trees.get_tree_path(snapshot.dependency_tree_hash)
-        graph_path_candidate = TreeRegistryPathConstructor(tree_path.parent).graph_path
-        graph_path_str = str(graph_path_candidate.resolve()) if graph_path_candidate.exists() else None
-        tree_path_str = str(tree_path.resolve())
-
-    state = registry.get_state_by_hash(source_hash) if source_hash else None
-
-    return ClassInfo(
+    snapshot = trees.get_snapshot_for_source_hash(class_name, source_hash)
+    info = ClassInfo(
         class_name=class_name,
-        object_type=state.object_type if state else None,
+        object_type=latest.object_type,
         loaded=False,
-        call_dependency_names=call_dep_names,
-        inheritance_dependency_names=inh_dep_names,
-        class_source_path=str(code_resolver.source_path.resolve())
-        if code_resolver and code_resolver.source_path.exists()
-        else None,
-        class_graph_path=graph_path_str,
-        class_registry_path=str(meta_path.resolve()) if meta_path and meta_path.exists() else None,
-        class_tree_path=tree_path_str,
+        class_source_path=_existing(code_resolver.source_path, resolve=True),
+        class_registry_path=_existing(code_resolver.meta_path, resolve=True),
+    )
+    if snapshot is None:
+        return info
+
+    tree_path = trees.get_tree_path(snapshot.dependency_tree_hash)
+    return dataclasses.replace(
+        info,
+        call_dependency_names=trees.get_call_dependencies(snapshot.dependency_tree_hash),
+        inheritance_dependency_names=trees.get_inheritance_dependencies(snapshot.dependency_tree_hash),
+        class_graph_path=_existing(TreeRegistryPathConstructor(tree_path.parent).graph_path, resolve=True),
+        class_tree_path=str(tree_path.resolve()),
     )
 
 
@@ -84,10 +88,10 @@ def discover_loaded_classes() -> dict[str, ClassInfo]:
             loaded=True,
             call_dependency_names=call_dependency_names,
             inheritance_dependency_names=inheritance_dependency_names,
-            class_source_path=str(code_resolver.source_path) if code_resolver.source_path.exists() else None,
-            class_graph_path=str(tree_resolver.graph_path) if tree_resolver.graph_path.exists() else None,
-            class_registry_path=str(code_resolver.meta_path) if code_resolver.meta_path.exists() else None,
-            class_tree_path=str(tree_resolver.tree_path) if tree_resolver.tree_path.exists() else None,
+            class_source_path=_existing(code_resolver.source_path),
+            class_graph_path=_existing(tree_resolver.graph_path),
+            class_registry_path=_existing(code_resolver.meta_path),
+            class_tree_path=_existing(tree_resolver.tree_path),
             source_stale=source_stale,
             deps_stale=deps_stale,
         )
@@ -98,38 +102,26 @@ def discover_loaded_classes() -> dict[str, ClassInfo]:
 def merge_unloaded_classes(
     classes: dict[str, ClassInfo],
     entry_registry: EntryRegistry,
-    entries: dict[str, EntryInfo] | None = None,
     version_registry: VersionRegistry | None = None,
     src: SourceRegistry | None = None,
     trees: TreeRegistry | None = None,
 ) -> dict[str, ClassInfo]:
+    """Add the classes that have cache entries but are not loaded, from their registered source."""
     merged = dict(classes)
-
     for class_name in entry_registry.class_names:
         if class_name in merged:
             continue
-
         info = source_info_from_disk(class_name, src=src, trees=trees)
-        object_type = info.object_type or entry_registry.get_object_type(class_name)
-
         deps_stale = False
-        if entries is not None and version_registry is not None:
+        if version_registry is not None:
             dep_hashes = (
-                entries[rid].dep_hash for rid in entry_registry.get_state_hashes(class_name) if rid in entries
+                entry_registry.entries[h].record.dependency_tree_hash
+                for h in entry_registry.get_state_hashes(class_name)
             )
             deps_stale = class_staleness(class_name, dep_hashes, version_registry) is Staleness.STALE
-
-        merged[class_name] = ClassInfo(
-            class_name=class_name,
-            object_type=object_type,
-            loaded=False,
-            call_dependency_names=info.call_dependency_names,
-            inheritance_dependency_names=info.inheritance_dependency_names,
-            class_source_path=info.class_source_path,
-            class_graph_path=info.class_graph_path,
-            class_registry_path=info.class_registry_path,
-            class_tree_path=info.class_tree_path,
+        merged[class_name] = dataclasses.replace(
+            info,
+            object_type=info.object_type or entry_registry.get_object_type(class_name),
             deps_stale=deps_stale,
         )
-
     return merged

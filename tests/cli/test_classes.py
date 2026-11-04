@@ -13,7 +13,7 @@ def _patch_registries(
     discover: Callable[[], dict[str, ClassInfo]],
     merge: Callable[..., dict[str, ClassInfo]],
 ) -> None:
-    monkeypatch.setattr('pygeodata.cli.classes.EntryRegistry', MagicMock(return_value=MagicMock(class_names=[])))
+    monkeypatch.setattr('pygeodata.cli.classes._entry_registry', MagicMock(return_value=MagicMock(class_names=[])))
     monkeypatch.setattr('pygeodata.cli.classes.VersionRegistry', MagicMock(return_value=MagicMock()))
     monkeypatch.setattr(
         'pygeodata.cli.classes.SourceRegistry',

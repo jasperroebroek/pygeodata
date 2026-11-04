@@ -23,7 +23,10 @@ COMMANDS: dict[str, tuple[str, str]] = {
         'pygeodata.cli.archive:export_archive',
         'Export cache entries to a pygeodata archive (a counterpart to `import`).',
     ),
-    'import': ('pygeodata.cli.archive:import_archive', 'Import a pygeodata export archive into the current project.'),
+    'import': (
+        'pygeodata.cli.archive:import_archive_cmd',
+        'Import a pygeodata export archive into the current project.',
+    ),
     'snapshot': ('pygeodata.cli.source:snapshot', 'Inspect the .source/ dependency-tree snapshot registry.'),
     'versions': (
         'pygeodata.cli.source:versions_cmd',

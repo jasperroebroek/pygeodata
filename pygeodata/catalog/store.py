@@ -7,6 +7,11 @@ defined by the files on disk (see :mod:`pygeodata.cache`). Its layout is the
 outdated is rebuilt from the cache entries by the next write; one written by a newer
 pygeodata is never overwritten.
 
+Readers open it through :func:`open_catalog`, which checks it against the entry dirs on disk:
+one directory listing per cache root, as entry dirs are named by their state hash. A catalog
+written from this project root is brought up to date in place; one written elsewhere (a synced
+mirror of a remote project) is read-only and never triggers a scan of the entry dirs.
+
 All write paths are no-ops while ``catalog_enabled`` is False on the config —
 e.g. on shared filesystems. Writes take a ``filelock`` and rewrite the file
 atomically (temp file + rename).
@@ -20,6 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import socket
 import time
 import uuid
@@ -62,23 +68,13 @@ def catalog_path() -> Path:
     return get_config().path_catalog
 
 
-def read_catalog() -> CatalogData | None:
-    """The catalog for readers; None when there is none or it is outdated.
-
-    Raises :class:`~pygeodata.catalog.types.CatalogNewerError` for a catalog written by a newer pygeodata.
-    """
-    try:
-        return CatalogData.from_file(catalog_path())
-    except FileNotFoundError:
-        return None
-    except (OSError, CatalogOutdatedError) as exc:
-        warnings.warn(f'Catalog not used, reading the cache entries instead: {exc}', stacklevel=2)
-        return None
+def _local_root() -> str:
+    return str(catalog_path().parent.resolve())
 
 
 def _writer() -> CatalogWriter:
     return CatalogWriter(
-        root=str(catalog_path().parent.resolve()),
+        root=_local_root(),
         host=socket.gethostname(),
         pygeodata=__version__,
         written_at=time.time(),
@@ -114,7 +110,7 @@ def _load_for_write() -> tuple[CatalogData, bool]:
     except CatalogOutdatedError as exc:
         logger.info('Rebuilding the catalog: %s', exc)
         catalog = _new_catalog(exc.catalog_id)
-    backfill(catalog, get_config().cache_roots, format_version=FORMAT_VERSION)
+    backfill(catalog, CachePathResolver(get_config().cache_roots).iter_entry_dirs(), format_version=FORMAT_VERSION)
     return catalog, True
 
 
@@ -188,52 +184,40 @@ def catalog_entry(entry_path: Path, record: EntryRecord, params_json: dict[str, 
     )
 
 
-@dataclass
-class ScanStats:
-    scanned: int = 0
-    unreadable: int = 0
-
-
 def iter_cache_records(
-    cache_roots: Iterable[Path],
+    entry_dirs: Iterable[Path],
     format_version: int | None = None,
-    skip_hashes: set[str] | None = None,
-    stats: ScanStats | None = None,
 ) -> Iterator[tuple[Path, EntryRecord]]:
-    """Yield ``(entry_dir, record)`` for every readable cache entry on disk.
+    """Yield ``(entry_dir, record)`` for each of ``entry_dirs`` holding a readable ``meta.json``.
 
     Skips entries written by a different ``format_version``: those are stale
-    by definition and are handled by clean-cache. ``skip_hashes`` skips the
-    already-indexed entries — entry dirs are named by their state hash, so
-    the common flat layout skips without reading ``meta.json`` at all.
+    by definition and are handled by clean-cache.
     """
-    stats = stats if stats is not None else ScanStats()
-    resolver = CachePathResolver(roots=tuple(cache_roots))
-    for meta_path in resolver.glob_meta_paths():
-        if skip_hashes is not None and meta_path.parent.name in skip_hashes:
-            continue
-        stats.scanned += 1
+    for entry_dir in entry_dirs:
         try:
-            record = EntryRecord.from_file(meta_path)
+            record = EntryRecord.from_file(CachePathConstructor(entry_dir).state_hash_path)
         except (OSError, msgspec.DecodeError):
-            stats.unreadable += 1
-            continue
-        if skip_hashes is not None and record.state_hash in skip_hashes:
             continue
         if format_version is not None and record.format_version != format_version:
             continue
-        yield meta_path.parent, record
+        yield entry_dir, record
 
 
 def backfill(
     catalog: CatalogData,
-    cache_roots: Iterable[Path],
+    entry_dirs: Iterable[Path],
     format_version: int | None = None,
 ) -> int:
-    """Index every cache entry missing from the catalog; returns the count indexed."""
+    """Index the entries in ``entry_dirs`` that the catalog lacks; returns the count indexed.
+
+    Entry dirs are named by their state hash, so indexed entries are skipped without reading
+    their ``meta.json``.
+    """
     count = 0
-    skip = set(catalog.entries)
-    for path, record in iter_cache_records(cache_roots, format_version=format_version, skip_hashes=skip):
+    unknown = (d for d in entry_dirs if d.name not in catalog.entries)
+    for path, record in iter_cache_records(unknown, format_version=format_version):
+        if record.state_hash in catalog.entries:
+            continue
         paths = CachePathConstructor(path)
         try:
             params_json = json.loads(paths.params_path.read_text(encoding='utf-8'))
@@ -251,15 +235,8 @@ def backfill(
 
 
 # ---------------------------------------------------------------------------
-# Pruning — only on evidence that an entry was deleted
+# Catalog against disk — pruning only on evidence that an entry was deleted
 # ---------------------------------------------------------------------------
-
-
-@dataclass
-class PruneResult:
-    pruned: int = 0
-    # Roots that were missing or empty; their entries are kept, unverified.
-    unavailable_roots: list[Path] = field(default_factory=list)
 
 
 def entry_root(entry: CatalogEntry) -> Path | None:
@@ -270,37 +247,72 @@ def entry_root(entry: CatalogEntry) -> Path | None:
     return _cache_root(entry.record.object_type)
 
 
-def _is_populated(root: Path) -> bool:
+def _list_dirs(root: Path) -> set[str]:
     try:
-        return next(root.iterdir(), None) is not None
+        with os.scandir(root) as it:
+            return {e.name for e in it if e.is_dir()}
     except OSError:
-        return False
+        return set()
 
 
-def unavailable_roots(catalog: CatalogData) -> list[Path]:
-    """The entries' roots that are missing or empty on this machine — an unmounted share, an
-    unsynced mirror — where a missing ``meta.json`` says nothing about the entry.
-    """
-    roots = {root for entry in catalog.entries.values() if (root := entry_root(entry)) is not None}
-    return sorted(root for root in roots if not _is_populated(root))
+@dataclass
+class CatalogDiff:
+    """How the catalog differs from the entry dirs on disk."""
+
+    # entry dirs the catalog lacks: new entries, or dirs that are no current entry (yet)
+    unindexed: list[Path] = field(default_factory=list)
+    # entries whose dir is gone from a root that is otherwise present
+    missing: list[str] = field(default_factory=list)
+    # roots that are missing or empty — an unmounted share, an unsynced mirror — whose entries
+    # are kept, unverified
+    unavailable_roots: list[Path] = field(default_factory=list)
 
 
-def prune_missing(catalog: CatalogData) -> PruneResult:
-    """Delete entries whose ``meta.json`` is gone from a root that is otherwise present."""
-    unavailable = unavailable_roots(catalog)
-    if unavailable:
+def _indexed_by_root(catalog: CatalogData) -> dict[Path, dict[str, str]]:
+    """Entry dir name → state hash, per root (an absolute entry dir's root is its parent)."""
+    by_root: dict[Path, dict[str, str]] = {}
+    for entry in catalog.entries.values():
+        root = entry_root(entry)
+        if root is not None:
+            by_root.setdefault(root, {})[Path(entry.dir_relpath).name] = entry.state_hash
+    return by_root
+
+
+def diff_against_disk(catalog: CatalogData) -> CatalogDiff:
+    """Compare the catalog with one listing per root; touches no entry dir."""
+    roots = get_config().cache_roots
+    nested = {child.name for root in roots for child in roots if child.parent == root}
+    by_root = _indexed_by_root(catalog)
+
+    diff = CatalogDiff()
+    for root in dict.fromkeys([*roots, *by_root]):
+        names = _list_dirs(root)
+        indexed = by_root.get(root, {})
+        if root in roots:
+            diff.unindexed.extend(root / name for name in sorted(names - indexed.keys() - nested))
+        if not names:
+            if indexed:
+                diff.unavailable_roots.append(root)
+            continue
+        diff.missing.extend(state_hash for name, state_hash in indexed.items() if name not in names)
+    return diff
+
+
+@dataclass
+class PruneResult:
+    pruned: int = 0
+    unavailable_roots: list[Path] = field(default_factory=list)
+
+
+def prune_missing(catalog: CatalogData, diff: CatalogDiff | None = None) -> PruneResult:
+    """Delete entries whose dir is gone from a root that is otherwise present."""
+    diff = diff if diff is not None else diff_against_disk(catalog)
+    if diff.unavailable_roots:
         warnings.warn(
-            f'Cache root missing or empty, its catalog entries are kept: {", ".join(map(str, unavailable))}',
+            f'Cache root missing or empty, its catalog entries are kept: {", ".join(map(str, diff.unavailable_roots))}',
             stacklevel=2,
         )
-    gone = [
-        state_hash
-        for state_hash, entry in catalog.entries.items()
-        if (root := entry_root(entry)) is not None
-        and root not in unavailable
-        and not CachePathConstructor(entry_dir(entry)).state_hash_path.exists()
-    ]
-    return PruneResult(pruned=catalog.prune(gone), unavailable_roots=unavailable)
+    return PruneResult(pruned=catalog.prune(diff.missing), unavailable_roots=diff.unavailable_roots)
 
 
 def bootstrap_rows(catalog: CatalogData) -> list[CatalogEntry]:
@@ -314,6 +326,99 @@ def bootstrap_rows(catalog: CatalogData) -> list[CatalogEntry]:
         if current is None or entry.created_at >= current.created_at:
             latest[entry.record.class_name] = entry
     return [latest[class_name] for class_name in sorted(latest)]
+
+
+# ---------------------------------------------------------------------------
+# Readers
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class CatalogStatus:
+    read_only: bool
+    # what still differs from disk after any update
+    diff: CatalogDiff = field(default_factory=CatalogDiff)
+
+
+def _sync() -> tuple[CatalogData, CatalogDiff]:
+    """Bring the catalog file up to date with the entry dirs; saves only on change."""
+    with _lock_for(catalog_path()):
+        catalog, rebuilt = _load_for_write()
+        diff = diff_against_disk(catalog)
+        indexed = backfill(catalog, diff.unindexed, format_version=FORMAT_VERSION)
+        pruned = catalog.prune(diff.missing)
+        if rebuilt or indexed or pruned:
+            _save(catalog)
+    diff.unindexed = [d for d in diff.unindexed if d.name not in catalog.entries]
+    diff.missing = []
+    return catalog, diff
+
+
+def _needs_sync(diff: CatalogDiff) -> bool:
+    """Whether the diff holds anything to index or prune; reads only the unindexed dirs' meta.json."""
+    return bool(diff.missing) or next(iter_cache_records(diff.unindexed, FORMAT_VERSION), None) is not None
+
+
+def _written_elsewhere(catalog: CatalogData | None, outdated: CatalogOutdatedError | None) -> bool:
+    """Whether the catalog file was written from another project root; unknown counts as yes."""
+    if catalog is not None:
+        return catalog.header.writer.root != _local_root()
+    if outdated is not None:
+        return outdated.writer_root != _local_root()
+    return False
+
+
+def _open_read_only(
+    catalog: CatalogData | None,
+    outdated: CatalogOutdatedError | None,
+) -> tuple[CatalogData, CatalogStatus]:
+    if outdated is not None:
+        raise CatalogOutdatedError(
+            f'{outdated}; it is read-only here, so run `pygeodata catalog build` where it is written',
+            catalog_id=outdated.catalog_id,
+            writer_root=outdated.writer_root,
+        )
+    if catalog is None:
+        catalog = _new_catalog()
+        backfill(catalog, CachePathResolver(get_config().cache_roots).iter_entry_dirs(), format_version=FORMAT_VERSION)
+        return catalog, CatalogStatus(read_only=True)
+    return catalog, CatalogStatus(read_only=True, diff=diff_against_disk(catalog))
+
+
+def open_catalog(read_only: bool | None = None) -> tuple[CatalogData, CatalogStatus]:
+    """The catalog for readers, checked against the entry dirs on disk.
+
+    ``read_only`` defaults to True when catalog writes are disabled or the catalog was written
+    from another project root (a synced mirror). A writable catalog is updated in place: missing
+    or outdated → rebuilt, otherwise new entry dirs indexed and deleted ones pruned. A read-only
+    one is used as it is and its difference reported; one that is outdated raises
+    :class:`~pygeodata.catalog.types.CatalogOutdatedError`, since rebuilding would scan every
+    entry dir. Without a catalog file a read-only reader indexes the entries in memory.
+    Raises :class:`~pygeodata.catalog.types.CatalogNewerError` for a catalog written by a newer pygeodata.
+    """
+    outdated: CatalogOutdatedError | None = None
+    try:
+        catalog: CatalogData | None = CatalogData.from_file(catalog_path())
+    except FileNotFoundError:
+        catalog = None
+    except CatalogOutdatedError as exc:
+        catalog, outdated = None, exc
+
+    if read_only is None:
+        read_only = not get_config().catalog_enabled or _written_elsewhere(catalog, outdated)
+    if read_only:
+        return _open_read_only(catalog, outdated)
+
+    if catalog is not None:
+        diff = diff_against_disk(catalog)
+        if not _needs_sync(diff):
+            return catalog, CatalogStatus(read_only=False, diff=diff)
+    try:
+        catalog, diff = _sync()
+    except OSError as exc:
+        warnings.warn(f'Catalog update failed, reading it as it is: {exc}', stacklevel=2)
+        return _open_read_only(catalog, outdated)
+    return catalog, CatalogStatus(read_only=False, diff=diff)
 
 
 # ---------------------------------------------------------------------------
@@ -380,7 +485,11 @@ def refresh(
         with _lock_for(catalog_path()):
             catalog, rebuilt = _load_for_write()
             indexed = len(catalog.entries) if rebuilt else 0
-            indexed += backfill(catalog, cache_roots, format_version=format_version)
+            indexed += backfill(
+                catalog,
+                CachePathResolver(tuple(cache_roots)).iter_entry_dirs(),
+                format_version=format_version,
+            )
             pruning = prune_missing(catalog) if prune else PruneResult()
             if rebuilt or indexed or pruning.pruned:
                 _save(catalog)

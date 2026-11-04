@@ -1,8 +1,12 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
-from pygeodata.catalog.types import ParamRow
-from pygeodata.views.types import EntryInfo
+if TYPE_CHECKING:
+    from pygeodata.catalog.types import CatalogEntry, ParamRow
+    from pygeodata.records import SpecRecord
 
 
 class FilterTarget(StrEnum):
@@ -13,8 +17,11 @@ class FilterTarget(StrEnum):
     KEY = 'key'
     VALUE = 'value'
     PATH = 'path'
-    HAS_WARNINGS = 'has_warnings'
-    HAS_ERROR = 'has_error'
+
+
+ROW_TARGETS = frozenset(
+    {FilterTarget.ALL, FilterTarget.KEY_GROUP, FilterTarget.KEY, FilterTarget.VALUE, FilterTarget.PATH},
+)
 
 
 class FilterOperator(StrEnum):
@@ -24,6 +31,12 @@ class FilterOperator(StrEnum):
     NOT_CONTAINS = 'not_contains'
 
 
+class LogicMode(StrEnum):
+    AND = 'AND'
+    OR = 'OR'
+    NOT = 'NOT'
+
+
 @dataclass(frozen=True, slots=True)
 class Filter:
     target: FilterTarget = FilterTarget.ALL
@@ -31,7 +44,7 @@ class Filter:
     value: str = ''
 
     @classmethod
-    def from_dict(cls, data: dict[str, str]) -> 'Filter':
+    def from_dict(cls, data: dict[str, str]) -> Filter:
         return cls(
             target=FilterTarget(data.get('target', FilterTarget.ALL.value)),
             operator=FilterOperator(data.get('operator', FilterOperator.CONTAINS.value)),
@@ -43,6 +56,14 @@ def parse_filters(items: list[dict[str, str]] | None) -> list[Filter]:
     if not items:
         return []
     return [Filter.from_dict(item) for item in items]
+
+
+def combine(matches: list[bool], mode: LogicMode) -> bool:
+    if mode is LogicMode.OR:
+        return any(matches)
+    if mode is LogicMode.NOT:
+        return not any(matches)
+    return all(matches)
 
 
 def _compare(text: str | None, operator: FilterOperator, value: str) -> bool:
@@ -72,113 +93,30 @@ def row_matches_filter(row: ParamRow, flt: Filter) -> bool:
     return False
 
 
-def entry_header_matches(class_name: str, entry: EntryInfo, flt: Filter) -> bool:
+def entry_matches_filter(entry: CatalogEntry, spec: SpecRecord | None, flt: Filter) -> bool:
     if flt.target is FilterTarget.CLASS:
-        return _compare(class_name, flt.operator, flt.value)
+        return _compare(entry.class_name, flt.operator, flt.value)
     if flt.target is FilterTarget.CRS:
-        return _compare(entry.spec.crs, flt.operator, flt.value)
-    if flt.target is FilterTarget.HAS_WARNINGS:
-        return bool(entry.warnings)
-    if flt.target is FilterTarget.HAS_ERROR:
-        return bool(entry.error)
+        return _compare(spec.crs if spec is not None else None, flt.operator, flt.value)
     # ALL and row-level targets: check class name then fall through to rows
-    if _compare(class_name, flt.operator, flt.value):
+    if _compare(entry.class_name, flt.operator, flt.value):
         return True
     return any(row_matches_filter(row, flt) for row in entry.rows)
 
 
 def entry_matches_filters(
-    class_name: str,
-    entry: EntryInfo,
+    entry: CatalogEntry,
+    spec: SpecRecord | None,
     filters: list[Filter],
-    logic_mode: str,
+    mode: LogicMode,
 ) -> bool:
     if not filters:
         return True
-
-    matches = [entry_header_matches(class_name, entry, flt) for flt in filters]
-
-    if logic_mode == 'OR':
-        return any(matches)
-    if logic_mode == 'NOT':
-        return not any(matches)
-    return all(matches)
+    return combine([entry_matches_filter(entry, spec, flt) for flt in filters], mode)
 
 
-def prescan_text(
-    class_name: str,
-    params_blob: str,
-    parsed_exprs: list[tuple[list['Filter'], str]],
-) -> bool:
-    """Cheap pre-filter against raw text before paying for full enrichment.
-
-    Returns False only when the entry can be definitively ruled out.
-    Returns True when uncertain (false positives allowed — enrichment confirms).
-    ``params_blob`` should already be lowercased by the caller.
-    """
-    for filters, logic_mode in parsed_exprs:
-        term_results = []
-        for flt in filters:
-            val = flt.value.lower()
-            if flt.target is FilterTarget.CLASS:
-                text = class_name.lower()
-            elif flt.target is FilterTarget.CRS:
-                term_results.append(True)
-                continue
-            else:
-                text = params_blob
-
-            if flt.operator is FilterOperator.CONTAINS:
-                hit = val in text
-            elif flt.operator is FilterOperator.NOT_CONTAINS:
-                hit = val not in text
-            elif flt.operator is FilterOperator.EQUALS:
-                hit = val in text  # conservative: may over-include
-            elif flt.operator is FilterOperator.STARTS:
-                hit = val in text  # conservative
-            else:
-                hit = True
-            term_results.append(hit)
-
-        if logic_mode == 'AND' and not all(term_results):
-            return False
-        if logic_mode == 'NOT' and any(term_results):
-            return False
-        if logic_mode == 'OR' and not any(term_results):
-            return False
-
-    return True
-
-
-def matching_rows(
-    entry: EntryInfo,
-    filters: list[Filter],
-    logic_mode: str,
-) -> list[ParamRow]:
-    row_targets = {
-        FilterTarget.KEY_GROUP,
-        FilterTarget.KEY,
-        FilterTarget.VALUE,
-        FilterTarget.PATH,
-        FilterTarget.ALL,
-    }
-    row_filters = [flt for flt in filters if flt.target in row_targets]
-
+def matching_rows(entry: CatalogEntry, filters: list[Filter], mode: LogicMode) -> list[ParamRow]:
+    row_filters = [flt for flt in filters if flt.target in ROW_TARGETS]
     if not row_filters:
         return entry.rows
-
-    rows: list[ParamRow] = []
-    for row in entry.rows:
-        matches = [row_matches_filter(row, flt) for flt in row_filters]
-
-        if logic_mode == 'AND':
-            ok = all(matches)
-        elif logic_mode == 'NOT':
-            ok = not any(matches)
-        else:
-            ok = any(matches)
-
-        if ok:
-            rows.append(row)
-
-    return rows
+    return [row for row in entry.rows if combine([row_matches_filter(row, flt) for flt in row_filters], mode)]

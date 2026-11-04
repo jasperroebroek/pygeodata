@@ -146,7 +146,7 @@ def load_from_hash(
     full_hash = registry.resolve_hash_prefix(state_hash)
     if full_hash is None:
         raise KeyError(f'No entry found for hash prefix {state_hash!r}')
-    record = registry.records[full_hash]
+    record = registry.entries[full_hash].record
     cls = TrackedObject.find_object_class(record.class_name)
     if cls is None:
         raise RuntimeError(

@@ -115,6 +115,18 @@ class CatalogEntry:
     updated_at: float
 
     @property
+    def state_hash(self) -> str:
+        return self.record.state_hash
+
+    @property
+    def class_name(self) -> str:
+        return self.record.class_name
+
+    @property
+    def object_type(self) -> str:
+        return self.record.object_type
+
+    @property
     def primary_file(self) -> FileRef | None:
         return next((f for f in self.files if f.role is FileRole.PRIMARY), None)
 
@@ -124,11 +136,15 @@ class CatalogEntry:
 
 
 class CatalogOutdatedError(Exception):
-    """Written by an older pygeodata, or unreadable; rebuild it from the cache entries."""
+    """Written by an older pygeodata, or unreadable; rebuild it from the cache entries.
 
-    def __init__(self, message: str, catalog_id: str | None = None) -> None:
+    ``writer_root`` is the project root it was written from, when its header still says so.
+    """
+
+    def __init__(self, message: str, catalog_id: str | None = None, writer_root: str | None = None) -> None:
         super().__init__(message)
         self.catalog_id = catalog_id
+        self.writer_root = writer_root
 
 
 class CatalogNewerError(Exception):
@@ -171,11 +187,16 @@ class CatalogData:
             raise CatalogOutdatedError(
                 f'Catalog version {header.catalog_version} is outdated',
                 catalog_id=header.catalog_id,
+                writer_root=header.writer.root,
             )
         try:
             return msgspec.json.decode(content, type=cls)
         except msgspec.DecodeError as exc:
-            raise CatalogOutdatedError(f'Catalog unreadable: {exc}', catalog_id=header.catalog_id) from exc
+            raise CatalogOutdatedError(
+                f'Catalog unreadable: {exc}',
+                catalog_id=header.catalog_id,
+                writer_root=header.writer.root,
+            ) from exc
 
     def dump(self, path: Path) -> None:
         write_typed_json_atomic(path, self)

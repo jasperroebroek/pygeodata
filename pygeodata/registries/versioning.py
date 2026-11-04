@@ -27,8 +27,7 @@ computation ran between them, separating the events into different groups).
 Each Version.events carries the full ADDED/CHANGED/REMOVED/UNCHANGED summary
 versus its predecessor, pre-computed at build time.
 
-Construct a fresh instance to scan from disk.  Call .reload() after
-write_registry to refresh without invalidating held references.
+Construct a fresh instance to scan from disk.
 """
 
 from __future__ import annotations
@@ -46,8 +45,7 @@ from pygeodata.tracked_object import TrackedObject
 class VersionRegistry:
     """In-memory index mapping source/dep hashes to their Version group.
 
-    Constructed from a SourceRegistry + TreeRegistry scan.  Call reload()
-    after write_registry to refresh without invalidating held references.
+    Constructed from a SourceRegistry + TreeRegistry scan.
     """
 
     def __init__(self, registry_root: Path | None = None) -> None:
@@ -306,12 +304,6 @@ class VersionRegistry:
         self._source_hash_to_version = source_hash_to_version
         self._dep_hash_to_version = dep_hash_to_version
         self._version_to_dep_hashes = version_to_dep_hashes
-
-    def reload(self) -> None:
-        """Reload sub-registries then recompute all indexes in-place."""
-        self._src.reload()
-        self._trees.reload()
-        self._build()
 
     def version_for_source_hash(self, source_hash: str) -> Version | None:
         """Return the Version group for a source hash, or None if unknown."""

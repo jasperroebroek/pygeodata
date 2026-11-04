@@ -73,7 +73,7 @@ def test_dummy_table_discovered_by_entry_registry(sample_spatial_spec: SpatialSp
     table = DummyTable()
     table.process(sample_spatial_spec)
     registry = EntryRegistry()
-    class_names = {rec.class_name for rec in registry.records.values()}
+    class_names = set(registry.class_names)
     assert 'DummyTable' in class_names
 
 

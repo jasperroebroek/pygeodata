@@ -14,12 +14,7 @@ from tests.fixtures.records import make_record, write_meta
 
 
 def write_full_entry(state_hash: str, class_name: str, object_type: str = 'Data', ext: str = 'tif') -> Path:
-    """Write a complete cache entry (meta/params/spec + output file) that discover_entries() picks up.
-
-    Export goes through ``discover_entries()``, which reads parameters.json
-    and spec.json for each record in addition to meta.json. Returns the
-    cache directory.
-    """
+    """Write a complete cache entry (meta/params/spec + output file); returns its directory."""
     cache_dir = get_config().path_cache / state_hash
     cache_dir.mkdir(parents=True, exist_ok=True)
     resolver = CachePathConstructor(cache_dir)

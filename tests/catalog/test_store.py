@@ -11,8 +11,9 @@ from pygeodata._version import CATALOG_VERSION, FORMAT_VERSION
 from pygeodata.cache_entry import write_entry
 from pygeodata.catalog import store
 from pygeodata.catalog.display import find_output_files
-from pygeodata.catalog.types import CatalogData, CatalogNewerError, FileRef, FileRole
+from pygeodata.catalog.types import CatalogData, CatalogNewerError, FileRef, FileRole, schema_fingerprint
 from pygeodata.config import Config, get_config, set_config
+from pygeodata.paths import CachePathResolver
 from pygeodata.records import EntryRecord
 from pygeodata.spec import SpatialSpec
 from pygeodata.views.types import spec_info
@@ -34,6 +35,10 @@ def write_entry_dir(state_hash: str, class_name: str = 'SimpleTable', spec: Spat
 
 def index(catalog: CatalogData, entry_dir: Path, rec: EntryRecord, spec: SpatialSpec | None) -> None:
     catalog.upsert(store.catalog_entry(entry_dir, rec, None), spec.to_record() if spec is not None else None)
+
+
+def all_entry_dirs() -> list[Path]:
+    return list(CachePathResolver(get_config().cache_roots).iter_entry_dirs())
 
 
 def write_catalog(catalog: CatalogData) -> None:
@@ -104,20 +109,23 @@ def test_spec_info_keeps_crs_of_partial_spec() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_reader_ignores_outdated_catalog(catalog: CatalogData, sample_spatial_spec: SpatialSpec) -> None:
+def test_reader_rebuilds_local_outdated_catalog(catalog: CatalogData, sample_spatial_spec: SpatialSpec) -> None:
     index(catalog, write_entry_dir('s1'), record(), sample_spatial_spec)
     catalog.header.catalog_version = CATALOG_VERSION - 1
     write_catalog(catalog)
 
-    with pytest.warns(UserWarning, match='Catalog not used'):
-        assert store.read_catalog() is None
+    opened, status = store.open_catalog()
+
+    assert list(opened.entries) == ['s1']
+    assert not status.read_only
+    assert on_disk()['header']['catalog_version'] == CATALOG_VERSION
 
 
-def test_reader_ignores_catalog_with_other_schema(catalog: CatalogData) -> None:
+def test_reader_rebuilds_local_catalog_with_other_schema(catalog: CatalogData) -> None:
     catalog.header.schema_fingerprint = 'other'
     write_catalog(catalog)
-    with pytest.warns(UserWarning, match='Catalog not used'):
-        assert store.read_catalog() is None
+    store.open_catalog()
+    assert on_disk()['header']['schema_fingerprint'] == schema_fingerprint()
 
 
 def test_writer_rebuilds_outdated_catalog_and_keeps_its_id(
@@ -155,7 +163,7 @@ def test_newer_catalog_is_never_read_or_overwritten(
     before = get_config().path_catalog.read_bytes()
 
     with pytest.raises(CatalogNewerError, match='9.9.9'):
-        store.read_catalog()
+        store.open_catalog()
     with pytest.raises(CatalogNewerError):
         store.refresh(get_config().cache_roots)
     write_entry(SimpleLoader(), sample_spatial_spec)
@@ -213,17 +221,17 @@ def test_backfill_indexes_and_skips_old_format(catalog: CatalogData, sample_spat
     write_entry_dir('s2', 'OtherTable', spec=sample_spatial_spec)
     write_meta(get_config().path_cache / 's_old', record('s_old', format_version=FORMAT_VERSION - 1))
 
-    assert store.backfill(catalog, get_config().cache_roots, format_version=FORMAT_VERSION) == 2
+    assert store.backfill(catalog, all_entry_dirs(), format_version=FORMAT_VERSION) == 2
     assert set(catalog.entries) == {'s1', 's2'}
     assert catalog.specs == {'spec1': sample_spatial_spec.to_record()}
 
 
 def test_backfill_is_incremental(catalog: CatalogData, sample_spatial_spec: SpatialSpec) -> None:
     write_entry_dir('s1', spec=sample_spatial_spec)
-    assert store.backfill(catalog, get_config().cache_roots, format_version=FORMAT_VERSION) == 1
+    assert store.backfill(catalog, all_entry_dirs(), format_version=FORMAT_VERSION) == 1
 
     write_entry_dir('s2', 'OtherTable', spec=sample_spatial_spec)
-    assert store.backfill(catalog, get_config().cache_roots, format_version=FORMAT_VERSION) == 1
+    assert store.backfill(catalog, all_entry_dirs(), format_version=FORMAT_VERSION) == 1
     assert set(catalog.entries) == {'s1', 's2'}
 
 
@@ -233,7 +241,7 @@ def test_backfill_stores_rows_and_files(catalog: CatalogData, sample_spatial_spe
     (entry_dir / 'out.html').write_text('<html/>', encoding='utf-8')
     (entry_dir / 'sidecar.csv').write_text('x', encoding='utf-8')
 
-    store.backfill(catalog, get_config().cache_roots, format_version=FORMAT_VERSION)
+    store.backfill(catalog, all_entry_dirs(), format_version=FORMAT_VERSION)
 
     entry = catalog.entries['s1']
     assert (entry.rows[0].path, entry.rows[0].value_text) == ('a.b', '1')
@@ -246,7 +254,7 @@ def test_backfill_stores_rows_and_files(catalog: CatalogData, sample_spatial_spe
 def test_backfill_tolerates_unreadable_spec(catalog: CatalogData) -> None:
     entry_dir = write_entry_dir('s1')
     (entry_dir / 'spec.json').write_text('{not json', encoding='utf-8')
-    assert store.backfill(catalog, get_config().cache_roots) == 1
+    assert store.backfill(catalog, all_entry_dirs()) == 1
     assert catalog.specs == {}
 
 
@@ -335,7 +343,7 @@ def test_save_follows_symlinks(tmp_path: Path) -> None:
 
     with set_config(path_catalog=link):
         store.refresh(get_config().cache_roots)
-        assert store.read_catalog() is not None
+        assert store.open_catalog()[0] is not None
 
     assert link.is_symlink()
     assert target.is_file()

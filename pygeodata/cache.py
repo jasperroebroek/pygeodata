@@ -277,9 +277,9 @@ def clean_source_registry(dry_run: bool = True) -> None:
 
     # Build keep-set of dep_hashes: referenced by live entries
     keep_dep_hashes: set[str] = set()
-    for record in entries.records.values():
-        keep_dep_hashes.add(record.dependency_tree_hash)
-        snapshot = trees.get_snapshot_from_hash(record.dependency_tree_hash)
+    for entry in entries.entries.values():
+        keep_dep_hashes.add(entry.record.dependency_tree_hash)
+        snapshot = trees.get_snapshot_from_hash(entry.record.dependency_tree_hash)
         if snapshot is None:
             continue
         keep_source_hashes.update(node.hash for node in snapshot.nodes.values())

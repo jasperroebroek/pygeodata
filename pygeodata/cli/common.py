@@ -1,13 +1,20 @@
+from __future__ import annotations
+
 import functools
-import importlib.util
-import sys
 from datetime import datetime
 from os import scandir
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 
+from pygeodata.catalog.types import CatalogNewerError, CatalogOutdatedError
 from pygeodata.config import get_config
+from pygeodata.project import import_project_modules
+from pygeodata.registries.registry import EntryRegistry
+
+if TYPE_CHECKING:
+    from pygeodata.catalog.types import CatalogEntry
 
 
 def _fmt_mtime(mtime: str) -> str:
@@ -34,42 +41,13 @@ def _import_options(f):
 
 
 def _import_project_modules(root: Path, verbose: bool = False) -> int:
-    """Import all .py files under root, silently skipping failures. Returns import count."""
-    if root not in sys.path:
-        sys.path.insert(0, str(root))
-    cfg = get_config()
-    _config_dirs = set()
-    for _p in (*cfg.cache_roots, cfg.path_registry):
-        if _p.parts and not _p.is_absolute():
-            _config_dirs.add(_p.parts[0])
-    _skip_dirs = {'venv', 'env', '.venv', 'build', 'dist', 'site-packages', 'tests', 'test', 'cache'} | _config_dirs
-    count = 0
-    for py_file in sorted(root.rglob('*.py')):
-        parts = py_file.relative_to(root).parts
-        if any(p.startswith(('.', '__pycache__')) or p in _skip_dirs for p in parts):
-            continue
-        # Settings files are imported by the cli group callback, honouring the
-        # --settings > pygeodata_settings.py > src/pygeodata_settings.py priority;
-        # --import-all must never import a second settings file.
-        if parts[-1].startswith(('test_', 'conftest', 'setup', 'manage')) or parts[-1] == 'pygeodata_settings.py':
-            continue
-        stem = '.'.join(py_file.relative_to(root).with_suffix('').parts)
-        module_name = f'pygeodata_project_{stem}'
-        if module_name in sys.modules:
-            continue
-        try:
-            spec = importlib.util.spec_from_file_location(module_name, py_file)
-            if spec and spec.loader:
-                mod = importlib.util.module_from_spec(spec)
-                sys.modules[module_name] = mod
-                spec.loader.exec_module(mod)
-                count += 1
-                if verbose:
-                    click.echo(f'  imported {module_name}')
-        except Exception as e:  # noqa: BLE001
-            if verbose:
-                click.echo(f'  skip {module_name}: {e}')
-    return count
+    report = import_project_modules(root)
+    if verbose:
+        for name in report.imported:
+            click.echo(f'  imported {name}')
+        for name, error in report.failed.items():
+            click.echo(f'  skip {name}: {error}')
+    return len(report.imported)
 
 
 def _check_roots_readable(roots: tuple[Path, ...]) -> None:
@@ -124,13 +102,20 @@ _full_hash_option = click.option(
 )
 
 
-def _resolve_record(reg, hash_prefix: str):
-    """Return (state_hash, EntryRecord) for a partial or full hash. Raises ClickException on ambiguity/miss."""
-    matches = [(h, r) for h, r in reg.records.items() if h.startswith(hash_prefix)]
+def _entry_registry() -> EntryRegistry:
+    try:
+        return EntryRegistry()
+    except (CatalogOutdatedError, CatalogNewerError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _resolve_entry(reg: EntryRegistry, hash_prefix: str) -> CatalogEntry:
+    """The entry for a partial or full state hash. Raises ClickException on ambiguity/miss."""
+    matches = reg.match_prefix(hash_prefix)
     if not matches:
         raise click.ClickException(f'No entry found matching {hash_prefix!r}.')
     if len(matches) > 1:
         raise click.ClickException(
-            f'{len(matches)} entries match {hash_prefix!r}: ' + ', '.join(h[:12] for h, _ in matches),
+            f'{len(matches)} entries match {hash_prefix!r}: ' + ', '.join(h[:12] for h in matches),
         )
-    return matches[0]
+    return reg.entries[matches[0]]

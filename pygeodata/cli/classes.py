@@ -4,6 +4,7 @@ import click
 
 from pygeodata.cli.common import (
     _apply_registry_path,
+    _entry_registry,
     _fmt_hash,
     _full_hash_option,
     _import_options,
@@ -11,7 +12,7 @@ from pygeodata.cli.common import (
     _registry_option,
 )
 from pygeodata.enums import ObjectType
-from pygeodata.registries.registry import EntryRegistry, SourceRegistry
+from pygeodata.registries.registry import SourceRegistry
 from pygeodata.registries.versioning import VersionRegistry
 from pygeodata.views.classes import discover_loaded_classes, merge_unloaded_classes
 
@@ -47,7 +48,7 @@ def classes_cmd(
         click.echo(f'Imported {n} module(s)')
 
     vreg = VersionRegistry()
-    ereg = EntryRegistry()
+    ereg = _entry_registry()
     src = SourceRegistry()
     classes = discover_loaded_classes()
     classes = merge_unloaded_classes(classes, ereg, version_registry=vreg, src=src)

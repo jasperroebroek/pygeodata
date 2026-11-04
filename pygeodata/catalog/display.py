@@ -1,9 +1,8 @@
 """Entry display data: parameter rows, linked entries, and output-file refs.
 
 Computed once at write/backfill time and stored in the catalog, so readers
-assemble :class:`~pygeodata.views.types.EntryInfo` from the catalog without
-per-entry file reads. The disk files stay the source of truth; this module
-merely derives their display form.
+display entries without per-entry file reads. The disk files stay the source
+of truth; this module merely derives their display form.
 """
 
 from __future__ import annotations
