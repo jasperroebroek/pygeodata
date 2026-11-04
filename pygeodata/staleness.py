@@ -2,7 +2,7 @@
 
 ``current`` gives a class's current dependency tree hash, or None when it does not know the class:
 :func:`~pygeodata.tracked_object.live_tree_hash` for the imported classes, or
-``StaticAnalysis.tree_hashes.get`` for those read from source. An unknown class is never current.
+``ProjectAnalysis.tree_hashes.get`` for those read from source. An unknown class is never current.
 """
 
 from __future__ import annotations

@@ -1,10 +1,13 @@
+from contextlib import nullcontext
 from pathlib import Path
 
 import click
 
 from pygeodata.cli._lazy import LazyGroup
+from pygeodata.cli._stdout import stdout_to_stderr
 
 COMMANDS: dict[str, tuple[str, str]] = {
+    'analyse': ('pygeodata.cli.analyse:analyse_cmd', "Analyse the project's classes from source, or by importing it."),
     'browse': ('pygeodata.cli.browse:browse', 'Launch the registry browser.'),
     'catalog': ('pygeodata.cli.maintenance:catalog_group', 'Inspect and rebuild the .catalog.json cache catalog.'),
     'classes': (
@@ -58,9 +61,12 @@ def cli(settings_path: Path | None) -> None:
     """
     from pygeodata.config import load_project_settings  # noqa: PLC0415 — config loads numpy; keep it off `--help`
 
+    ctx = click.get_current_context()
     try:
-        loaded = load_project_settings(settings_path=settings_path)
+        # settings modules may print at import; `analyse --json` keeps stdout for its result
+        with stdout_to_stderr() if ctx.invoked_subcommand == 'analyse' else nullcontext():
+            loaded = load_project_settings(settings_path=settings_path)
+            for path in loaded:
+                click.echo(f'Loaded settings: {path}')
     except Exception as exc:
         raise click.ClickException(f'settings module failed: {exc}') from exc
-    for path in loaded:
-        click.echo(f'Loaded settings: {path}')

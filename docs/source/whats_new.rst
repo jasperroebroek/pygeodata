@@ -26,6 +26,10 @@ Version 0.5.0 (unreleased)
   and ``?`` for a class not found in the project), with a legend for the
   markers shown.  ``N`` ("not loaded") is gone.
 - New ``catalog info`` and ``entry list --type``.
+- New ``analyse [--import-all] [--json]``: the project's classes, their
+  dependency tree hashes and any problems, read from source or by importing the
+  project.  With ``--json`` it prints only the result, even when project
+  modules print at import, so another process can read it.
 - ``clean-cache`` always imports the project, and refuses to delete anything
   when a project module fails to import.
 - Project modules are imported under their real module names, so relative and

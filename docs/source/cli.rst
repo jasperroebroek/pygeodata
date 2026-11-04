@@ -50,6 +50,15 @@ Commands
 
     pygeodata
     │
+    ├── analyse
+    │     Analyse the project's classes: facts, file and line, dependency tree
+    │     hash and problems.  Reads the source by default.  The settings
+    │     modules' output goes to stderr for this command.
+    │     --import-all            Import the project's modules instead of
+    │                             reading them from source
+    │     --json                  Print the result as JSON and nothing else,
+    │                             whatever the project prints at import
+    │
     ├── browse
     │     Launch the registry browser web UI. Blocks until the first full
     │     state is ready by default.

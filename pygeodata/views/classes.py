@@ -15,9 +15,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
     from pathlib import Path
 
+    from pygeodata.analysis import ProjectAnalysis
     from pygeodata.dependencies import ClassFacts
     from pygeodata.registries.versioning import VersionRegistry
-    from pygeodata.static import StaticAnalysis
 
 
 def _existing(path: Path, resolve: bool = False) -> str | None:
@@ -99,7 +99,7 @@ def imported_classes() -> dict[str, ClassInfo]:
     )
 
 
-def source_classes(analysis: StaticAnalysis) -> dict[str, ClassInfo]:
+def source_classes(analysis: ProjectAnalysis) -> dict[str, ClassInfo]:
     return current_classes(analysis.facts, analysis.tree_hashes)
 
 

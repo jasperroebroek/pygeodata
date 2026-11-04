@@ -12,12 +12,13 @@ from pygeodata.catalog.types import CatalogNewerError, CatalogOutdatedError
 from pygeodata.config import get_config
 from pygeodata.project import import_project_modules
 from pygeodata.registries.registry import EntryRegistry
-from pygeodata.static import StaticAnalysis, analyse_project, compare_with_imports
+from pygeodata.static import analyse_project, compare_with_imports
 from pygeodata.tracked_object import live_tree_hash
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
+    from pygeodata.analysis import ProjectAnalysis
     from pygeodata.catalog.types import CatalogEntry
 
 
@@ -54,7 +55,7 @@ def _import_project_modules(root: Path, verbose: bool = False) -> int:
     return len(report.imported)
 
 
-def _project_source(do_import: bool, verbose: bool) -> StaticAnalysis | None:
+def _project_source(do_import: bool, verbose: bool) -> ProjectAnalysis | None:
     """The project's classes read from source; None with ``--import-all``, whose imported classes serve instead.
 
     Importing also reports every class where imports and source disagree.
@@ -71,7 +72,7 @@ def _project_source(do_import: bool, verbose: bool) -> StaticAnalysis | None:
     return None
 
 
-def _tree_hash_lookup(analysis: StaticAnalysis | None) -> Callable[[str], str | None]:
+def _tree_hash_lookup(analysis: ProjectAnalysis | None) -> Callable[[str], str | None]:
     return analysis.tree_hashes.get if analysis is not None else live_tree_hash
 
 

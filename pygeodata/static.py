@@ -11,12 +11,12 @@ installed packages. Such classes are unknown here, never reported as current.
 from __future__ import annotations
 
 import ast
-import functools
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from pygeodata.analysis import ClassRecord, ProjectAnalysis, tree_hashes_of
 from pygeodata.ast import build_symbol_tables, parse_class_source
-from pygeodata.dependencies import ClassFacts, call_dependencies, dependency_tree_hash
+from pygeodata.dependencies import ClassFacts, call_dependencies
 from pygeodata.hash import calculate_ast_hash
 from pygeodata.project import iter_project_files
 from pygeodata.tracked_object import TrackedObject
@@ -28,30 +28,6 @@ if TYPE_CHECKING:
 
 # pygeodata's own TrackedObject classes a project class can derive from; each is its own object type
 BASE_CLASSES = frozenset({'TrackedObject', 'Artifact', 'Data', 'Table', 'Figure'})
-
-
-@dataclass(frozen=True)
-class StaticClass:
-    facts: ClassFacts
-    path: Path
-    lineno: int
-
-
-@dataclass
-class StaticAnalysis:
-    root: Path
-    classes: dict[str, StaticClass]
-    # files that could not be read or parsed, and class names defined more than once
-    problems: list[str] = field(default_factory=list)
-
-    @functools.cached_property
-    def facts(self) -> dict[str, ClassFacts]:
-        return {name: cls.facts for name, cls in self.classes.items()}
-
-    @functools.cached_property
-    def tree_hashes(self) -> dict[str, str]:
-        """Current dependency tree hash per class."""
-        return {name: dependency_tree_hash(self.facts.__getitem__, name) for name in self.classes}
 
 
 @dataclass(frozen=True)
@@ -175,14 +151,17 @@ def _object_types(candidates: list[_Candidate]) -> dict[str, str]:
     return object_types
 
 
+def _first_line(node: ast.ClassDef) -> int:
+    return min([node.lineno, *(d.lineno for d in node.decorator_list)])
+
+
 def _class_source(candidate: _Candidate) -> str:
     """The class's lines from its first decorator, as ``inspect.getsource`` returns them."""
     node = candidate.node
-    start = min([node.lineno, *(d.lineno for d in node.decorator_list)])
-    return ''.join(candidate.lines[start - 1 : node.end_lineno])
+    return ''.join(candidate.lines[_first_line(node) - 1 : node.end_lineno])
 
 
-def analyse_project(root: Path) -> StaticAnalysis:
+def analyse_project(root: Path) -> ProjectAnalysis:
     problems: list[str] = []
     candidates = _read_candidates(root, problems)
     object_types = _object_types(candidates)
@@ -195,7 +174,8 @@ def analyse_project(root: Path) -> StaticAnalysis:
     problems.extend(f'{name}: defined more than once; left out' for name in sorted(duplicates))
 
     names = set(object_types) - duplicates
-    classes: dict[str, StaticClass] = {}
+    all_facts: dict[str, ClassFacts] = {}
+    locations: dict[str, tuple[str, int]] = {}
     for candidate in tracked:
         name = candidate.node.name
         if name in duplicates:
@@ -208,11 +188,17 @@ def analyse_project(root: Path) -> StaticAnalysis:
             call_deps=call_dependencies(class_tree, candidate.tables, names, name),
             bases=frozenset(ref.name for ref in candidate.bases if not _is_pygeodata_base(ref) and ref.name in names),
         )
-        classes[name] = StaticClass(facts=facts, path=candidate.path, lineno=candidate.node.lineno)
-    return StaticAnalysis(root=root, classes=classes, problems=problems)
+        all_facts[name] = facts
+        locations[name] = (str(candidate.path), _first_line(candidate.node))
+    hashes = tree_hashes_of(all_facts)
+    classes = {
+        name: ClassRecord(facts=facts, path=locations[name][0], lineno=locations[name][1], tree_hash=hashes[name])
+        for name, facts in all_facts.items()
+    }
+    return ProjectAnalysis(mode='static', root=str(root), classes=classes, problems=problems)
 
 
-def compare_with_imports(analysis: StaticAnalysis) -> list[str]:
+def compare_with_imports(analysis: ProjectAnalysis) -> list[str]:
     """Where the imported classes and those read from source disagree, one message per class."""
     imported = {cls.get_class_name(): cls for cls in TrackedObject.get_registered_objects()}
     messages: list[str] = []
