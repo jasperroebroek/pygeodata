@@ -1,0 +1,106 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '0 6 * * 1'  # weekly: catches upstream drift (GDAL, pandas, browser main, ...)
+  workflow_dispatch:
+  # release.yml gates publishing on this; a broken browser main must not block a pygeodata release
+  workflow_call:
+    inputs:
+      browser:
+        type: boolean
+        default: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # conda-forge supplies the GDAL/netCDF stack and the graphviz binary on every Python version
+  CONDA_PACKAGES: >-
+    pip pytest pytest-mock packaging
+    numpy rioxarray geopandas fiona pyarrow zarr dask distributed
+    filelock click lazy_loader affine msgspec
+    libgdal-netcdf graphviz python-graphviz flask
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/ruff-action@v3
+        with:
+          version: 0.14.1
+          args: format --check .
+
+  test:
+    name: test (py${{ matrix.python }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ['3.11', '3.12', '3.13', '3.14', '3.15']
+        include:
+          - os: macos-latest
+            python: '3.14'
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # setuptools-scm reads the version from git tags
+
+      - uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-name: ci
+          create-args: python=${{ matrix.python }} ${{ env.CONDA_PACKAGES }}
+          condarc: |
+            channels: [conda-forge]
+            channel_priority: strict
+          cache-environment: true
+
+      - run: python -m pip install --no-deps -e .
+
+      - name: Full test suite (including tests/processors)
+        run: python -m pytest -q
+
+  browser:
+    name: tests of pygeodata-browser main against this checkout
+    if: inputs.browser != false
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/checkout@v7
+        with:
+          repository: jasperroebroek/pygeodata-browser
+          ref: main
+          path: browser
+          fetch-depth: 0
+
+      - uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-name: ci
+          create-args: python=3.14 ${{ env.CONDA_PACKAGES }} platformdirs pillow
+          condarc: |
+            channels: [conda-forge]
+            channel_priority: strict
+          cache-environment: true
+
+      # --no-deps: the browser's pygeodata pin may lag this checkout's dev version
+      - run: |
+          python -m pip install --no-deps -e . -e ./browser
+
+      - name: Browser Python tests
+        working-directory: browser
+        run: python -m pytest -q

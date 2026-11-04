@@ -1,5 +1,4 @@
 name: push
-description: Build and test on push
 
 on:
   push:
@@ -11,10 +10,8 @@ on:
       - .readthedocs.yaml
       - .gitignore
 
+# tests run in ci.yml on every push
 jobs:
-  test:
-    name: Run tests
-    uses: ./.github/workflows/test.yml
   build:
     name: Build wheels
     uses: ./.github/workflows/build.yml

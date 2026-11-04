@@ -9,7 +9,9 @@ on:
 jobs:
   test:
     name: Run tests
-    uses: ./.github/workflows/test.yml
+    uses: ./.github/workflows/ci.yml
+    with:
+      browser: false
 
   build:
     name: Build wheels
