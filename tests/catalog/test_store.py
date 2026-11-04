@@ -155,7 +155,7 @@ def test_writer_rebuilds_pre_contract_catalog(sample_spatial_spec: SpatialSpec) 
 def test_newer_catalog_is_never_read_or_overwritten(
     catalog: CatalogData,
     sample_spatial_spec: SpatialSpec,
-    recwarn: pytest.WarningsChecker,
+    recwarn: pytest.WarningsRecorder,
 ) -> None:
     catalog.header.catalog_version = CATALOG_VERSION + 1
     catalog.header.writer.pygeodata = '9.9.9'
@@ -299,7 +299,7 @@ def test_first_write_indexes_existing_entries(sample_spatial_spec: SpatialSpec) 
 def test_write_hook_warns_and_continues(
     sample_spatial_spec: SpatialSpec,
     monkeypatch: pytest.MonkeyPatch,
-    recwarn: pytest.WarningsChecker,
+    recwarn: pytest.WarningsRecorder,
 ) -> None:
     def broken_save(*_args: object, **_kwargs: object) -> None:
         raise OSError('disk full')
@@ -311,7 +311,7 @@ def test_write_hook_warns_and_continues(
 
 def test_catalog_disabled_makes_writes_noops(
     sample_spatial_spec: SpatialSpec,
-    recwarn: pytest.WarningsChecker,
+    recwarn: pytest.WarningsRecorder,
 ) -> None:
     with set_config(catalog_enabled=False):
         write_entry(SimpleLoader(), sample_spatial_spec)

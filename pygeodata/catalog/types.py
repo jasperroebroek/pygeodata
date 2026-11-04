@@ -217,11 +217,23 @@ class CatalogData:
         return removed
 
 
+def _without_descriptions(node: object) -> object:
+    if isinstance(node, dict):
+        return {key: _without_descriptions(value) for key, value in node.items() if key != 'description'}
+    if isinstance(node, list):
+        return [_without_descriptions(item) for item in node]
+    return node
+
+
 @functools.cache
 def schema_fingerprint() -> str:
-    """Any change to the catalog's types changes it; pinned by a test so a change forces a version bump."""
-    schema = msgspec.json.encode(msgspec.json.schema(CatalogData), order='sorted')
-    return hashlib.sha256(schema).hexdigest()
+    """Any change to the catalog's types changes it; pinned by a test so a change forces a version bump.
+
+    Docstrings are left out: the schema carries them as descriptions, and Python 3.13 changed how they are
+    indented, so they would make the fingerprint differ between the server's and a mirror's Python.
+    """
+    schema = _without_descriptions(msgspec.json.schema(CatalogData))
+    return hashlib.sha256(msgspec.json.encode(schema, order='sorted')).hexdigest()
 
 
 @dataclass

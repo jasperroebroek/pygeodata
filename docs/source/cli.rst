@@ -328,7 +328,7 @@ that no longer exists.
 .. code-block:: text
 
     Catalog      .catalog.json
-    ID           021031be84f944a89ff66ec45663f962  (version 3)
+    ID           021031be84f944a89ff66ec45663f962  (version 4)
     Written      2026-11-04 14:06 by pygeodata 0.5.0 (Python 3.14.4) on laptop.local
     From root    /home/user/project
     Mode         writable
