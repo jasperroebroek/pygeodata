@@ -74,11 +74,15 @@ def test_nullable_required_fields_match_cpython() -> None:
     nullable_required = {
         (cls.__name__, field)
         for cls in vars(ast).values()
-        if isinstance(cls, type) and issubclass(cls, ast.AST)
+        # Constant's subclasses (Ellipsis, Num, ...) are deprecated aliases, gone in 3.14
+        if isinstance(cls, type) and issubclass(cls, ast.AST) and ast.Constant not in cls.__mro__[1:]
         for field, field_type in getattr(cls, '_field_types', {}).items()
         if field_type is object
     }
-    assert nullable_required == _NULLABLE_REQUIRED_FIELDS
+    if sys.version_info >= (3, 14):
+        assert nullable_required == _NULLABLE_REQUIRED_FIELDS
+    else:  # Interpolation arrived in 3.14
+        assert nullable_required < _NULLABLE_REQUIRED_FIELDS
 
 
 def test_fields_added_after_3_14_are_listed() -> None:
