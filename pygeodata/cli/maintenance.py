@@ -4,7 +4,7 @@ import click
 
 from pygeodata._version import FORMAT_VERSION
 from pygeodata.cache import clean_cache, clean_lock_files, clean_source_registry
-from pygeodata.catalog.store import BACKFILL_LOG_INTERVAL, refresh
+from pygeodata.catalog.store import refresh
 from pygeodata.cli.common import _check_roots_readable, _import_options, _import_project_modules
 from pygeodata.config import get_config
 
@@ -27,18 +27,10 @@ def catalog_group() -> None:
     default=True,
     help='Also drop entries whose cache entry no longer exists (default: prune).',
 )
-@click.option(
-    '--log-interval',
-    default=BACKFILL_LOG_INTERVAL,
-    show_default=True,
-    type=int,
-    help='Log progress every N indexed entries; with many slow-to-read entries a smaller value makes progress visible.',
-)
 @_import_options
 def catalog_build_cmd(
     cache_roots: tuple[str, ...],
     prune: bool,
-    log_interval: int,
     do_import: bool,
     verbose_import: bool,
 ) -> None:
@@ -51,10 +43,13 @@ def catalog_build_cmd(
         raise click.ClickException('Catalog writes are disabled: catalog_enabled is False.')
     roots = [Path(r) for r in cache_roots] if cache_roots else list(config.cache_roots)
     _check_roots_readable((*roots, config.path_registry))
-    indexed, pruned = refresh(roots, format_version=FORMAT_VERSION, prune=prune)
+    result = refresh(roots, format_version=FORMAT_VERSION, prune=prune)
+    indexed, pruned = result.indexed, result.prune.pruned
     click.echo(
         f'Indexed {indexed} entr{"y" if indexed == 1 else "ies"}; pruned {pruned} entr{"y" if pruned == 1 else "ies"}',
     )
+    for root in result.prune.unavailable_roots:
+        click.echo(f'Not pruned, cache root missing or empty: {root}', err=True)
     click.echo(f'Catalog: {config.path_catalog}')
 
 

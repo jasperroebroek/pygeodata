@@ -8,7 +8,7 @@ from pathlib import Path
 import msgspec
 
 from pygeodata._version import FORMAT_VERSION
-from pygeodata.catalog.store import reconcile
+from pygeodata.catalog.store import remove_entries
 from pygeodata.config import get_config
 from pygeodata.enums import JSONKeys, Staleness
 from pygeodata.fileio import file_lock, read_format_version, try_acquire
@@ -181,19 +181,25 @@ def clean_cache(
         ``parameters.json`` are reported as stale under this check.
     """
     roots = get_config().cache_roots
-    for entry_dir in CachePathResolver(roots).iter_entry_dirs():
-        _purge_dir(
+    deleted = [
+        entry_dir.name
+        for entry_dir in CachePathResolver(roots).iter_entry_dirs()
+        if _purge_dir(
             entry_dir,
             dry_run=dry_run,
             delete_unregistered=delete_unregistered,
             check_class_params=check_class_params,
         )
+    ]
 
     if not dry_run:
         for root in roots:
             if root.exists():
                 prune_empty_dirs(root)
-        prune_catalog()
+        # Entry dirs are named by their state hash.
+        removed = remove_entries(deleted)
+        if removed:
+            print(f'[Catalog] Removed {removed} entr{"y" if removed == 1 else "ies"}')
 
 
 def clean_lock_files(dry_run: bool = True) -> None:
@@ -217,12 +223,6 @@ def clean_lock_files(dry_run: bool = True) -> None:
         lock_path.unlink(missing_ok=True)
         lock.release()
         print(f'[Deleting] process.lock: {lock_path}')
-
-
-def prune_catalog() -> None:
-    deleted = reconcile()
-    if deleted:
-        print(f'[Catalog] Pruned {deleted} row(s)')
 
 
 def rebuild_registry() -> None:

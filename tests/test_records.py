@@ -34,3 +34,19 @@ def test_entry_record_missing_field_is_rejected(tmp_path: Path) -> None:
     path.write_text(json.dumps(data))
     with pytest.raises(msgspec.ValidationError, match='state_hash'):
         EntryRecord.from_file(path)
+
+
+def test_entry_record_without_ext_falls_back_to_family_default(tmp_path: Path) -> None:
+    data = msgspec.to_builtins(make_record(object_type='Figure'))
+    del data['ext']
+    path = tmp_path / 'meta.json'
+    path.write_text(json.dumps(data))
+
+    record = EntryRecord.from_file(path)
+    assert record.ext is None
+    assert record.output_ext == 'png'
+
+
+def test_entry_record_output_ext_prefers_recorded_ext() -> None:
+    assert make_record(object_type='Figure', ext='svg').output_ext == 'svg'
+    assert make_record(object_type='Data').output_ext is None

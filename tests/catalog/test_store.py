@@ -87,7 +87,7 @@ def test_prune_drops_entries_and_unused_specs(catalog: CatalogData, sample_spati
     index(catalog, gone, record('s2', spec_hash='spec2'), SpatialSpec(crs=None))
     shutil.rmtree(gone)
 
-    assert store.prune_missing(catalog) == 1
+    assert store.prune_missing(catalog) == store.PruneResult(pruned=1)
     assert list(catalog.entries) == ['s1']
     assert list(catalog.specs) == ['spec1']
 
@@ -129,7 +129,7 @@ def test_writer_rebuilds_outdated_catalog_and_keeps_its_id(
     catalog.header.catalog_version = CATALOG_VERSION - 1
     write_catalog(catalog)
 
-    store.reconcile()
+    store.remove_entries(['s3'])
 
     rebuilt = CatalogData.from_file(get_config().path_catalog)
     assert rebuilt.header.catalog_id == catalog.header.catalog_id
@@ -140,7 +140,7 @@ def test_writer_rebuilds_pre_contract_catalog(sample_spatial_spec: SpatialSpec) 
     write_entry_dir('s1', spec=sample_spatial_spec)
     get_config().path_catalog.write_text(json.dumps({'format_version': 2, 'entries': {}}), encoding='utf-8')
 
-    assert store.refresh(get_config().cache_roots) == (1, 0)
+    assert store.refresh(get_config().cache_roots).indexed == 1
     assert CatalogData.from_file(get_config().path_catalog).header.catalog_version == CATALOG_VERSION
 
 
@@ -275,6 +275,7 @@ def test_write_entry_indexes_the_entry(sample_spatial_spec: SpatialSpec) -> None
     state_hash = artifact.get_state_hash(sample_spatial_spec)
     entry = catalog.entries[state_hash]
     assert entry.record.class_name == 'SimpleLoader'
+    assert entry.record.ext == artifact.get_ext()
     assert entry.dir_relpath == state_hash
     assert entry.primary_file == FileRef(relpath='dummy.tif', kind='cube', role=FileRole.PRIMARY)
     assert catalog.specs[entry.record.spec_hash] == sample_spatial_spec.to_record()
@@ -306,8 +307,8 @@ def test_catalog_disabled_makes_writes_noops(
 ) -> None:
     with set_config(catalog_enabled=False):
         write_entry(SimpleLoader(), sample_spatial_spec)
-        assert store.reconcile() == 0
-        assert store.refresh([get_config().path_cache]) == (0, 0)
+        assert store.remove_entries(['s1']) == 0
+        assert store.refresh([get_config().path_cache]) == store.RefreshResult()
     assert not get_config().path_catalog.exists()
     assert not [w for w in recwarn.list if 'Catalog' in str(w.message)]
 
@@ -352,8 +353,92 @@ def test_file_refs_survive_symlinked_entry_dir(tmp_path: Path) -> None:
     alias_root.parent.mkdir()
     os.symlink(real, alias_root)
 
-    files = find_output_files(alias_root / 's1', 'MyLoader', 'Data')
+    files = find_output_files(alias_root / 's1', 'tif')
     assert files == [FileRef(relpath='out.tif', kind='cube', role=FileRole.PRIMARY)]
+
+
+def test_primary_file_is_the_recorded_ext(tmp_path: Path) -> None:
+    (tmp_path / 'out.csv').write_bytes(b'x')
+    (tmp_path / 'out.html').write_bytes(b'x')
+
+    assert [f.relpath for f in find_output_files(tmp_path, 'html')] == ['out.html', 'out.csv']
+    assert [f.relpath for f in find_output_files(tmp_path, None)] == ['out.csv', 'out.html']
+
+
+# ---------------------------------------------------------------------------
+# Pruning
+# ---------------------------------------------------------------------------
+
+
+def test_missing_root_is_never_pruned(catalog: CatalogData) -> None:
+    index(catalog, write_entry_dir('s1'), record('s1'), None)
+    shutil.rmtree(get_config().path_cache)
+
+    with pytest.warns(UserWarning, match='Cache root missing or empty'):
+        result = store.prune_missing(catalog)
+
+    assert result == store.PruneResult(pruned=0, unavailable_roots=[get_config().path_cache])
+    assert list(catalog.entries) == ['s1']
+
+
+def test_empty_root_is_never_pruned(catalog: CatalogData) -> None:
+    gone = write_entry_dir('s1')
+    index(catalog, gone, record('s1'), None)
+    shutil.rmtree(gone)
+
+    with pytest.warns(UserWarning, match='Cache root missing or empty'):
+        assert store.prune_missing(catalog).pruned == 0
+    assert list(catalog.entries) == ['s1']
+
+
+def test_single_entry_catalog_is_pruned(catalog: CatalogData) -> None:
+    gone = write_entry_dir('s1')
+    index(catalog, gone, record('s1'), None)
+    shutil.rmtree(gone)
+    write_entry_dir('s2')
+
+    assert store.prune_missing(catalog) == store.PruneResult(pruned=1)
+    assert not catalog.entries
+
+
+def test_remove_entries_removes_exactly_those(catalog: CatalogData) -> None:
+    for state_hash in ('s1', 's2'):
+        index(catalog, write_entry_dir(state_hash), record(state_hash), None)
+    write_catalog(catalog)
+
+    assert store.remove_entries(['s1', 'unknown']) == 1
+    assert set(on_disk()['entries']) == {'s2'}
+
+
+def test_refresh_saves_only_on_change(sample_spatial_spec: SpatialSpec, monkeypatch: pytest.MonkeyPatch) -> None:
+    write_entry_dir('s1', spec=sample_spatial_spec)
+    assert store.refresh(get_config().cache_roots).indexed == 1
+
+    saves: list[CatalogData] = []
+    monkeypatch.setattr(store, '_save', saves.append)
+    assert store.refresh(get_config().cache_roots) == store.RefreshResult()
+    assert not saves
+
+
+def test_refresh_warns_on_os_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken_save(*_args: object) -> None:
+        raise OSError('read-only file system')
+
+    write_entry_dir('s1')
+    monkeypatch.setattr(store, '_save', broken_save)
+    with pytest.warns(UserWarning, match='Catalog refresh failed'):
+        assert store.refresh(get_config().cache_roots) == store.RefreshResult()
+
+
+def test_symlinks_to_one_catalog_share_its_lock(tmp_path: Path) -> None:
+    target = tmp_path / 'synced' / '.catalog.json'
+    target.parent.mkdir()
+    links = [tmp_path / 'a.json', tmp_path / 'b.json']
+    for link in links:
+        link.symlink_to(target)
+
+    lock_files = {store._lock_for(link).lock_file for link in links}
+    assert lock_files == {str(target.with_name('.catalog.json.lock'))}
 
 
 # ---------------------------------------------------------------------------

@@ -41,6 +41,7 @@ def write_entry(artifact: Artifact, spec: SpatialSpec, co_outputs: tuple[str, ..
         object_type=artifact.object_type.get_class_name(),
         co_output_hashes=list(co_outputs),
         format_version=FORMAT_VERSION,
+        ext=artifact.get_ext(),
     )
     record.dump(paths.state_hash_path)
     index_entry(paths.directory, record, spec.to_record(), params_json)

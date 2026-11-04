@@ -50,7 +50,7 @@ def _enrich_params_path(params_path: Path, record: EntryRecord | None = None) ->
 
     class_name = record.class_name if record else resolver.directory.name
     object_type = record.object_type if record else None
-    files = find_output_files(entry_dir, class_name, object_type)
+    files = find_output_files(entry_dir, record.output_ext if record else None)
 
     return EntryInfo(
         class_name=class_name,

@@ -9,21 +9,24 @@ Three registries, all keyed by resolved root path:
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import msgspec
 
 from pygeodata.catalog import store
 from pygeodata.config import get_config
 from pygeodata.paths import (
-    CachePathResolver,
     CodeRegistryPathConstructor,
     RegistryResolver,
     TreeRegistryPathConstructor,
 )
-from pygeodata.records import EntryRecord
 from pygeodata.registries.registry_types import CodeState, TreeNode, TreeSnapshot
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+    from pathlib import Path
+
+    from pygeodata.records import EntryRecord
 
 
 def _resolve_prefix(keys: Iterable[str], prefix: str) -> str | None:
@@ -233,10 +236,8 @@ class EntryRegistry:
         self._paths = paths
         self.reload()
 
-    def _cache_resolver(self) -> CachePathResolver:
-        if self._paths is not None:
-            return CachePathResolver(tuple(self._paths))
-        return CachePathResolver(get_config().cache_roots)
+    def _cache_roots(self) -> tuple[Path, ...]:
+        return tuple(self._paths) if self._paths is not None else get_config().cache_roots
 
     def diagnostics(self) -> dict:
         return {
@@ -274,19 +275,22 @@ class EntryRegistry:
 
     def reload(self) -> None:
         """Hydrate from the catalog when it has entries; scan disk otherwise."""
-        found = self._load_from_catalog()
-        if found is None:
-            found = self._scan_disk()
+        catalog = store.read_catalog()
+        stats = store.ScanStats()
+        if catalog is not None and catalog.entries:
+            found = [(entry.record, store.entry_dir(entry)) for entry in catalog.entries.values()]
+            stats.scanned = len(found)
+        else:
+            found = [
+                (record, entry_dir) for entry_dir, record in store.iter_cache_records(self._cache_roots(), stats=stats)
+            ]
 
         self._hash_index = {}
         self._dirs = {}
         self._class_index = {}
-        self._scanned = len(found)
-        self._missing = sum(1 for item in found if item is None)
-        for item in found:
-            if item is None:
-                continue
-            rec, entry_dir = item
+        self._scanned = stats.scanned
+        self._missing = stats.unreadable
+        for rec, entry_dir in found:
             if rec.state_hash in self._hash_index:
                 if rec != self._hash_index[rec.state_hash]:
                     raise ValueError(f'state_hash collision with divergent data for hash {rec.state_hash!r}')
@@ -294,18 +298,3 @@ class EntryRegistry:
             self._hash_index[rec.state_hash] = rec
             self._dirs[rec.state_hash] = entry_dir
             self._class_index.setdefault(rec.class_name, []).append(rec.state_hash)
-
-    def _load_from_catalog(self) -> list[tuple[EntryRecord, Path]] | None:
-        catalog = store.read_catalog()
-        if catalog is None or not catalog.entries:
-            return None
-        return [(entry.record, store.entry_dir(entry)) for entry in catalog.entries.values()]
-
-    def _scan_disk(self) -> list[tuple[EntryRecord, Path] | None]:
-        found: list[tuple[EntryRecord, Path] | None] = []
-        for path in self._cache_resolver().glob_meta_paths():
-            try:
-                found.append((EntryRecord.from_file(path), path.parent))
-            except (OSError, msgspec.DecodeError):  # noqa: PERF203 — disk fallback, rare path
-                found.append(None)
-        return found

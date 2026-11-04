@@ -46,9 +46,6 @@ clear error listing the candidates.
     │                             the configured cache roots
     │     --prune / --no-prune    Also drop entries whose cache entry no longer
     │                             exists (default: prune)
-    │     --log-interval INTEGER  Log progress every N indexed entries; with
-    │                             many slow-to-read entries a smaller value
-    │                             makes progress visible (default: 2000)
     │     --import-all            Import all .py files from cwd first, so
     │                             project settings propagate to the config
     │     --verbose-import        Print each module imported (with --import-all)

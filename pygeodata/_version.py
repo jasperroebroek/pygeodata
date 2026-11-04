@@ -7,4 +7,4 @@ except PackageNotFoundError:
 
 # Bump only when hash semantics change: it invalidates every cache entry.
 FORMAT_VERSION = 2
-CATALOG_VERSION = 1
+CATALOG_VERSION = 2

@@ -6,7 +6,6 @@ import tarfile
 from collections.abc import Callable
 from pathlib import Path
 
-from pygeodata.catalog.display import find_output_files
 from pygeodata.paths import CachePathConstructor, CodeRegistryPathConstructor
 from pygeodata.registries.registry import TreeRegistry
 from pygeodata.views.types import EntryInfo
@@ -130,10 +129,11 @@ def single_entry_tar_path(
     if not path_allowed(str(cache_dir)):
         return None, None, False
 
-    files = find_output_files(cache_dir, entry.class_name, entry.object_type)
-    if not files:
+    if entry.primary_file is None:
         return None, None, False
-    data_path = cache_dir / files[0].relpath
+    data_path = entry.file_path(entry.primary_file)
+    if not data_path.exists():
+        return None, None, False
 
     if data_path.is_dir():
         return data_path, f'{data_path.name}.tar', True

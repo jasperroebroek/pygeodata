@@ -65,17 +65,6 @@ def test_catalog_build_import_all(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     assert 'Imported 1 module(s)' in result.output
 
 
-def test_catalog_build_log_interval_flag(sample_spatial_spec: SpatialSpec) -> None:
-    write_entry('s1', 'SimpleTable', sample_spatial_spec.to_dict())
-    write_entry('s2', 'OtherTable', sample_spatial_spec.to_dict())
-
-    result = CliRunner().invoke(cli, ['catalog', 'build', '--log-interval', '1'])
-    assert result.exit_code == 0
-    assert 'Indexed 2 entries' in result.output
-
-    assert len(CatalogData.from_file(store.catalog_path()).entries) == 2
-
-
 def test_catalog_build_warns_on_missing_root(tmp_path: Path) -> None:
     result = CliRunner().invoke(cli, ['catalog', 'build'])
     assert result.exit_code == 0

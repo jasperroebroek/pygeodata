@@ -1,5 +1,6 @@
 import ast
 import json
+import shutil
 import textwrap
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -19,6 +20,9 @@ from pygeodata.cache import (
     rebuild_registry,
 )
 from pygeodata.cache_entry import write_entry
+from pygeodata.catalog import store
+from pygeodata.catalog.types import CatalogData
+from pygeodata.config import get_config
 from pygeodata.enums import JSONKeys
 from pygeodata.hash import calculate_cls_source_hash
 from pygeodata.registries.writer import is_registry_valid
@@ -105,6 +109,24 @@ def test_clean_cache_removes_empty_dirs(sample_spatial_spec: SpatialSpec) -> Non
     entry_dir = SimpleLoader().resolve_cache_paths(sample_spatial_spec).directory
     clean_cache(dry_run=False)
     assert not entry_dir.exists()
+
+
+def test_clean_cache_removes_exactly_the_deleted_catalog_rows(sample_spatial_spec: SpatialSpec) -> None:
+    """A row whose entry vanished some other way is left for `catalog build`; clean-cache
+    only removes the rows of entries it deleted itself.
+    """
+    process_touch(SimpleLoader(), sample_spatial_spec)
+    stale = SimpleLoader().resolve_cache_paths(sample_spatial_spec)
+    ghost = get_config().path_cache / 'ghost'
+    write_meta(ghost, make_record('ghost', 'SimpleLoader', 'Data'))
+    store.refresh(get_config().cache_roots)
+    shutil.rmtree(ghost)
+    write_stale_hash(SimpleLoader(), sample_spatial_spec)
+
+    clean_cache(dry_run=False)
+
+    assert not stale.directory.exists()
+    assert set(CatalogData.from_file(get_config().path_catalog).entries) == {'ghost'}
 
 
 # --- clean_cache: zarr ---
