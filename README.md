@@ -243,14 +243,16 @@ rebuild_registry()   # wipe and rewrite all .source/ entries from current classe
 ## Installation
 
 ```bash
+conda install -c conda-forge pygeodata
+# or
 pip install pygeodata
 ```
 
-Optional extras:
+Optional features:
 
 ```bash
-pip install pygeodata[viz]        # dependency graph plots (graphviz)
-pip install pygeodata[browser]     # registry browser (pygeodata-browser)
+conda install -c conda-forge python-graphviz    # or: pip install pygeodata[viz]
+conda install -c conda-forge pygeodata-browser  # or: pip install pygeodata[browser]
 ```
 
 ## License

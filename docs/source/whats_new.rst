@@ -1,6 +1,16 @@
 What's new
 ==========
 
+Version 0.5.1 (2026-11-06)
+--------------------------
+
+- Being submitted to conda-forge, together with ``pygeodata-browser``.
+- Without ``graphviz``, the registry of a class with dependencies is no longer
+  reported as invalid because its graph is missing.  The graph is written once
+  ``graphviz`` is installed.
+- Commands that import the project also report how many modules were already
+  loaded, and ``--verbose-import`` lists them.
+
 Version 0.5.0 (2026-11-05)
 --------------------------
 

@@ -66,7 +66,10 @@ def build_dask_graph(
         graph.compute()
     """
     if not HAS_DASK:
-        raise ImportError('Dask is required for parallel processing. Install it with: pip install pygeodata[parallel]')
+        raise ImportError(
+            'Dask is required for parallel processing. '
+            'Install it with: pip install pygeodata[parallel] or conda install dask',
+        )
 
     delayed = dask_delayed
 

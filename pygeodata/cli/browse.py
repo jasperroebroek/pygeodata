@@ -45,7 +45,8 @@ def browse(port: int, fast: bool, reconcile_interval: float, import_all: bool, r
         from pygeodata_browser.serve import open_registry_browser  # optional package that itself imports pygeodata
     except ImportError as err:
         raise click.ClickException(
-            f'The registry browser lives in the pygeodata-browser package: pip install pygeodata[browser]. '
+            f'The registry browser lives in the pygeodata-browser package: '
+            f'pip install pygeodata[browser] or conda install pygeodata-browser. '
             f'Original error: {err}',
         ) from err
 

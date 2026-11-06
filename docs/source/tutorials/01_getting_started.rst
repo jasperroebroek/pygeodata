@@ -24,13 +24,13 @@ Installation
 
 .. code-block:: bash
 
-   pip install pygeodata
+   conda install -c conda-forge pygeodata  # or: pip install pygeodata
 
 For parallel processing support:
 
 .. code-block:: bash
 
-   pip install pygeodata[parallel]
+   conda install -c conda-forge dask  # or: pip install pygeodata[parallel]
 
 Configuration
 -------------

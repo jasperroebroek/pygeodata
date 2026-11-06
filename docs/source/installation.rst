@@ -20,12 +20,31 @@ different versions. The core dependencies are installed automatically:
 Installing
 ----------
 
+With conda:
+
+.. code-block:: bash
+
+   conda install -c conda-forge pygeodata
+
+With pip:
+
 .. code-block:: bash
 
    pip install pygeodata
 
-Optional extras
----------------
+Optional features with conda
+----------------------------
+
+conda packages have no extras; install the optional packages directly:
+
+.. code-block:: bash
+
+   conda install -c conda-forge python-graphviz    # dependency graph plots
+   conda install -c conda-forge dask               # Dask integration
+   conda install -c conda-forge pygeodata-browser  # registry browser
+
+Optional extras with pip
+------------------------
 
 Install additional optional dependencies by specifying extras:
 
@@ -68,6 +87,6 @@ To install from source with all extras:
 
 .. code-block:: bash
 
-   git clone https://github.com/jasper-roebroek/pygeodata
+   git clone https://github.com/jasperroebroek/pygeodata
    cd pygeodata
    pip install -e ".[all]"

@@ -110,4 +110,4 @@ Dask is an optional dependency. Install it with:
 
 .. code-block:: bash
 
-   pip install pygeodata[parallel]
+   conda install -c conda-forge dask  # or: pip install pygeodata[parallel]
