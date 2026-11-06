@@ -97,6 +97,22 @@ def test_catalog_build_import_all(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     assert 'Imported 1 module(s)' in result.output
 
 
+@pytest.mark.usefixtures('isolated_imports')
+def test_catalog_build_import_all_reports_modules_already_loaded(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / 'aa_entry.py').write_text('import zz_side_effect', encoding='utf-8')
+    (tmp_path / 'zz_side_effect.py').write_text('x = 1', encoding='utf-8')
+
+    result = CliRunner().invoke(cli, ['catalog', 'build', '--import-all', '--verbose-import'])
+    assert result.exit_code == 0
+    assert 'Imported 1 module(s) (1 more already loaded)' in result.output
+    assert '  imported aa_entry' in result.output
+    assert '  already loaded zz_side_effect' in result.output
+
+
 def test_catalog_build_warns_on_missing_root(tmp_path: Path) -> None:
     result = CliRunner().invoke(cli, ['catalog', 'build'])
     assert result.exit_code == 0

@@ -10,7 +10,7 @@ import click
 
 from pygeodata.catalog.types import CatalogNewerError, CatalogOutdatedError
 from pygeodata.config import get_config
-from pygeodata.project import import_project_modules
+from pygeodata.project import ImportReport, import_project_modules
 from pygeodata.registries.registry import EntryRegistry
 from pygeodata.static import analyse_project, compare_with_imports
 from pygeodata.tracked_object import live_tree_hash
@@ -45,14 +45,24 @@ def _import_options(f):
     return wrapper
 
 
-def _import_project_modules(root: Path, verbose: bool = False) -> int:
-    report = import_project_modules(root)
+def _echo_import_report(report: ImportReport, verbose: bool) -> None:
+    summary = f'Imported {len(report.imported)} module(s)'
+    if report.already_loaded:
+        summary += f' ({len(report.already_loaded)} more already loaded)'
+    click.echo(summary)
     if verbose:
         for name in report.imported:
             click.echo(f'  imported {name}')
+        for name in report.already_loaded:
+            click.echo(f'  already loaded {name}')
+
+
+def _import_project_modules(root: Path, verbose: bool = False) -> None:
+    report = import_project_modules(root)
+    _echo_import_report(report, verbose)
+    if verbose:
         for name, error in report.failed.items():
             click.echo(f'  skip {name}: {error}')
-    return len(report.imported)
 
 
 def _project_source(do_import: bool, verbose: bool) -> ProjectAnalysis | None:
@@ -65,8 +75,7 @@ def _project_source(do_import: bool, verbose: bool) -> ProjectAnalysis | None:
         click.echo(f'Warning: {problem}', err=True)
     if not do_import:
         return analysis
-    n = _import_project_modules(Path.cwd(), verbose=verbose)
-    click.echo(f'Imported {n} module(s)')
+    _import_project_modules(Path.cwd(), verbose=verbose)
     for message in compare_with_imports(analysis):
         click.echo(f'Warning: {message}', err=True)
     return None

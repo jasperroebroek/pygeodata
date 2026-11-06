@@ -7,7 +7,13 @@ import click
 from pygeodata._version import FORMAT_VERSION
 from pygeodata.cache import clean_cache, clean_lock_files, clean_source_registry
 from pygeodata.catalog.store import refresh
-from pygeodata.cli.common import _check_roots_readable, _entry_registry, _import_options, _import_project_modules
+from pygeodata.cli.common import (
+    _check_roots_readable,
+    _echo_import_report,
+    _entry_registry,
+    _import_options,
+    _import_project_modules,
+)
 from pygeodata.config import get_config
 from pygeodata.project import import_project_modules
 
@@ -40,8 +46,7 @@ def catalog_build_cmd(
     """Index every cache entry into the catalog JSON."""
     config = get_config()
     if do_import:
-        n = _import_project_modules(Path.cwd(), verbose=verbose_import)
-        click.echo(f'Imported {n} module(s) from {Path.cwd()}')
+        _import_project_modules(Path.cwd(), verbose=verbose_import)
     if not config.catalog_enabled:
         raise click.ClickException('Catalog writes are disabled: catalog_enabled is False.')
     roots = [Path(r) for r in cache_roots] if cache_roots else list(config.cache_roots)
@@ -115,10 +120,7 @@ def clean_cache_cmd(
     when any project module fails to import, since its entries would look unregistered.
     """
     report = import_project_modules(Path.cwd())
-    click.echo(f'Imported {len(report.imported)} module(s)')
-    if verbose_import:
-        for name in report.imported:
-            click.echo(f'  imported {name}')
+    _echo_import_report(report, verbose_import)
     if report.failed:
         failures = '\n'.join(f'  {name}: {error}' for name, error in report.failed.items())
         if not dry_run:
@@ -163,6 +165,5 @@ def clean_source_cmd(do_import: bool, verbose_import: bool, dry_run: bool) -> No
     cache entry.  Everything else is prunable.  Runs as dry run by default.
     """
     if do_import:
-        n = _import_project_modules(Path.cwd(), verbose=verbose_import)
-        click.echo(f'Imported {n} module(s)')
+        _import_project_modules(Path.cwd(), verbose=verbose_import)
     clean_source_registry(dry_run=dry_run)

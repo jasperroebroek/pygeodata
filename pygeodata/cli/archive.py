@@ -58,8 +58,7 @@ def export_archive(
         raise click.UsageError('Provide only one of HASH_PREFIXES, --class, --type, or --all.')
 
     if do_import:
-        n = _import_project_modules(Path.cwd(), verbose=verbose_import)
-        click.echo(f'Imported {n} module(s)')
+        _import_project_modules(Path.cwd(), verbose=verbose_import)
 
     registry = _entry_registry()
     entries = registry.entries

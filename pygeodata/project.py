@@ -20,6 +20,7 @@ SKIP_DIRS = frozenset({'venv', 'env', '.venv', 'build', 'dist', 'site-packages',
 @dataclass
 class ImportReport:
     imported: list[str] = field(default_factory=list)
+    already_loaded: list[str] = field(default_factory=list)  # loaded before the scan reached them
     failed: dict[str, str] = field(default_factory=dict)  # module name → error
 
 
@@ -84,6 +85,7 @@ def import_project_modules(root: Path) -> ImportReport:
     for py_file in iter_project_files(root):
         module_name = _module_name(py_file, root)
         if module_name in sys.modules:
+            report.already_loaded.append(module_name)
             continue
         try:
             importlib.import_module(module_name)
