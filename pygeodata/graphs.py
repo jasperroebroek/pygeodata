@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import warnings
+from importlib.util import find_spec
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -21,10 +22,14 @@ def _warn_graphviz_missing() -> None:
         _GRAPHVIZ_WARNED = True
         warnings.warn(
             'graphviz is not installed; dependency graphs will not be generated. '
-            'Install it with: pip install pygeodata[viz]',
+            'Install it with: pip install pygeodata[viz] or conda install python-graphviz',
             ImportWarning,
             stacklevel=4,
         )
+
+
+def is_graphviz_available() -> bool:
+    return find_spec('graphviz') is not None
 
 
 def _digraph_class() -> type[Digraph] | None:

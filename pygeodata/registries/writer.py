@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from pygeodata.ast import get_source_code
 from pygeodata.fileio import write_bytes_atomic
-from pygeodata.graphs import plot_class_dependency_graph
+from pygeodata.graphs import is_graphviz_available, plot_class_dependency_graph
 from pygeodata.paths import CodeRegistryPathConstructor, TreeRegistryPathConstructor
 from pygeodata.registries.registry import SourceRegistry
 
@@ -29,7 +29,8 @@ def _is_code_registry_current(cls: type[TrackedObject], registry: SourceRegistry
 
 def _is_tree_registry_complete(cls: type[TrackedObject]) -> bool:
     resolver = TreeRegistryPathConstructor.from_dep_tree_hash(cls.get_dependency_tree_hash())
-    return resolver.tree_path.exists() and (not cls.has_dependencies() or resolver.graph_path.exists())
+    graph_required = cls.has_dependencies() and is_graphviz_available()
+    return resolver.tree_path.exists() and (not graph_required or resolver.graph_path.exists())
 
 
 def _write_code_registry(cls: type[TrackedObject], registry: SourceRegistry) -> None:

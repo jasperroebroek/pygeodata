@@ -1,5 +1,6 @@
 import ast
 import json
+import sys
 import textwrap
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
@@ -167,6 +168,18 @@ def test_initialize_class_code_state_cascades_to_all_dependencies() -> None:
 
     assert is_registry_valid(HardcodedDependencyLoader)
     assert is_registry_valid(LoaderA)
+
+
+def test_registry_valid_without_graphviz_and_graph_written_once_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    with monkeypatch.context() as without_graphviz:
+        without_graphviz.setitem(sys.modules, 'graphviz', None)
+        update_registry(HardcodedDependencyLoader)
+        assert is_registry_valid(HardcodedDependencyLoader)
+
+    pytest.importorskip('graphviz')
+    assert not is_registry_valid(HardcodedDependencyLoader)
+    update_registry(HardcodedDependencyLoader)
+    assert is_registry_valid(HardcodedDependencyLoader)
 
 
 def test_state_hash_deterministic() -> None:
